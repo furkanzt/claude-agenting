@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.1.0 — 2026-08-07
+
+### Added
+- **Post-completion verification section in the `workflow-routing` skill.**
+  Routing was covered end to end but only up to launch; nothing said what to
+  do once a `Workflow` call returns. Prompted by a real incident: three
+  workflows each reported a coherent-looking summary after completing, built
+  by silently filtering out every agent that didn't return — one run's
+  headline numbers were computed from 38 of 122 agents, the other 84 having
+  died mid-run with no trace in the summary. Caught only because the user
+  asked directly. The new section is a standing checklist — read
+  `agents_done` vs `agent_count`, cross-check the raw `journal.jsonl` against
+  the tool result's own claims, distinguish a live queued agent from a dead
+  one by transcript mtime, read a stalled agent's last few records before
+  assuming failure vs. a session-limit kill, and recover missing pieces by
+  scope rather than blindly re-running the same call.
+- Noted explicitly that this is a skill, not a hook: nothing forces a re-read
+  of it at workflow-completion time the way `workflow-routing-guard.py`
+  forces routing at launch time. If it keeps getting skipped in practice, a
+  `PostToolUse` hook on `Workflow` mirroring the existing gate is the durable
+  fix — flagged as a future option, not built yet.
+
 ## 1.0.0 — 2026-08-06
 
 First release.

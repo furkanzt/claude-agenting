@@ -1,6 +1,6 @@
 {
   "name": "agent-routing",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Subagents let one session use several model tiers at once. This plugin makes that deliberate: a PreToolUse gate blocks any Workflow whose agent() calls have no model/effort, then asks you to approve the routing plan — offering cheaper AND higher-quality directions, not just cheaper. Ships 20 tiered agent definitions and an end-to-end health check.",
   "author": {
     "name": "M. Furkan Özateş",

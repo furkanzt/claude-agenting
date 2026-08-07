@@ -1,6 +1,6 @@
 ---
 name: workflow-routing
-description: Assign a model and effort level to every agent() call before running a Workflow. Load this when authoring or editing a workflow script, when the workflow-routing-guard hook blocks a Workflow call, or when the user asks which model/effort a task should use. Carries the task-type → model/effort table and the confirmation procedure.
+description: Assign a model and effort level to every agent() call before running a Workflow, AND verify what actually happened once it returns. Load this when authoring or editing a workflow script, when the workflow-routing-guard hook blocks a Workflow call, when the user asks which model/effort a task should use, or whenever any Workflow tool call returns a result — routing and verification are two ends of the same responsibility. Carries the task-type → model/effort table, the confirmation procedure, and the mandatory post-completion failure check.
 ---
 
 # Workflow Routing
@@ -109,6 +109,77 @@ spawn costs more attention than it saves.
 In those cases ask before spawning, and frame it as a tier question:
 *"This is really synthesis — want `system-architect` (opus/xhigh) instead of
 `researcher` (sonnet/medium)?"*
+
+## After a Workflow returns — verify before reporting done
+
+This is the other half of routing responsibly: choosing the tier is only useful
+if you then check the tier actually finished the work. **Do this on every
+Workflow completion, unprompted** — not only when the user asks "did the
+agents finish?" A tool result that looks like a clean summary can be sitting on
+top of a run that lost most of its agents.
+
+**Why this is a standing rule, not a one-off:** on 2026-08-06/07, three
+workflows each reported a coherent-looking `ozet` (summary) after completing —
+but the summaries were built by `.filter(Boolean)` over whatever *did* return,
+silently dropping everything that didn't. One run's headline numbers ("6
+DÜZELTİLECEK, 12 EDİTÖRE SORULACAK") looked like a finished audit. It was
+built from 38 of 122 agents; the other 84 died mid-run and are invisible in
+that summary unless you go look. The failure was caught only because the user
+asked directly — this section exists so that stops being necessary.
+
+### The check, every time
+
+1. **Read the tool result's own `<usage>` and `<failures>` blocks first.**
+   `agents_done` vs `agent_count` is the headline number — if they don't
+   match, the `result`/`ozet` was built from a subset, not from what was
+   asked for. A `<failures>` list with real entries means agents errored; an
+   empty summary and a full `<failures>` list is not a contradiction, it's
+   the norm.
+2. **Don't stop at the summary the workflow computed.** It was written by the
+   same script whose agents just died — it does not know what it's missing.
+   Cross-check against the raw journal:
+   `<transcriptDir>/journal.jsonl` — one `{"type":"started",...}` and one
+   `{"type":"result",...}` per agent, keyed by `agentId`. `started - result`
+   is what's actually missing, independent of anything the script's return
+   value claims.
+3. **For anything in `started - result`, find out why before assuming it
+   simply hasn't run yet.** Read the tail of `agent-<id>.jsonl` in the same
+   transcript dir:
+   - Last few records are recent (seconds old) → still genuinely running,
+     not a failure. Check `agent-*.jsonl` mtimes against `now` to tell a live
+     agent from an abandoned one — a large concurrency queue (workflows cap
+     at `min(16, cores-2)`, as low as 6 on an 8-core machine) can leave
+     most of a batch legitimately queued, which looks identical to "stuck"
+     until you check timestamps.
+   - Last record is old and the agent never produced a result → read what
+     it was doing right before it stopped. A synthetic `stop_reason` with a
+     zero-token message right after the agent said something like "submitting
+     findings" is a session-limit kill, not a bug in the agent's work — the
+     work was likely done, only the return trip was lost.
+   - An explicit `is_error` record → read the actual error message before
+     guessing; "permission" false positives are common (a skill description
+     in the system prompt containing the word "permission" is not a denial).
+4. **If real work was lost, don't just retry with the identical prompt.**
+   Diagnose why first — a batch that died from oversized per-agent context
+   needs smaller scope on retry, not a rerun of the same call. Prefer
+   recovering only the specific missing pieces (by finding, by page range,
+   by severity) over re-running the whole workflow from scratch.
+5. **Report the real count to the user before either of you acts on the
+   result.** "X of Y agents completed; here's what's missing and why" — not
+   the workflow's own possibly-partial summary presented as if it were final.
+
+### Scope of this rule vs. its enforcement
+
+This section is a **skill**, which means it only helps if it gets reloaded at
+the right moment — unlike the `PreToolUse` gate in `hooks/`, nothing forces a
+re-read of this file when a `Workflow` call returns. Treat "check the
+workflow that just finished" as owed on every completion the same way "route
+every `agent()` call" is owed on every launch, even though only the second one
+is backed by a hook that can refuse to proceed. If this keeps getting skipped
+in practice, the more durable fix is a `PostToolUse` hook on `Workflow` that
+surfaces `agents_done < agent_count` the same way `workflow-routing-guard.py`
+surfaces missing routing — ask before adding one, since that changes the
+plugin's enforcement surface rather than just its guidance.
 
 ## Deliberate inheritance
 
