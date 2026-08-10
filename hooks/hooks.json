@@ -1,5 +1,5 @@
 {
-  "description": "Two-stage routing gate on the Workflow tool. Stage 1 denies a Workflow whose agent() calls carry no model/agentType or no effort — unrouted calls silently inherit the main session's tier. Stage 2 denies until the user has approved this particular routing plan in this session; approval is keyed by plan signature, so re-running the same plan is silent and changing any tier asks again.",
+  "description": "Two-stage routing gate on the Workflow tool, plus a mid-session cache-cost tripwire. Stage 1 denies a Workflow whose agent() calls carry no model/agentType or no effort — unrouted calls silently inherit the main session's tier. Stage 2 denies until the user has approved this particular routing plan in this session; approval is keyed by plan signature, so re-running the same plan is silent and changing any tier asks again. The tripwire reports the token cost paid when a model/effort switch mid-session invalidates the prompt cache prefix.",
   "hooks": {
     "PreToolUse": [
       {
@@ -10,6 +10,18 @@
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/workflow-routing-guard.py\"",
             "timeout": 10,
             "statusMessage": "Checking workflow agent routing..."
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/cache-tripwire.py\"",
+            "timeout": 5
           }
         ]
       }

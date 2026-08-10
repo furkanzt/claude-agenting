@@ -191,6 +191,45 @@ skips it and the intent stays visible in the script:
 await agent("Hardest synthesis step; wants whatever the session is on", { schema: S })
 ```
 
+## Verified facts (2026-08-10)
+
+Measured from three weeks of transcripts (dedup method below). These numbers
+back the routing table and the enforcement above — cite them, don't re-derive
+them.
+
+- **Dedup method:** in transcript JSONL, a line is NOT one API call — take the
+  LAST line per `message.id` (duplication factor: main session 2.06x, agents
+  2.42x).
+- Total shadow cost **$2.439** (main $992 / agents $1,447) at list price; under
+  a subscription this is a consumption indicator, not a bill.
+- Main session: 4,917 calls, avg context **407k**, ~74% of cost is cache-read.
+- Agents: 17,454 calls, ~1,700 agents, avg context **60k**, $0.083/call.
+- **Spawn tax** (first call's cache-write): median 17k ≈ **$0.11**; three-week
+  total ~$190. Delegation break-even: **~2-3 turns**. Rule: an agent pays for
+  itself by keeping context OUT of the main session — don't open an agent for
+  1-2 calls of legwork.
+- **Cache key includes model+effort:** a mid-session switch rewrites the whole
+  prefix (measured; see `cache-tripwire.py`'s docstring for the exact numbers).
+  Claude Code now shows a confirmation dialog for effort changes; model changes
+  are silent.
+- Under subscription, the main session gets a 1-hour cache TTL; **on overage
+  it silently drops to 5 minutes** (`ENABLE_PROMPT_CACHING_1H` env var prevents
+  this). A subagent always starts cold with its own cache, 5-minute TTL.
+- Same-type agent fan-out opened SIMULTANEOUSLY is all cold; staggered by a
+  few seconds, later ones ride the first one's system-prompt cache.
+- Effort distribution (cut at this skill's birth, 2026-08-06T22:31): subagent
+  `max` 57% -> **1%**, `high` 15% -> **57%**. ADR 0009 is working.
+- Limits: the **Opus limit was never hit** (every matching mention in the
+  transcripts is this session's own quotes of it); the binding constraint is
+  the shared session limit — one incident, 2026-08-06 13:54 (pre-skill
+  fan-out). Switching models does not restore the shared limit.
+- Sonnet's input price is cheaper than Opus's by 2.5x until 2026-08-31, then
+  1.67x.
+- Vector DB decision: **NO** for audit work (comprehensiveness can't be
+  established via similarity search, and the bill is already re-read-weighted);
+  for kazanım (learning-outcome) mapping, a ready ~100-200 record JSON table is
+  enough.
+
 ## Enforcement — two stages
 
 `~/.claude/hooks/workflow-routing-guard.py` runs as `PreToolUse` on `Workflow`

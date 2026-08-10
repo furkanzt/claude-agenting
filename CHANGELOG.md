@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.2.0 — 2026-08-10
+
+### Added
+- **`hooks/cache-tripwire.py`** — a `UserPromptSubmit` hook that reports the
+  token cost paid when a mid-session model or effort switch invalidates the
+  prompt cache prefix. Compares the session's current tier against the last
+  tier this hook already reported (tracked in a small per-session state file
+  next to the script); fires once per distinct switch, never blocks. Measured
+  case: a sonnet/high → opus/max switch mid-session rewrote 66,975 tokens on
+  the very next turn.
+- **`scripts/measure-tokenomics.py`** — recomputes the main/agent cost split,
+  average context size, spawn tax, and effort distribution from real
+  `~/.claude/projects` transcripts, using the same dedup method (last line per
+  `message.id`, not raw line count) used to derive the numbers now documented
+  in the `workflow-routing` skill's "Verified facts" section.
+- **"Verified facts (2026-08-10)"** section in the `workflow-routing` skill —
+  dedup method, spawn-tax median (~$0.11/spawn, ~2-3 turn break-even for
+  delegating), cache-key-includes-effort behavior, and the effort-distribution
+  shift since this skill shipped (subagent `max` 57% → 1%, `high` 15% → 57%).
+- **"Recommended settings" section in the README** — when
+  `ENABLE_PROMPT_CACHING_1H` is worth the 2x cache-write premium (paced,
+  human-gap sessions) versus not (uninterrupted automation), and a
+  copy-paste "delegate large reads" rule template for a project's own
+  `CLAUDE.md`.
+
 ## 1.1.0 — 2026-08-07
 
 ### Added

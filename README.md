@@ -69,9 +69,11 @@ Then verify it actually works:
 | | |
 |---|---|
 | `hooks/workflow-routing-guard.py` | The two-stage gate. Parses the script with balanced parens; ignores `agent(` inside strings and comments. |
-| `skills/workflow-routing/` | The tier table, the decision procedure, and an external-model cost comparison. |
+| `hooks/cache-tripwire.py` | Reports the token cost paid when a mid-session model/effort switch invalidates the prompt cache prefix. Fires once per switch, never blocks. |
+| `skills/workflow-routing/` | The tier table, the decision procedure, an external-model cost comparison, and the verified tokenomics numbers below. |
 | `agents/` | **20 tiered agent definitions**, every one carrying `model` + `effort`. |
 | `scripts/check-setup.py` | End-to-end health check — it *runs* things rather than reading config. |
+| `scripts/measure-tokenomics.py` | Recomputes the main/agent cost split, spawn tax, and effort distribution from real transcripts. |
 | `commands/check-agent-routing.md` | `/check-agent-routing` |
 
 ### The shipped roster
@@ -117,6 +119,54 @@ Sometimes an agent genuinely should take the session's tier. Mark it, and the ga
 // routing: inherit
 await agent("wants whatever the session is on", { schema: S })
 ```
+
+## Recommended settings
+
+Two things worth turning on deliberately once this plugin (or its hooks) are
+in place, plus one template worth copying into each project's own `CLAUDE.md`.
+
+**`ENABLE_PROMPT_CACHING_1H` — decide by your gap pattern, not by default.**
+Under a subscription, the main session gets a 1-hour cache TTL; on usage
+overage that silently drops to 5 minutes unless this env var is set:
+
+```json
+{ "env": { "ENABLE_PROMPT_CACHING_1H": "1" } }
+```
+
+Under an API key (not a subscription), a 1-hour cache **write** costs 2x a
+5-minute write, against a **read** that's ~0.1x either way — so the variable
+is only worth turning on if the window it protects actually gets reused.
+Decide by how your session is paced:
+
+- **5–60 minute gaps between turns** (reading, thinking, back-and-forth with
+  a human) — turn it on. The 1h TTL is what survives the gap; a 5-min TTL
+  would have already expired and forced a rewrite anyway.
+- **Uninterrupted automation** (a workflow running turn after turn with no
+  human-paced gap) — leave it off. The 5-min TTL never lapses between calls,
+  so the 2x write premium buys nothing.
+
+**The cache-cost tripwire** (`hooks/cache-tripwire.py`) reports the token
+cost paid when a model or effort change mid-session invalidates the cache
+prefix — see the routing skill's own habit: *pick the tier at session start,
+switch at boundaries, not mid-task.* It fires once per switch (state tracked
+per session) and never blocks a prompt.
+
+**Per-project delegate-rule template.** Once a codebase has files/reads that
+routinely run large (generated docs, extracted corpora, long logs), name the
+threshold explicitly in that project's `CLAUDE.md` rather than leaving it to
+judgment call each time:
+
+```markdown
+## Delegate large reads
+
+Reads expected to exceed ~20k tokens (e.g. `docs/**/extracted/*.txt`) must
+not be `Read` directly into the main session — delegate to a one-shot agent
+that returns line-referenced findings instead. Targeted short reads (a
+specific offset/limit, a known section) stay allowed in the main session.
+```
+
+Adjust the threshold and the glob to the project; the point is a named,
+written rule instead of a per-session guess about what's "too big."
 
 ## Why the health check runs things instead of reading config
 
