@@ -6,8 +6,14 @@ plan was locked). Reconstructed from the session transcript, merging every
 correction from the Q&A trail so this reflects the **final** state, not the
 first draft.
 
-Status: **locked, not yet executed.** Confirm before I touch GitHub or global
-`~/.claude` config — none of this has been applied yet.
+Status: **executed 2026-08-17.** Everything below was applied in full: the
+rename (GitHub repo, plugin id, skill folder, commands), the mode/suggestion
+axes and `agenting/` scaffold added to `SKILL.md`, the real
+`/plugin marketplace add` + `/plugin install agenting@agenting` deploy
+replacing the hand-copied files, and the three global-config diffs
+(`~/.claude/settings.json`, `~/.claude/CLAUDE.md`, `~/.claude/check-setup.py`).
+`scripts/check-setup.py` passes 24/24 from the real installed path. This
+document is kept as the historical design record, not a pending plan.
 
 ---
 
