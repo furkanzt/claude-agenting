@@ -1,5 +1,59 @@
 # Changelog
 
+## 2.0.0 — 2026-08-17
+
+### Renamed
+- **Plugin id `agent-routing` → `agenting`.** GitHub repo, local directory,
+  and skill folder (`skills/workflow-routing/` → `skills/agenting/`) follow.
+  `/check-agent-routing` → `/agenting-check` (same script). Hook filenames
+  (`workflow-routing-guard.py`, `cache-tripwire.py`) are unchanged — internal,
+  nobody types them directly.
+- The hook's Stage-2 `--approve` command is now **self-referential**
+  (`SELF_PATH = os.path.abspath(__file__)`) instead of a hardcoded
+  `~/.claude/hooks/workflow-routing-guard.py` string, so it prints the right
+  command regardless of where the plugin is actually installed.
+
+### Added
+- **Session mode axis** (`manual` / `semi-auto` / `auto`) — how much of the
+  Stage-2 approval question you answer yourself vs. hand to the user. Lives in
+  conversational memory only, resets every session, set by natural language or
+  the new **`/agenting-mode`** command.
+- **Suggestion axis** — an independent, also session-only opt-in for Claude to
+  proactively flag workflow-shaped tasks, gated by a once-per-session ask
+  unless overridden by the `suggestion-default` config knob.
+- **Per-project routing memory** — a project-root `agenting/` folder:
+  `AGENTING.md` (curated, always read in full: hand-written Rules & Edge
+  Cases, a structured Config block, and auto-promoted Learned Precedents) and
+  `log.csv` (raw, append-only, grepped by exact `shape_key`, never read
+  whole). Shipped scaffold templates at `templates/AGENTING.md` and
+  `templates/log.csv`. A task-shape reaching `promotion-threshold` (default 2)
+  consistent `user`-sourced answers gets promoted to a Learned Precedent that
+  `semi-auto`/`auto` then apply without asking; `semi-auto`/`auto` rows stay
+  in the log as an audit trail but never vote, so the system can't launder its
+  own guesses into precedent.
+- **`scripts/check-setup.py`** — new "Rename integrity" section: the two new
+  commands exist, no stale `agent-routing` string survives anywhere in the
+  plugin, the shipped scaffold templates are well-formed, and the
+  self-referential `--approve` fix actually holds against the real hook.
+
+### Design notes
+- Most of this release is **instruction-layer, not hook-enforced** — the mode
+  axis, the suggestion axis, and the precedent-promotion logic all live in the
+  `agenting` skill and are honored only when it's loaded, the same honesty
+  `check-setup.py` already applies to the post-completion verification section
+  added in 1.1.0. Only what's mechanically checkable (files exist, templates
+  parse, the guard's own behavior) got a real assertion.
+- `log.csv`'s schema deliberately splits `shape_key` (the task-type
+  composition — the question) from `answer` (the resolved tier map). An
+  earlier draft keyed precedents on tiers directly; caught in design review
+  before shipping, because that bakes the answer into the key, so no two
+  routings of the same shape could ever conflict and the promotion threshold
+  would measure nothing but its own repetition.
+- Deploy mechanism fixed alongside the rename: install is now a real
+  `/plugin marketplace add` + `/plugin install agenting@agenting` rather than
+  the hand-copied `~/.claude/{hooks,skills,commands}/` setup that had already
+  drifted stale (live `SKILL.md` was missing the 1.1.0 and 1.2.0 sections).
+
 ## 1.2.0 — 2026-08-10
 
 ### Added

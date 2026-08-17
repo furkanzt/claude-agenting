@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 measure-tokenomics.py -- reproduce the main/agent spend split, spawn tax, and
-effort-distribution numbers documented in the workflow-routing skill's
+effort-distribution numbers documented in the agenting skill's
 "Verified facts" section, from real ~/.claude/projects transcript data.
 
 WHY THIS EXISTS

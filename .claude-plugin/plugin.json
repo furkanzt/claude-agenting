@@ -1,13 +1,13 @@
 {
-  "name": "agent-routing",
-  "version": "1.2.0",
-  "description": "Subagents let one session use several model tiers at once. This plugin makes that deliberate: a PreToolUse gate blocks any Workflow whose agent() calls have no model/effort, then asks you to approve the routing plan — offering cheaper AND higher-quality directions, not just cheaper. Also ships a mid-session cache-cost tripwire and a tokenomics measurement script. Ships 20 tiered agent definitions and an end-to-end health check.",
+  "name": "agenting",
+  "version": "2.0.0",
+  "description": "Subagents let one session use several model tiers at once. This plugin makes that deliberate: a PreToolUse gate blocks any Workflow whose agent() calls have no model/effort, then asks you to approve the routing plan — offering cheaper AND higher-quality directions, not just cheaper. Also tracks a per-project routing memory (manual/semi-auto/auto mode, learned precedents in agenting/AGENTING.md) plus a mid-session cache-cost tripwire and a tokenomics measurement script. Ships 20 tiered agent definitions and an end-to-end health check.",
   "author": {
     "name": "M. Furkan Özateş",
     "url": "https://github.com/furkanzt"
   },
-  "homepage": "https://github.com/furkanzt/claude-agent-routing",
-  "repository": "https://github.com/furkanzt/claude-agent-routing",
+  "homepage": "https://github.com/furkanzt/claude-agenting",
+  "repository": "https://github.com/furkanzt/claude-agenting",
   "license": "MIT",
   "keywords": ["agents", "subagents", "workflow", "routing", "model-selection", "effort", "cost", "hooks"]
 }

@@ -31,7 +31,7 @@ SINGLE Agent CALLS ARE OUT OF SCOPE
 Deliberate: all 20 agent definitions pin both model and effort, and one agent is
 bounded and cheap. A gate there costs more attention than it saves. The
 "sometimes ask" cases where the tier and the task genuinely disagree belong to
-the skill (workflow-routing/SKILL.md), not to this hook.
+the skill (skills/agenting/SKILL.md), not to this hook.
 
 OUTPUT CONTRACT
 ---------------
@@ -50,6 +50,7 @@ ESCAPE_HATCH = "routing: inherit"
 MAX_REPORTED = 12
 APPROVALS_PATH = os.path.expanduser("~/.claude/.routing-approvals.json")
 KEEP_SESSIONS = 20
+SELF_PATH = os.path.abspath(__file__)
 
 
 # --------------------------------------------------------------- script parsing
@@ -295,7 +296,7 @@ a cheap one.
 {rows}{more}
 
 DO THIS: give every agent() call a model (or agentType) AND an effort.
-Tier table: ~/.claude/skills/workflow-routing/SKILL.md
+Tier table: the agenting skill (SKILL.md) — invoke it if it's not already loaded.
 
 For deliberate inheritance, put `// {ESCAPE_HATCH}` on that line or the one above it.""",
             f"Workflow stopped (1/2): {len(unrouted)} agent() call(s) have no routing.",
@@ -333,7 +334,7 @@ DO THIS, in order:
   2. Apply the answer to the script. Changing the plan changes the signature,
      so the gate will ask again — that is intended.
   3. Record the approval:
-       python3 ~/.claude/hooks/workflow-routing-guard.py --approve {h} --session {session}
+       python3 "{SELF_PATH}" --approve {h} --session {session}
   4. Run the Workflow again.
 
 The same plan re-run in this session will not ask again.""",

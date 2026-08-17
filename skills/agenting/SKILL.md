@@ -1,9 +1,9 @@
 ---
-name: workflow-routing
-description: Assign a model and effort level to every agent() call before running a Workflow, AND verify what actually happened once it returns. Load this when authoring or editing a workflow script, when the workflow-routing-guard hook blocks a Workflow call, when the user asks which model/effort a task should use, or whenever any Workflow tool call returns a result — routing and verification are two ends of the same responsibility. Carries the task-type → model/effort table, the confirmation procedure, and the mandatory post-completion failure check.
+name: agenting
+description: Assign a model and effort level to every agent() call before running a Workflow, decide how much of that gets asked vs. decided for you, and verify what actually happened once it returns. Load this when authoring or editing a workflow script, when the workflow-routing-guard hook blocks a Workflow call, when the user asks which model/effort a task should use, when the session mode changes (manual/semi-auto/auto, via /agenting-mode or natural language), when a task looks workflow-shaped and might be worth suggesting, when reading or writing a project's agenting/AGENTING.md or agenting/log.csv, or whenever any Workflow tool call returns a result — routing, memory and verification are ends of the same responsibility. Carries the task-type → model/effort table, the confirmation procedure, the session mode and suggestion axes, the per-project precedent system, and the mandatory post-completion failure check.
 ---
 
-# Workflow Routing
+# Agenting
 
 ## Why this exists
 
@@ -87,9 +87,173 @@ must flip with it:
 3. **Apply the answer**, record approval with the command the hook printed, and
    re-run. Changing the plan changes its signature, so the gate re-asks — that's
    intended.
+4. **Append a row to `agenting/log.csv`**, if this project has an `agenting/`
+   folder (skip silently if it doesn't — the routing still applies, there is
+   just nowhere to record it). One row per resolved plan: `timestamp` now,
+   `source` = `user` (answered via AskUserQuestion) / `semi-auto` / `auto`
+   (self-answered under those modes — see the session mode axis below),
+   `shape_key` built from every `agent()` call's `label`/`phase`, `plan_signature`
+   = the tier-count signature the hook already printed, `answer` = the resolved
+   tier map. Then check whether that `shape_key` now has ≥ `promotion-threshold`
+   consistent `user`-sourced rows — if so, promote or refresh its line in
+   `AGENTING.md`'s Learned Precedents (see "Precedent mechanics" below; this is
+   the step that actually populates it — without it the memory axis never
+   accumulates anything to promote).
 
 Skip step 2 only when the user already stated the routing for this workflow in
-the current conversation.
+the current conversation, or when the session mode below makes the answer yours
+to give.
+
+## Session mode — manual / semi-auto / auto
+
+There is a second axis besides the tier table: **how much of step 2 above the
+user answers, and how much you answer for them.**
+
+The mode lives in **conversational memory only**. Nothing is written to disk, no
+hook reads it, and it **resets to `manual` at the start of every new session** —
+an "auto" granted yesterday does not carry into today.
+
+| Mode | What happens at Stage 2 |
+|---|---|
+| `manual` *(default)* | Always ask via AskUserQuestion. Precedent shapes the **proposed default**, it never replaces the question. |
+| `semi-auto` | Auto-answer only workflow shapes that match an **established precedent**. Anything novel → ask. |
+| `auto` | Never ask. Decide the plan yourself from the routing table above plus this project's `agenting/AGENTING.md`, then self-record the approval. |
+
+Set it two ways, both equivalent:
+
+- **Natural language** — "switch to auto", "stop asking, semi-auto is fine",
+  "back to manual for this one".
+- **`/agenting-mode [manual|semi-auto|auto]`** — with no argument it reports the
+  current mode and the suggestion-axis setting below.
+
+**Auto does not bypass the hook.** No hook changed for this. The `PreToolUse`
+gate still fires Stage 2 exactly as before; what changes is *who answers it*. In
+`auto` you make the call, then run the `--approve` command the hook printed
+yourself instead of handing the question to the user. Stage 1 is never
+auto-answerable — an `agent()` with no `model`/`effort` at all is a defect in the
+script, not a preference to be resolved.
+
+Like the post-completion check below, this axis is **instruction-layer**: it is
+carried by this file, not enforced by anything. Nothing stops you from asking in
+`auto` or silently deciding in `manual` except reading this.
+
+## The suggestion axis
+
+Independent of mode, and tracked as its own session flag — also reset every
+session.
+
+The first time in a session that a task looks workflow-shaped, ask **once**:
+
+> *"This task is suitable for a workflow — want suggestions like this for the
+> rest of the session?"*
+
+**Yes** → later suitable tasks get suggested without re-asking, for this session
+only. **No** → drop it for the rest of the session.
+
+A project with an `agenting/AGENTING.md` is **suggestion-eligible**. Eligibility
+does not skip the ask — the per-session question still gates it each session.
+The `suggestion-default` knob overrides the ask entirely (`on` / `off`).
+
+The two axes are orthogonal. `auto` does not mean "suggest workflows", and
+suggestions-on does not mean "decide the routing without asking."
+
+## Per-project memory — the `agenting/` folder
+
+Two files at the project root, split deliberately by **how they are read**:
+
+| File | Read | Content |
+|---|---|---|
+| `agenting/AGENTING.md` | **In full**, at the start of any session that might run a Workflow | Curated rules, config knobs, promoted precedents |
+| `agenting/log.csv` | **Never in full** — grepped by exact `shape_key` | Raw, append-only, one row per resolved routing decision |
+
+That split is the point: the curated file stays small enough to always read, so
+the log is free to grow without ever costing context.
+
+### `AGENTING.md` — three sections
+
+Shipped as `templates/AGENTING.md` in this plugin. Its structure is fixed:
+
+1. **Rules & Edge Cases** — hand-curated prose. **Claude never auto-writes
+   here.** The user edits it, or states the rule in conversation and asks for it
+   to be recorded. E.g. *"always route the synthesis step to opus/xhigh in this
+   project, even in auto mode."*
+2. **Config** — structured `key: value` knobs, one per line. Unset keys use the
+   plugin default.
+3. **Learned Precedents** — auto-promoted one-liners, deduplicated, one per
+   established task shape:
+   `` - `shape_key` → `answer`  (n user-sourced occurrences, last YYYY-MM-DD) ``
+
+### Config knobs
+
+| Knob | Default | Meaning |
+|---|---|---|
+| `promotion-threshold` | `2` | Consistent **user-sourced** answers needed before a shape is promoted to a Learned Precedent |
+| `suggestion-default` | `ask` | `ask` (once per session) / `on` (suggest without asking) / `off` (never suggest) |
+| `matching-strictness` | `exact` | Only `exact` is implemented in 2.0.0. Any other value **prints a warning and falls back to `exact`** — it must not silently no-op |
+
+### `log.csv` — schema
+
+Shipped as `templates/log.csv` (header only). Five columns:
+
+| Column | What it holds |
+|---|---|
+| `timestamp` | when the decision was resolved |
+| `source` | `user` / `semi-auto` / `auto` — who answered |
+| `shape_key` | **the question**: task-type composition only, e.g. `scan:x4\|analyze:x3\|synthesize:x2`, built from each `agent()` call's label/phase. **No tier information.** |
+| `plan_signature` | the hook's existing tier-count signature (`haiku/lowx4\|opus/xhighx2\|…`), kept untouched for cross-reference only |
+| `answer` | **the answer**: the resolved tier map, e.g. `scan=haiku/low;analyze=sonnet/medium` |
+
+Comma is the column delimiter — use `|` and `;` inside fields, **never** commas.
+
+**Why `shape_key` carries no tiers.** The obvious design keys precedents on the
+whole plan, tiers included. It was caught in design review before it shipped,
+and it is worth stating what it would have done: if the key contains the tiers,
+the key contains the answer. The same task shape routed two different ways
+produces two *different* keys, each holding one answer and each therefore
+trivially self-consistent. Conflicting answers become structurally
+undetectable, the `promotion-threshold` consistency test can never fail, and
+every guess promotes itself as precedent. Splitting the key (the question) from
+the `answer` column is the only arrangement in which "is this consistent?" is a
+question that can come back *no*.
+
+**Only `source: user` rows vote** toward the promotion threshold. `semi-auto`
+and `auto` rows stay in the log as an audit trail, but they don't count — for
+the same reason: otherwise the system launders its own guesses into precedent
+and the threshold measures nothing but its own repetition.
+
+### Log & git
+
+`agenting/log.csv` is **committed to git by default**. It is gitignored only if
+the user says so — asked **once**, at scaffold-creation time, the first time the
+CSV is created in a project. `agenting/AGENTING.md` is always committed and is
+not part of that question.
+
+### Precedent mechanics
+
+- **Match is exact**, on `shape_key`. Grep the log for that key; never read the
+  whole file.
+- **Promotion:** ≥ `promotion-threshold` (default 2) consistent, `user`-sourced
+  answers for a shape → promote it to Learned Precedents in `AGENTING.md`.
+  `semi-auto` and `auto` then apply it without asking.
+- **A single occurrence already counts** — from the 1st, it soft-biases the "as
+  proposed" default shown in `manual`, and in `semi-auto` when the shape is
+  novel. It just doesn't auto-apply.
+- **Conflicting answers for the same `shape_key` are not consistent** → ask
+  again; the newest answer becomes the latest data point.
+- **Correction is conversational.** "Forget that precedent" / "that was wrong,
+  redo as X" → edit the `AGENTING.md` entry and the underlying `log.csv` rows
+  directly. There is no dedicated command for this.
+
+### Scaffold creation — one atomic beat
+
+The first time this plugin is used in a project, do all four in one go, not
+spread over turns:
+
+1. **Ask the git-tracking question** (commit `log.csv`, or gitignore it).
+2. **Write `agenting/AGENTING.md`** from `templates/AGENTING.md`, with the
+   Config block filled in — including that answer.
+3. **Write `agenting/log.csv`** from `templates/log.csv` (header only).
+4. **Append a `.gitignore` entry** if "gitignore" was chosen.
 
 ## Single `Agent` calls — judgment, not a gate
 
@@ -232,8 +396,9 @@ them.
 
 ## Enforcement — two stages
 
-`~/.claude/hooks/workflow-routing-guard.py` runs as `PreToolUse` on `Workflow`
-only. It parses the script and finds `agent()` calls, ignoring any inside
+The agenting plugin's `workflow-routing-guard.py` hook (installed by the plugin
+itself, registered in its own `hooks/hooks.json`) runs as `PreToolUse` on
+`Workflow` only. It parses the script and finds `agent()` calls, ignoring any inside
 strings and comments.
 
 | Stage | Fires when | What to do |

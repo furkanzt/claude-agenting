@@ -1,4 +1,4 @@
-# agent-routing
+# agenting
 
 **Subagents let one session use several model tiers at once. This plugin makes that deliberate.**
 
@@ -51,30 +51,83 @@ STAGE 2/2 — PLAN APPROVAL: 9 agents, all routed. Waiting on the user.
 9 agents total.  Plan signature: haiku/lowx4|opus/xhighx2|sonnet/mediumx3
 ```
 
+## Modes and routing memory
+
+Answering the same Stage-2 question the same way forever is its own kind of
+waste. Two independent switches decide how much you get asked.
+
+**The mode axis** controls Stage 2. It lives in conversational memory only —
+it resets to `manual` every new session, is never written to a file, and
+changes no hook behavior. Set it in plain language, or with
+`/agenting-mode [manual|semi-auto|auto]` (no argument reports the current
+mode and the suggestion-axis setting below).
+
+| Mode | Stage 2 behavior |
+|---|---|
+| `manual` *(default)* | Always asks. The proposed default is shaped by precedent from the **1st** occurrence onward. |
+| `semi-auto` | Auto-answers only shapes matching an established precedent; asks for anything novel. |
+| `auto` | Never asks. Decides from the tier table plus this project's `agenting/AGENTING.md`, then self-records the approval. |
+
+**The suggestion axis** is separate. The first time a task looks
+workflow-shaped, you get asked once: *want suggestions like this for the rest
+of the session?* Say yes and later suitable tasks are suggested without
+re-asking — for that session only. A project is suggestion-eligible once it
+has an `agenting/AGENTING.md`; the per-session ask still gates it each time.
+Config knob: `suggestion-default: ask` (default) / `on` / `off`.
+
+**Where the memory lives.** First use in a project scaffolds two files:
+
+| | |
+|---|---|
+| `agenting/AGENTING.md` | Curated, **always read in full**. Hand-written *Rules & Edge Cases*, a *Config* block of named knobs, and auto-promoted *Learned Precedents* one-liners. |
+| `agenting/log.csv` | Raw, append-only, **never read in full** — grepped by exact `shape_key`. Columns: `timestamp,source,shape_key,plan_signature,answer`. |
+
+`shape_key` is task-type composition only — the *question*, e.g.
+`scan:x4|analyze:x3|synthesize:x2` — carrying no tier information. The
+existing plan signature is logged alongside it for cross-reference and is
+**not** the matching key. `AGENTING.md` is always committed; whether
+`log.csv` is committed or gitignored is asked once, when the scaffold is
+created.
+
+**Precedent.** An exact `shape_key` match with **≥2 consistent
+`user`-sourced answers** gets promoted to *Learned Precedents*, and
+`semi-auto` / `auto` apply it. Rows written by `semi-auto` or `auto` stay in
+the log as audit trail but **don't vote** — the system can't launder its own
+guesses into precedent. Conflicting answers for one shape aren't consistent,
+so it asks again and the newest answer becomes the latest data point. To
+undo one, say so: *"forget that precedent"* / *"that was wrong, redo as X"*
+edits the entries directly. No command.
+
+Other knobs: `promotion-threshold: 2`, and `matching-strictness: exact` —
+only `exact` is implemented; any other value warns and falls back rather
+than silently no-op'ing. Full mechanics live in the `agenting` skill.
+
 ## Install
 
 ```
-/plugin marketplace add furkanzt/claude-agent-routing
-/plugin install agent-routing@agent-routing
+/plugin marketplace add furkanzt/claude-agenting
+/plugin install agenting@agenting
 ```
 
 Then verify it actually works:
 
 ```
-/check-agent-routing
+/agenting-check
 ```
 
 ## What ships
 
 | | |
 |---|---|
-| `hooks/workflow-routing-guard.py` | The two-stage gate. Parses the script with balanced parens; ignores `agent(` inside strings and comments. |
+| `hooks/workflow-routing-guard.py` | The two-stage gate. Parses the script with balanced parens; ignores `agent(` inside strings and comments. The Stage-2 approve command it prints is self-referential — its own path, not a hardcoded one. |
 | `hooks/cache-tripwire.py` | Reports the token cost paid when a mid-session model/effort switch invalidates the prompt cache prefix. Fires once per switch, never blocks. |
-| `skills/workflow-routing/` | The tier table, the decision procedure, an external-model cost comparison, and the verified tokenomics numbers below. |
+| `skills/agenting/` | The tier table, the decision procedure, the mode and precedent mechanics, an external-model cost comparison, and the verified tokenomics numbers below. |
+| `templates/` | The per-project scaffold shipped with the plugin: `AGENTING.md` and an empty `log.csv` with its header. |
 | `agents/` | **20 tiered agent definitions**, every one carrying `model` + `effort`. |
 | `scripts/check-setup.py` | End-to-end health check — it *runs* things rather than reading config. |
 | `scripts/measure-tokenomics.py` | Recomputes the main/agent cost split, spawn tax, and effort distribution from real transcripts. |
-| `commands/check-agent-routing.md` | `/check-agent-routing` |
+| `commands/agenting-check.md` | `/agenting-check` |
+| `commands/agenting-mode.md` | `/agenting-mode` |
 
 ### The shipped roster
 
@@ -147,7 +200,7 @@ Decide by how your session is paced:
 
 **The cache-cost tripwire** (`hooks/cache-tripwire.py`) reports the token
 cost paid when a model or effort change mid-session invalidates the cache
-prefix — see the routing skill's own habit: *pick the tier at session start,
+prefix — see the `agenting` skill's own habit: *pick the tier at session start,
 switch at boundaries, not mid-task.* It fires once per switch (state tracked
 per session) and never blocks a prompt.
 

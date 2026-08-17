@@ -3,7 +3,7 @@
 check-setup.py  --  verify that agent routing is actually wired up and working.
 
 Run it:   python3 scripts/check-setup.py
-Or:       /check-agent-routing
+Or:       /agenting-check
 
 WHY THIS EXISTS
 ---------------
@@ -78,7 +78,8 @@ guard = find_guard()
 check("guard script found", guard is not None, str(guard) if guard else "workflow-routing-guard.py missing")
 
 if guard:
-    def stage(script, session="setup-check"):
+    def stage_reason(script, session="setup-check"):
+        """Raw permissionDecisionReason for `script`: None on error, "" on allow."""
         payload = json.dumps(
             {"session_id": session, "tool_name": "Workflow", "tool_input": {"script": script}}
         )
@@ -88,12 +89,19 @@ if guard:
                 capture_output=True, text=True, timeout=20,
             ).stdout.strip()
         except Exception:
-            return "error"
+            return None
         if not out:
-            return "allow"
+            return ""
         try:
-            reason = json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"]
+            return json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"]
         except Exception:
+            return ""
+
+    def stage(script, session="setup-check"):
+        reason = stage_reason(script, session)
+        if reason is None:
+            return "error"
+        if not reason:
             return "allow"
         return "stage1" if "STAGE 1/2" in reason else ("stage2" if "STAGE 2/2" in reason else "deny")
 
@@ -188,17 +196,86 @@ if tiers:
 section("Skill")
 
 skill = None
-for c in (PLUGIN_ROOT / "skills/workflow-routing/SKILL.md",
-          USER_CLAUDE / "skills/workflow-routing/SKILL.md"):
+for c in (PLUGIN_ROOT / "skills/agenting/SKILL.md",
+          USER_CLAUDE / "skills/agenting/SKILL.md"):
     if c.exists():
         skill = c
         break
-check("workflow-routing SKILL.md present", skill is not None, str(skill) if skill else "")
+check("agenting SKILL.md present", skill is not None, str(skill) if skill else "")
 if skill:
     txt = skill.read_text(encoding="utf-8")
     check("skill documents both routing directions",
           "cheaper" in txt.lower() and ("higher quality" in txt.lower() or "upgrade" in txt.lower()),
           "the gate must offer upgrades, not only downgrades")
+
+# ------------------------------------------------------- rename integrity
+
+section("Rename integrity — agenting v2")
+
+for cmd in ("agenting-check.md", "agenting-mode.md"):
+    path = PLUGIN_ROOT / "commands" / cmd
+    check(f"command /{cmd[:-3]} exists", path.is_file(), f"{path} missing")
+
+# The old plugin id must not survive anywhere the user or the harness reads it.
+# Exempt: CHANGELOG.md legitimately names old versions under old headers,
+# AGENTING-PLAN-HANDOFF.md is a deliberate historical recovery record, and this
+# file necessarily contains the literal to check for it.
+STALE = "agent-routing"
+STALE_EXEMPT = {"CHANGELOG.md", "AGENTING-PLAN-HANDOFF.md", Path(__file__).name}
+
+scan_targets = []
+for d in ("agents", "commands", "hooks", "scripts", "skills", ".claude-plugin", "templates"):
+    if (PLUGIN_ROOT / d).is_dir():
+        scan_targets.extend(p for p in (PLUGIN_ROOT / d).rglob("*") if p.is_file())
+scan_targets.extend(p for p in PLUGIN_ROOT.glob("*") if p.is_file())
+
+stale_hits = []
+for p in scan_targets:
+    if p.name in STALE_EXEMPT:
+        continue
+    try:
+        if STALE in p.read_text(encoding="utf-8", errors="ignore"):
+            stale_hits.append(str(p.relative_to(PLUGIN_ROOT)))
+    except Exception:
+        continue
+check(f'no stale "{STALE}" string survives the rename',
+      not stale_hits,
+      "still present in: " + ", ".join(sorted(stale_hits)[:4]))
+
+# The scaffold TEMPLATE shipped with the plugin — not a search for a real
+# project instance, which may legitimately not exist yet.
+tpl_md = PLUGIN_ROOT / "templates" / "AGENTING.md"
+if tpl_md.is_file():
+    tpl_txt = tpl_md.read_text(encoding="utf-8")
+    absent = [s for s in ("## Rules & Edge Cases", "## Config", "## Learned Precedents")
+              if s not in tpl_txt]
+    check("templates/AGENTING.md carries all three sections",
+          not absent, "missing: " + ", ".join(absent))
+else:
+    check("templates/AGENTING.md carries all three sections", False, f"{tpl_md} missing")
+
+LOG_HEADER = "timestamp,source,shape_key,plan_signature,answer"
+tpl_csv = PLUGIN_ROOT / "templates" / "log.csv"
+if tpl_csv.is_file():
+    lines = tpl_csv.read_text(encoding="utf-8").splitlines()
+    header = lines[0].strip() if lines else ""
+    check("templates/log.csv header matches the schema",
+          header == LOG_HEADER, f"got {header!r}, want {LOG_HEADER!r}")
+else:
+    check("templates/log.csv header matches the schema", False, f"{tpl_csv} missing")
+
+# Stage 2 must tell the user to approve via the guard that actually ran, not a
+# hardcoded ~/.claude path that breaks the moment the plugin lives elsewhere.
+if guard:
+    reason = stage_reason("await agent('x', {model:'haiku', effort:'low'})",
+                          session="rename-check") or ""
+    own_paths = {os.path.abspath(str(guard)), str(guard.resolve())}
+    check("--approve command names the guard's own running path",
+          any(p in reason for p in own_paths),
+          f"STAGE 2 message does not contain {os.path.abspath(str(guard))}")
+    check("--approve command is not the hardcoded ~/.claude fallback",
+          "~/.claude/hooks/workflow-routing-guard.py --approve" not in reason,
+          "the hardcoded path came back")
 
 # ---------------------------------------------------------------- summary
 
