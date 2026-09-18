@@ -1,6 +1,6 @@
 ---
 name: agenting
-description: Assign a model and effort level to every agent() call before running a Workflow, decide how much of that gets asked vs. decided for you, and verify what actually happened once it returns. Load this when authoring or editing a workflow script, when the workflow-routing-guard hook blocks a Workflow call, when the user asks which model/effort a task should use, when the session mode changes (manual/semi-auto/auto, via /agenting-mode or natural language), when a task looks workflow-shaped and might be worth suggesting, when reading or writing a project's agenting/AGENTING.md or agenting/log.csv, or whenever any Workflow tool call returns a result — routing, memory and verification are ends of the same responsibility. Carries the task-type → model/effort table, the confirmation procedure, the session mode and suggestion axes, the per-project precedent system, and the mandatory post-completion failure check.
+description: Assign a model and effort level to every agent() call before running a Workflow, decide how much of that gets asked vs. decided for you, and verify what actually happened once it returns. Load this when authoring or editing a workflow script, when the workflow-routing-guard hook blocks a Workflow call, when the user asks which model/effort a task should use, when the session mode changes (manual/semi-auto/auto, via /agenting-mode or natural language), when the auto disposition changes (fast/balanced/quality — always by explicit user request, via /agenting-mode or natural language, never suggested by Claude), when a SessionStart fires with a session-continuity additionalContext (it names this skill for the lazy suggestion-axis procedure below — the hook itself never asks anything, and disposition specifically is never asked at all, only defaulted), when a task first looks workflow-shaped this chat continuum and the suggestion axis is still unset per --status, when reading or writing a project's agenting/AGENTING.md or agenting/log.csv, or whenever any Workflow tool call returns a result — routing, memory and verification are ends of the same responsibility. Carries the task-type → model/effort table, the confirmation procedure, the session mode and disposition and suggestion axes, the per-project precedent system, and the mandatory post-completion failure check.
 ---
 
 # Agenting
@@ -75,18 +75,40 @@ must flip with it:
 ## Procedure — run this before calling Workflow
 
 1. **Draft the script** with every `agent()` call routed.
-2. **Ask the user via AskUserQuestion.** Show the *task types* and the tiers you
-   assigned — not a generic model-preference question. Offer three directions,
-   ordered by session posture (see table above):
+2. **Resolve the three directions — as proposed / higher quality / cheaper —
+   per the session mode (below).** `auto` is the default, so the normal path
+   here is *not* asking:
 
-   > *"3 kinds of work in this workflow. Routing — confirm or change?"*
-   > - **As proposed** — 4× scan (haiku/low), 3× analyze (sonnet/medium), 2× synthesize (opus/xhigh)
-   > - **Higher quality** — analyze → opus/high (the synthesis is the load-bearing part)
-   > - **Cheaper / faster** — analyze → haiku/low
+   - **`auto` (default):** decide directly — no question, ever, about
+     disposition itself (see "Auto disposition" below: it defaults to
+     `balanced` and only changes on explicit user request, never an ask).
+     Read the session's current disposition via
+     `python3 "<session-continuity.py>" --status --session <id>` (or from
+     this chat continuum's carried-over state, already in context), start
+     from the routing table, apply that disposition to any borderline
+     `sonnet`-tier call, then check for a Learned Precedent on this
+     `shape_key` and use it instead if one exists (precedent beats
+     disposition). No AskUserQuestion about the plan, and none about
+     disposition either. The `Workflow` gate itself also drops its Stage 2
+     approval requirement in `auto` mode (see Enforcement below), so there
+     is no `--approve` round-trip to run either.
+   - **`semi-auto`:** same as `auto` if a Learned Precedent matches this
+     `shape_key`; otherwise ask, same as `manual`. (The gate's approval-drop
+     does not apply here — `semi-auto` still needs `--approve` run, same as
+     before 2.1.0.)
+   - **`manual`:** ask via AskUserQuestion. Show the *task types* and the
+     tiers you assigned — not a generic model-preference question. Offer
+     three directions, ordered by session posture (see table above):
 
-3. **Apply the answer**, record approval with the command the hook printed, and
-   re-run. Changing the plan changes its signature, so the gate re-asks — that's
-   intended.
+     > *"3 kinds of work in this workflow. Routing — confirm or change?"*
+     > - **As proposed** — 4× scan (haiku/low), 3× analyze (sonnet/medium), 2× synthesize (opus/xhigh)
+     > - **Higher quality** — analyze → opus/high (the synthesis is the load-bearing part)
+     > - **Cheaper / faster** — analyze → haiku/low
+
+3. **Apply the answer.** In `manual`/`semi-auto`, record approval with the
+   `--approve` command the hook printed, then re-run — changing the plan
+   changes its signature, so the gate asks again. In `auto`, the gate already
+   allowed the plan (see Enforcement below); just run the Workflow.
 4. **Append a row to `agenting/log.csv`**, if this project has an `agenting/`
    folder (skip silently if it doesn't — the routing still applies, there is
    just nowhere to record it). One row per resolved plan: `timestamp` now,
@@ -100,61 +122,214 @@ must flip with it:
    the step that actually populates it — without it the memory axis never
    accumulates anything to promote).
 
-Skip step 2 only when the user already stated the routing for this workflow in
-the current conversation, or when the session mode below makes the answer yours
-to give.
+Within `manual`, skip the ask only when the user already stated the routing
+for this specific workflow earlier in the current conversation.
 
 ## Session mode — manual / semi-auto / auto
 
 There is a second axis besides the tier table: **how much of step 2 above the
 user answers, and how much you answer for them.**
 
-The mode lives in **conversational memory only**. Nothing is written to disk, no
-hook reads it, and it **resets to `manual` at the start of every new session** —
-an "auto" granted yesterday does not carry into today.
+**Default is `auto` as of 2.1.0** (was `manual`). The mode is **per chat
+continuum**, carried by the `SessionStart` hook `hooks/session-continuity.py`
+across compaction of the same conversation — it is keyed on `session_id`,
+which Claude Code keeps stable across compaction (verified: three compaction
+events over ~9 hours shared one session_id in practice) and is assumed stable
+across resume too (Claude Code's own design; not independently checked here —
+if the assumption is wrong, the failure mode is a re-ask, not silent state
+loss). A genuinely new conversation (`startup`, or `/clear`) gets a fresh id
+and starts back at the `auto` default. This replaced an earlier, purely
+conversational version of this axis that reset silently whenever a compaction
+summary happened not to mention it.
 
 | Mode | What happens at Stage 2 |
 |---|---|
-| `manual` *(default)* | Always ask via AskUserQuestion. Precedent shapes the **proposed default**, it never replaces the question. |
+| `auto` *(default, 2.1.0+)* | Never ask. Decide the plan yourself from the routing table above, this session's **disposition** (below, always `balanced` unless explicitly changed), and this project's `agenting/AGENTING.md` — the gate itself then drops its approval requirement, no `--approve` needed. |
 | `semi-auto` | Auto-answer only workflow shapes that match an **established precedent**. Anything novel → ask. |
-| `auto` | Never ask. Decide the plan yourself from the routing table above plus this project's `agenting/AGENTING.md`, then self-record the approval. |
+| `manual` | Always ask via AskUserQuestion. Precedent shapes the **proposed default**, it never replaces the question. |
 
 Set it two ways, both equivalent:
 
-- **Natural language** — "switch to auto", "stop asking, semi-auto is fine",
-  "back to manual for this one".
+- **Natural language** — "switch to manual", "stop deciding for me",
+  "semi-auto is fine".
 - **`/agenting-mode [manual|semi-auto|auto]`** — with no argument it reports the
-  current mode and the suggestion-axis setting below.
+  current mode, the disposition, and the suggestion-axis setting below, read
+  from the recorded state rather than recalled from conversation.
 
-**Auto does not bypass the hook.** No hook changed for this. The `PreToolUse`
-gate still fires Stage 2 exactly as before; what changes is *who answers it*. In
-`auto` you make the call, then run the `--approve` command the hook printed
-yourself instead of handing the question to the user. Stage 1 is never
-auto-answerable — an `agent()` with no `model`/`effort` at all is a defect in the
-script, not a preference to be resolved.
+Any change **must be persisted**, not just remembered — run:
+```
+python3 "<session-continuity.py's own path>" --record --session <session_id> --mode <value>
+```
+(the exact path and this session's id are in the `additionalContext` the hook
+injected at the start of this chat continuum). Skipping this means the change
+silently reverts to whatever was last recorded on the next compaction.
 
-Like the post-completion check below, this axis is **instruction-layer**: it is
-carried by this file, not enforced by anything. Nothing stops you from asking in
-`auto` or silently deciding in `manual` except reading this.
+**Stage 1 is never bypassable, in any mode.** An `agent()` with no
+`model`/`effort` at all is a defect in the script, not a preference to be
+resolved, and no mode changes that.
+
+**Stage 2's gate itself now drops its approval requirement in `auto` mode
+(2.1.0+).** Before 2.1.0, `auto` changed *who* answered Stage 2 (you decided
+instead of asking) but the `PreToolUse` hook still denied every new plan
+until an explicit `--approve` was run — a mechanical round-trip regardless of
+mode. As of 2.1.0, `workflow-routing-guard.py` reads this same session's
+recorded mode from `~/.claude/.agenting-session-state.json` directly: if it
+is explicitly `"auto"`, Stage 2 stops denying and prints a plain
+`systemMessage` note instead, with **no `permissionDecision` field at all** —
+deliberately not `"allow"`. This hook's job is routing approval only; setting
+`permissionDecision: "allow"` would override the user's own Claude Code
+permission settings for the `Workflow` tool itself (an allowlist, a
+non-default permission mode, etc.), which is a different, user-owned
+decision this plugin has no business making for them. Dropping the routing
+opinion and staying silent on permission is the correct scope: the `--approve`
+round-trip disappears, but whatever Claude Code would otherwise do about
+running `Workflow` at all — prompt, auto-allow, whatever the user configured
+— still happens exactly as it would for any other tool call.
+`semi-auto` and `manual` are unaffected — they still require the `--approve`
+step exactly as before, whether you or the user answered the question. A
+**missing** state entry does **not** trigger the bypass — only an explicit
+`"auto"` does, so if `session-continuity.py`'s hook is ever absent or not
+wired up, the gate falls
+back to requiring an approve step rather than silently skipping it.
+
+This axis is now **hook-persisted, not purely instruction-layer** — the
+`SessionStart` hook mechanically re-injects it every time it fires. What's still
+instruction-layer, exactly like the post-completion check below, is whether you
+*honor* it: nothing stops you from asking in `auto` or silently deciding in
+`manual` except reading this and the hook's reminder.
+
+## Auto disposition — fast / balanced / quality
+
+Independent of mode. Governs how `auto` leans when it has no Learned
+Precedent to lean on instead. `semi-auto` does not use it: per the Procedure
+above, `semi-auto`'s novel-shape path *asks* (same as `manual`) rather than
+self-deciding, so there is nothing for disposition to bias there — only
+`auto`'s fully-self-decided path ever reads it.
+
+**Defaults to `balanced` and is never asked about, period.** This is the
+final shape of the axis after two rejected drafts (worth knowing so it
+doesn't get "fixed" back toward either one): the first draft asked at
+`SessionStart`, unconditionally, in every session — rejected as far too
+eager. The second draft moved the ask to fire lazily, once, right before
+`auto`'s first self-decided plan — better-targeted, but still an ask, and
+the user's own answer was simpler than either: don't ask at all. `balanced`
+already picks cheap vs. expensive per task automatically (see the baseline
+table below), so there is usually nothing to ask about. The `SessionStart`
+hook (`session-continuity.py`) reflects this directly — it seeds
+`disposition: "balanced"` (never `null`) the moment it sees a new
+`session_id`, and that's the value `auto` uses unless the user explicitly
+says otherwise.
+
+**Changing it away from `balanced` is entirely the user's initiative** — natural
+language ("switch to quality", "fast mode for this one") or
+`/agenting-mode <disposition>` (a second token alongside or instead of a
+mode). Claude never proposes a disposition change on its own, and never
+tracks or surfaces a pattern of frequent `quality`/`fast`-tier picks as a
+reason to reconsider it — explicitly not wanted: if `auto` ends up choosing
+`opus` a lot under `balanced` because the work genuinely calls for it, that
+is `balanced` working correctly, not a signal to escalate. "If it works, it
+works."
+
+A project's `agenting/AGENTING.md` Config knob `auto-disposition-default`
+can pin something other than `balanced` as this project's default (see the
+knob below) — set once by a human, not inferred by Claude from usage
+patterns. **The pin only takes effect once it's recorded into this
+continuum's session state** — see "Per-project memory" below for exactly
+when and how; the hook itself always seeds `balanced` and has no way to read
+a project's pin on its own.
+
+**Disposition is a standing cost/accuracy target, not a fixed per-row pin.**
+It sets a target reliability band and gives `auto` standing, silent
+authority to route any individual task up or down from the baseline table
+below — including reaching for a *different model*, not just a different
+effort level — whenever that specific task's own stakes diverge from the
+general policy. This is deliberate: these dispositions exist so `auto` can
+run unattended (overnight, across many tasks) without stopping to ask
+permission on ordinary per-task judgment calls.
+
+| Disposition | Target reliability | What it means |
+|---|---|---|
+| `fast` | ~90–95% | Default to the cheaper pick (lower effort, lower model) wherever a task doesn't need near-certainty. Still reaches for `opus`/high-effort on a specific task that genuinely needs it — cutting cost is about knowing which tasks *don't* need the premium, not refusing to ever pay it. |
+| `balanced` *(default)* | ~95–99% | Follow the baseline table per task shape — no continuum-wide lean in either direction. Some tasks land cheap, some land expensive, purely because of what each task actually is. |
+| `quality` | ~99%+ | Default toward paying for extra certainty — reach for `opus`/higher effort even where a cheaper tier could plausibly do the same job, because a slip on this work costs more than the premium does. |
+
+Baseline table (each disposition's starting point before any per-task
+judgment is applied):
+
+| Routing-table row | `fast` | `balanced` *(as proposed)* | `quality` |
+|---|---|---|---|
+| List/count/mechanical | `haiku`/`low` | `haiku`/`low` | `haiku`/`low` |
+| Read code/prose, report | `sonnet`/`low` | `sonnet`/`medium` | `sonnet`/`high` |
+| Prose→rules, classify, judge | `sonnet`/`low` | `sonnet`/`medium` | `sonnet`/`high` |
+| Synthesize across many files | `opus`/`xhigh` | `opus`/`xhigh` | `opus`/`xhigh` |
+| Decide under BELİRSİZ | `opus`/`xhigh` | `opus`/`xhigh` | `opus`/`xhigh` |
+| Adversarial verify/refute | `opus`/`high` | `opus`/`high` | `opus`/`high` |
+
+**Per-task deviation from this baseline never needs to ask — apply it
+silently, in either direction, whenever a specific task's stakes genuinely
+call for it.** A `fast` continuum hitting one calibration-critical call still
+sends it to `opus`/`xhigh`, no confirmation needed — "if you think a level is
+absolutely needed for a task part, upgrade or downgrade it as you wish" is the
+whole point of giving `auto` a philosophy instead of a rulebook. The mechanical
+floor and the calibration ceiling rows above are already fixed for this
+reason — they're what task shape alone requires, independent of disposition —
+but the same standing latitude extends to the two judgment rows too: `quality`
+may reach past `sonnet`/`high` to `opus` for one unusually consequential
+classify/judge call, and `fast` may drop a routine one below `sonnet`/`low`
+if it's genuinely trivial. None of that is a deviation worth surfacing.
+
+**No drift-tracking, deliberately.** Nothing logs or counts how often `auto`
+reaches past `balanced`'s baseline for a given task shape, and nothing ever
+surfaces "you might want to reconsider this project's disposition." The user
+was explicit about this: if `balanced` (or a pin) keeps picking `opus` for a
+lot of tasks because that's genuinely what they need, that is the mechanism
+working as intended, not a signal — "if it works, it works." The only way
+disposition ever changes is the user saying so.
+
+**Precedence, strongest first:** an established **Learned Precedent** for a
+`shape_key` (see below) beats disposition — disposition only fills in when auto
+has no precedent to lean on yet. Disposition beats the bare routing-table
+default. A project's `agenting/AGENTING.md` Config knob `auto-disposition-default`
+pins this project's default away from `balanced` if set — same kind of target,
+still open to silent per-task deviation, never a rigid per-row rule.
+
+Set the same two ways as mode (natural language, or a second token to
+`/agenting-mode`), and persist the same way — `--disposition <value>` on the
+same `--record` command.
 
 ## The suggestion axis
 
-Independent of mode, and tracked as its own session flag — also reset every
-session.
+Independent of mode and disposition, but **persisted the same way as of
+2.1.0** (previously it reset every session): via the shared state file at
+`~/.claude/.agenting-session-state.json`, keyed on `session_id`, carried
+forward silently by the `session-continuity.py` `SessionStart` hook exactly
+like mode and disposition — a compaction no longer forgets that you already
+said yes or no this chat continuum.
 
-The first time in a session that a task looks workflow-shaped, ask **once**:
+**Asked lazily, once per chat continuum**, at the first point — not at
+session start — that a task in this conversation actually looks
+workflow-shaped. Before asking, run
+`--status --session <id>` and check `suggestion`: if it's already set
+(`on`/`off`), use it silently, don't ask again. If it's unset:
 
 > *"This task is suitable for a workflow — want suggestions like this for the
-> rest of the session?"*
+> rest of this chat continuum?"*
 
-**Yes** → later suitable tasks get suggested without re-asking, for this session
-only. **No** → drop it for the rest of the session.
+Whatever the answer, persist it immediately — `--record --session <id>
+--suggestion on|off` — then apply it: **on** → later suitable tasks get
+suggested without re-asking, for the rest of this continuum. **off** → drop
+it for the rest of this continuum.
 
-A project with an `agenting/AGENTING.md` is **suggestion-eligible**. Eligibility
-does not skip the ask — the per-session question still gates it each session.
-The `suggestion-default` knob overrides the ask entirely (`on` / `off`).
+A project with an `agenting/AGENTING.md` is **suggestion-eligible**.
+Eligibility does not skip the ask on its own — but the `suggestion-default`
+Config knob does: set to `on` or `off`, it pins the value and the
+per-continuum ask never fires; left at `ask` (default), the lazy ask above
+applies. (Disposition's own knob, `auto-disposition-default`, works
+differently — see "Auto disposition" above: that axis has no ask to skip in
+the first place, the knob just overrides its default.)
 
-The two axes are orthogonal. `auto` does not mean "suggest workflows", and
+The three axes (mode, disposition, suggestion) are independent state, but not
+independent meaning: `auto` does not mean "suggest workflows," and
 suggestions-on does not mean "decide the routing without asking."
 
 ## Per-project memory — the `agenting/` folder
@@ -168,6 +343,23 @@ Two files at the project root, split deliberately by **how they are read**:
 
 That split is the point: the curated file stays small enough to always read, so
 the log is free to grow without ever costing context.
+
+**A `auto-disposition-default` pin only takes effect if it's actually
+recorded into this continuum's session state.** The `session-continuity.py`
+hook seeds every new `session_id` with `disposition: "balanced"`
+unconditionally — it has no way to read a project's `AGENTING.md`, and
+deliberately doesn't try to (that file is Claude's to read in full, not a
+hook's to parse). So the first time this continuum reads `AGENTING.md` and
+finds `auto-disposition-default` set to anything other than `balanced`,
+check `--status` first: **only run `--record --session <id> --disposition
+<pinned value>` if it still shows the seeded `balanced`.** If the user
+already set a disposition explicitly this continuum (via natural language or
+`/agenting-mode`) before this file ever got read, their choice stands — the
+pin must not silently overwrite an explicit earlier choice just because it
+happens to be read later. Skipping the check entirely means the pin never
+applies at all (documented but inert, every plan silently uses `balanced`);
+skipping only the `--status` guard means a pin can clobber a user's own
+earlier command — both are bugs, not just one.
 
 ### `AGENTING.md` — three sections
 
@@ -188,7 +380,8 @@ Shipped as `templates/AGENTING.md` in this plugin. Its structure is fixed:
 | Knob | Default | Meaning |
 |---|---|---|
 | `promotion-threshold` | `2` | Consistent **user-sourced** answers needed before a shape is promoted to a Learned Precedent |
-| `suggestion-default` | `ask` | `ask` (once per session) / `on` (suggest without asking) / `off` (never suggest) |
+| `suggestion-default` | `ask` | `ask` (once per chat continuum, lazily, persisted across compaction) / `on` (suggest without asking) / `off` (never suggest) |
+| `auto-disposition-default` | `balanced` | `fast` / `balanced` (default) / `quality` — sets what disposition `auto` defaults to in this project. There is no `ask` value: disposition is never asked about anywhere, project or no project (see "Auto disposition" above) — this knob only overrides the global `balanced` default, it doesn't gate a question. |
 | `matching-strictness` | `exact` | Only `exact` is implemented in 2.0.0. Any other value **prints a warning and falls back to `exact`** — it must not silently no-op |
 
 ### `log.csv` — schema
@@ -403,11 +596,29 @@ strings and comments.
 
 | Stage | Fires when | What to do |
 |---|---|---|
-| **1 — rota** | any `agent()` lacks `model`/`agentType`, or lacks `effort` | Add them. Denial names the line numbers. |
-| **2 — plan onayı** | all routed, but this plan is unapproved in this session | Ask the user (three directions), apply, then run the `--approve` command the hook prints, then re-run. |
+| **1 — rota** | any `agent()` lacks `model`/`agentType`, or lacks `effort` | Add them. Denial names the line numbers. Never bypassed by mode. |
+| **2 — plan onayı** | all routed, but this plan is unapproved in this session — **unless** this session's mode is explicitly recorded `auto`, in which case the gate drops its approval requirement (2.1.0+, see below) | In `manual`/`semi-auto`: resolve per session mode above (ask in `manual`, precedent-gated in `semi-auto`), apply, run the `--approve` command the hook prints, re-run. In `auto`: the gate needs nothing from you here — it already stopped asking. |
 
-Approval is keyed by **plan signature × session**. Re-running the same plan in
-the same session is silent; changing any tier re-asks; a new session re-asks.
+Approval is keyed by **plan signature × session** for `manual`/`semi-auto`.
+Re-running the same plan in the same session is silent; changing any tier
+re-asks; a new session re-asks. `auto` doesn't use this mechanism at all — it
+has no routing opinion on any plan, not just repeats.
+
+**The `auto`-mode Stage-2 approval drop (2.1.0+).** `workflow-routing-guard.py`
+now reads `~/.claude/.agenting-session-state.json` (the same file
+`hooks/session-continuity.py` writes) for this session's `mode`. If it's
+explicitly `"auto"`, Stage 2 prints a bare `systemMessage` — **no
+`hookSpecificOutput`, no `permissionDecision`, deliberately never `"allow"`**
+— so the change is visible rather than a silent no-op, without this hook
+ever overriding the user's own Claude Code permission settings for the
+`Workflow` tool (that's a decision that belongs to them, not this plugin's
+routing opinion). A **missing** entry (state file absent, or no entry for this
+session_id) does **not** trigger the bypass — it falls through to the normal
+`manual`/`semi-auto` approval-file check, same as pre-2.1.0 behavior. That
+asymmetry is deliberate: it means an install where `session-continuity.py`
+isn't wired up (older version, hand-copied hooks, etc.) degrades to the safe,
+always-ask-for-approval behavior instead of an unreadable state file silently
+granting a bypass nobody configured.
 
 Deliberate inheritance is marked per call, not blanket-disabled:
 
@@ -416,5 +627,7 @@ Deliberate inheritance is marked per call, not blanket-disabled:
 await agent("wants whatever the session is on", { schema: S })
 ```
 
-Do not blanket-apply `// routing: inherit` or `--approve` without asking to get
-past the gate — that defeats the point of both stages.
+Do not blanket-apply `// routing: inherit` without asking — that defeats Stage
+1 regardless of mode. Running `--approve` without asking first is a bypass in
+`manual`/`semi-auto`; in `auto` you don't need `--approve` at all anymore —
+the gate already allowed the plan on its own.

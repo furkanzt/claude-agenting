@@ -1,5 +1,5 @@
 {
-  "description": "Two-stage routing gate on the Workflow tool, plus a mid-session cache-cost tripwire. Stage 1 denies a Workflow whose agent() calls carry no model/agentType or no effort — unrouted calls silently inherit the main session's tier. Stage 2 denies until the user has approved this particular routing plan in this session; approval is keyed by plan signature, so re-running the same plan is silent and changing any tier asks again. The tripwire reports the token cost paid when a model/effort switch mid-session invalidates the prompt cache prefix.",
+  "description": "Two-stage routing gate on the Workflow tool, a mid-session cache-cost tripwire, and a SessionStart hook that carries the session mode, auto-disposition, and workflow-suggestion axes across compaction (and, by Claude Code's own design though not independently verified here, resume). Stage 1 denies a Workflow whose agent() calls carry no model/agentType or no effort — unrouted calls silently inherit the main session's tier. Stage 2 denies until the user has approved this particular routing plan in this session, UNLESS this session's mode is explicitly recorded auto, in which case it prints a plain systemMessage note instead (never permissionDecision:allow, so the user's own Workflow permission settings are never overridden) and skips the --approve round-trip entirely; approval is otherwise keyed by plan signature, so re-running the same plan is silent and changing any tier asks again. The tripwire reports the token cost paid when a model/effort switch mid-session invalidates the prompt cache prefix. session-continuity.py itself never asks anything — it silently seeds auto as the default mode and balanced as the default disposition for a new chat continuum, then re-injects whatever's already recorded (mode, disposition, suggestion) on every later SessionStart firing instead of letting compaction lose it. Disposition is never asked about at all, anywhere — it only changes on explicit user request. The suggestion axis is the one exception with a lazy, once-per-continuum ask, driven by the agenting skill's own procedure the first time a task looks workflow-shaped, not by this hook.",
   "hooks": {
     "PreToolUse": [
       {
@@ -21,6 +21,18 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/cache-tripwire.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|compact|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/session-continuity.py\"",
             "timeout": 5
           }
         ]

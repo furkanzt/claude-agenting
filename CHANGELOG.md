@@ -1,5 +1,103 @@
 # Changelog
 
+## 2.1.0 — 2026-09-18
+
+### Changed
+- **Session mode default flipped `manual` → `auto`.** Stage 2 now self-decides
+  by default instead of always asking; switch back with `/agenting-mode
+  manual` or plain language. It's now **persisted per chat continuum** (see
+  `hooks/session-continuity.py` below) instead of conversational-memory-only,
+  so a mode change survives compaction instead of depending on a compaction
+  summary happening to mention it.
+- **Stage 2's enforcement gate itself now drops its approval requirement in
+  `auto` mode.** Before this release, `auto` only changed *who* answered
+  Stage 2 — the `PreToolUse` hook still denied every new plan until an
+  explicit `--approve` was run, a mechanical round-trip regardless of mode.
+  `workflow-routing-guard.py` now reads this session's recorded mode and,
+  only when it's explicitly `"auto"`, prints a plain `systemMessage` note
+  instead of denying — with **no `permissionDecision` field, deliberately
+  never `"allow"`**: this hook's job is routing approval only, and
+  `permissionDecision: "allow"` would override the user's own Claude Code
+  permission settings for the `Workflow` tool itself, a separate, user-owned
+  decision this plugin has no business making for them. A **missing** entry
+  does **not** trigger this — an install where the new hook isn't wired up
+  degrades safely to the pre-2.1.0 approval-required behavior. `semi-auto`/
+  `manual` are unaffected; Stage 1 (routing presence) is never bypassable by
+  any mode.
+- **The suggestion axis (want workflow suggestions this session?) is now
+  persisted the same way** instead of resetting every session — still asked
+  lazily, once, the first time a task looks workflow-shaped.
+
+### Added
+- **`hooks/session-continuity.py`** — a new `SessionStart` hook (fires on
+  `startup`/`resume`/`compact`/`clear`) that carries mode, disposition, and
+  the suggestion axis in a small per-`session_id` state file
+  (`~/.claude/.agenting-session-state.json`, same directory as the routing
+  guard's own `.routing-approvals.json`). It never asks anything itself: it
+  silently seeds defaults for a session_id it has never seen, and silently
+  re-injects whatever's already recorded on every later firing. Verified
+  empirically before building on it: `session_id` stays stable across
+  compaction of the same conversation (checked three compaction events
+  spanning ~9 hours in a real transcript, all one id); resume
+  (`--resume`/`--continue`) is *assumed* stable by Claude Code's own design
+  but not independently checked — if that assumption is ever wrong, the
+  failure mode is a fresh default or one re-ask, not silent data loss.
+  `/clear` is handled explicitly as a fresh continuum.
+- **Auto disposition axis** (`fast` / `balanced` / `quality`, default
+  `balanced`) — a standing cost/accuracy target, not a per-row pin: `fast`
+  ~90–95% reliability (default cheap, still reaches for `opus` when one task
+  needs it), `balanced` ~95–99% (follows the baseline table per task shape,
+  the routing table's existing per-task variance), `quality` ~99%+ (defaults
+  toward paying for certainty). `auto` has standing, silent authority to
+  deviate from the baseline per task in either direction — including a
+  different model, not just a different effort — whenever that task's own
+  stakes call for it, specifically so it can run unattended without asking
+  permission on ordinary judgment calls. **This axis is never asked about,
+  anywhere, ever** — it defaults to `balanced` and only changes on explicit
+  user request (natural language or `/agenting-mode <disposition>`); Claude
+  never proposes a change, and there is deliberately no tracking of how often
+  `quality`/`fast`-tier picks happen — a project needing `opus` a lot under
+  `balanced` is the mechanism working, not a signal. New project Config knob:
+  `auto-disposition-default` (`fast`/`balanced`/`quality`, no `ask` value —
+  there's no ask to skip) overrides the global `balanced` default per project.
+- **`/agenting-mode`** now reports and sets all three axes, reads ground
+  truth via the hook's `--status` flag instead of conversational recall, and
+  requires each change to be persisted via `--record` (an unpersisted change
+  reverts on the next compaction — the command's own instructions say so).
+
+### Design notes
+- Mode is no longer purely instruction-layer — the hook mechanically
+  re-injects it every `SessionStart`, and the guard mechanically reads it to
+  enforce the `auto` bypass (the guard never reads disposition; that value
+  only ever shapes what tiers Claude itself writes into a script, not
+  anything the gate checks). Disposition's *default* is likewise
+  hook-enforced (seeded `balanced`, never left unset), but a project's
+  `auto-disposition-default` pin, the suggestion axis's lazy ask, and
+  whether Claude actually honors any of this remain instruction-layer, same
+  as the post-completion verification check.
+- **Disposition's ask mechanism went through three designs in one session
+  before landing on "no ask at all," each corrected directly by the user
+  rather than guessed at:** (1) asked unconditionally at every `SessionStart`
+  regardless of relevance — rejected as too eager; (2) moved to a lazy ask
+  right before `auto`'s first self-decided plan, with silent per-task
+  deviation but a permission-ask if a task "disagreed with" a pinned
+  default — rejected because that still needed a human check-in on ordinary
+  per-task judgment, defeating the entire point of a disposition; a
+  pattern-level drift tracker was floated to replace that per-task ask and
+  also rejected — "if it works, it works," no tracking, no escalation; (3)
+  final: no ask, no tracking, `balanced` by default, changed only on
+  explicit request. A separate, unrelated defect was caught by a second
+  advisor pass in the same session: the gate's new bypass had first been
+  implemented as `permissionDecision: "allow"`, which overrides the user's
+  own Claude Code permission settings for `Workflow`, not just this plugin's
+  routing opinion — fixed to a bare `systemMessage` with no
+  `permissionDecision` field, matching the pre-existing pass-through cases.
+- The installed plugin lives in a **versioned** cache directory
+  (`~/.claude/plugins/cache/agenting/agenting/<version>/`), confirmed by
+  inspection to be a real copy, not a symlink to this working tree — so the
+  new state file's path is fixed at `~/.claude/`, not relative to the hook
+  script, or it would orphan on every version bump.
+
 ## 2.0.0 — 2026-08-17
 
 ### Renamed

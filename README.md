@@ -54,26 +54,87 @@ STAGE 2/2 — PLAN APPROVAL: 9 agents, all routed. Waiting on the user.
 ## Modes and routing memory
 
 Answering the same Stage-2 question the same way forever is its own kind of
-waste. Two independent switches decide how much you get asked.
+waste. Three independent switches decide how much you get asked.
 
-**The mode axis** controls Stage 2. It lives in conversational memory only —
-it resets to `manual` every new session, is never written to a file, and
-changes no hook behavior. Set it in plain language, or with
-`/agenting-mode [manual|semi-auto|auto]` (no argument reports the current
-mode and the suggestion-axis setting below).
+**The mode axis** controls Stage 2. As of 2.1.0 it defaults to **`auto`** (was
+`manual`), and it's carried by a `SessionStart` hook
+(`hooks/session-continuity.py`) rather than conversational memory — it's keyed
+on `session_id`, which stays stable across compaction of the same conversation
+(verified empirically) and is assumed stable across resume too (by Claude
+Code's own design, not independently checked here), so the mode survives
+instead of silently reverting the moment a compaction summary doesn't happen
+to mention it. A genuinely new conversation (or `/clear`) gets a fresh id and
+starts back at `auto`. Set it in plain language, or with `/agenting-mode`,
+which takes any mix of a mode token (`manual`/`semi-auto`/`auto`), a
+disposition token (`fast`/`balanced`/`quality`), and a suggestion token
+(`on`/`off`), space-separated in any order — e.g. `/agenting-mode manual
+fast` sets both at once. No argument reports all three, read from the
+recorded state, not recalled.
 
 | Mode | Stage 2 behavior |
 |---|---|
-| `manual` *(default)* | Always asks. The proposed default is shaped by precedent from the **1st** occurrence onward. |
-| `semi-auto` | Auto-answers only shapes matching an established precedent; asks for anything novel. |
-| `auto` | Never asks. Decides from the tier table plus this project's `agenting/AGENTING.md`, then self-records the approval. |
+| `auto` *(default, 2.1.0+)* | Never asks about the plan. Decides from the tier table, this session's disposition (below), and this project's `agenting/AGENTING.md`; the enforcement gate itself then drops its approval requirement — no `--approve` round-trip at all. |
+| `semi-auto` | Auto-answers only shapes matching an established precedent; asks for anything novel (still needs `--approve`, like `manual`). |
+| `manual` | Always asks. The proposed default is shaped by precedent from the **1st** occurrence onward. |
 
-**The suggestion axis** is separate. The first time a task looks
-workflow-shaped, you get asked once: *want suggestions like this for the rest
-of the session?* Say yes and later suitable tasks are suggested without
-re-asking — for that session only. A project is suggestion-eligible once it
-has an `agenting/AGENTING.md`; the per-session ask still gates it each time.
-Config knob: `suggestion-default: ask` (default) / `on` / `off`.
+**The `auto`-mode gate change is new in 2.1.0.** Before, `auto` only changed
+*who* answered Stage 2 — Claude still had to run the hook's `--approve`
+command manually after deciding. Now `workflow-routing-guard.py` reads the
+recorded mode directly and, when it's explicitly `auto`, prints a plain
+`systemMessage` note instead of denying — **it never sets
+`permissionDecision: "allow"`**, because that would override your own Claude
+Code permission settings for the `Workflow` tool itself (an allowlist, a
+non-default permission mode, etc.), which isn't this plugin's decision to
+make. The `--approve` round-trip disappears; whatever your own permission
+settings would otherwise do about running `Workflow` at all is untouched
+either way. A session with **no** recorded mode does *not* get this — only an
+explicit `auto` does, so an install where the continuity hook isn't wired up
+keeps requiring the approve step rather than silently granting a bypass
+nobody configured.
+
+**Nothing gets asked at session start, ever, as of 2.1.0.** An earlier
+version of this asked the disposition question immediately when any Claude
+Code session opened, in every project — including ones that never touch a
+Workflow. That's gone: the `SessionStart` hook now only *silently* seeds
+`auto` as the default mode and carries forward whatever's already recorded.
+
+**The disposition axis** only matters in `auto`, defaults to `balanced`, and
+is **never asked about at all** — not at session start, not lazily, not
+ever. That's a deliberate simplification, settled after two rejected drafts
+that both still asked something: `balanced` already picks cheap vs.
+expensive per task automatically, so most of the time there is nothing to
+ask. It's a standing cost/accuracy target, not a fixed per-row pin: `fast`
+targets ~90–95% reliability (default cheap, still reaches for `opus` when
+one task genuinely needs it), `balanced` (default) targets ~95–99% (follows
+the baseline table per task shape, no continuum-wide lean), `quality`
+targets ~99%+ (defaults toward paying for certainty even where cheaper could
+plausibly work). **Per-task deviation from the baseline, in either
+direction, never needs to ask** — that's the entire point of a philosophy
+instead of a rulebook: `auto` can run unattended on this basis. Changing the
+disposition itself is entirely your call — natural language or
+`/agenting-mode <disposition>`, which can be combined with a mode token in
+one call (e.g. `/agenting-mode manual fast`); recorded independently of
+mode, so setting it while in `manual`/`semi-auto` is valid and just sits
+stored, unused — it never biases what `manual`'s AskUserQuestion proposes —
+until you switch back to `auto`. Claude never proposes a change, and
+deliberately does **not** track or surface a pattern of frequent
+`quality`/`fast` picks as a reason to reconsider it: if `balanced` keeps
+picking `opus` because the work needs it, that's the mechanism working, not
+a signal. A project's `agenting/AGENTING.md` knob `auto-disposition-default`
+can pin something other than `balanced` — same kind of target, not a rigid
+rule either. An established Learned Precedent always outranks disposition.
+
+Every other question in this system fires **lazily**, exactly once per chat
+continuum, right when it first becomes relevant — never up front. (Except
+disposition, above, which isn't asked at all.)
+
+**The suggestion axis** is now persisted the same way (previously it reset
+every session). Asked once, lazily, the first time a task in this
+conversation actually looks workflow-shaped: *want suggestions like this for
+the rest of this chat continuum?* Say yes and later suitable tasks are
+suggested without re-asking, carried across compaction. Config knob:
+`suggestion-default: ask` (default, lazy per-continuum ask) / `on` / `off`
+(pins it, skips the ask).
 
 **Where the memory lives.** First use in a project scaffolds two files:
 
@@ -98,9 +159,10 @@ so it asks again and the newest answer becomes the latest data point. To
 undo one, say so: *"forget that precedent"* / *"that was wrong, redo as X"*
 edits the entries directly. No command.
 
-Other knobs: `promotion-threshold: 2`, and `matching-strictness: exact` —
-only `exact` is implemented; any other value warns and falls back rather
-than silently no-op'ing. Full mechanics live in the `agenting` skill.
+Other knobs: `promotion-threshold: 2`, `auto-disposition-default: balanced`, and
+`matching-strictness: exact` — only `exact` is implemented; any other value
+warns and falls back rather than silently no-op'ing. Full mechanics live in
+the `agenting` skill.
 
 ## Install
 
@@ -119,8 +181,9 @@ Then verify it actually works:
 
 | | |
 |---|---|
-| `hooks/workflow-routing-guard.py` | The two-stage gate. Parses the script with balanced parens; ignores `agent(` inside strings and comments. The Stage-2 approve command it prints is self-referential — its own path, not a hardcoded one. |
+| `hooks/workflow-routing-guard.py` | The two-stage gate. Parses the script with balanced parens; ignores `agent(` inside strings and comments. The Stage-2 approve command it prints is self-referential — its own path, not a hardcoded one. As of 2.1.0, Stage 2 drops its approval requirement (a plain `systemMessage`, never `permissionDecision:"allow"`) when `session-continuity.py`'s state file explicitly records this session's mode as `auto`; a missing entry does not trigger this, and the user's own Claude Code permission settings for `Workflow` are never overridden either way. |
 | `hooks/cache-tripwire.py` | Reports the token cost paid when a mid-session model/effort switch invalidates the prompt cache prefix. Fires once per switch, never blocks. |
+| `hooks/session-continuity.py` | `SessionStart` hook. Never asks anything itself — silently seeds `auto` as the default mode and `balanced` as the default disposition for a new chat continuum (disposition is never asked about at all, only ever explicitly set), then re-injects whatever's recorded (mode, disposition, suggestion) on every later firing instead of letting it get lost to compaction. The suggestion axis is the one exception with a lazy ask, driven by the `agenting` skill's procedure the first time it's relevant. Also read (not written) by `workflow-routing-guard.py` to decide whether Stage 2 can drop its approval requirement in `auto` mode. State: `~/.claude/.agenting-session-state.json`, keyed by `session_id`. |
 | `skills/agenting/` | The tier table, the decision procedure, the mode and precedent mechanics, an external-model cost comparison, and the verified tokenomics numbers below. |
 | `templates/` | The per-project scaffold shipped with the plugin: `AGENTING.md` and an empty `log.csv` with its header. |
 | `agents/` | **20 tiered agent definitions**, every one carrying `model` + `effort`. |

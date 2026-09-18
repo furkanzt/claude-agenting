@@ -18,8 +18,13 @@ session that considers running a Workflow in this project — unlike
 
 - `promotion-threshold: 2` — number of consistent `user`-sourced answers in
   `log.csv` needed before a task-shape is promoted to a Learned Precedent.
-- `suggestion-default: ask` — `ask` (once per session, default) / `on`
-  (suggest workflow-shaped tasks without asking) / `off` (never suggest).
+- `suggestion-default: ask` — `ask` (once per chat continuum, lazily,
+  persisted across compaction, default) / `on` (suggest workflow-shaped
+  tasks without asking) / `off` (never suggest).
+- `auto-disposition-default: balanced` — `fast` / `balanced` (default) /
+  `quality` — sets what `auto` mode defaults to for this project. Disposition
+  is never asked about anywhere (project or no project); this knob only
+  overrides the global `balanced` default, it doesn't gate a question.
 - `matching-strictness: exact` — only `exact` is implemented; any other
   value prints a warning and falls back to `exact` rather than silently
   no-op'ing.

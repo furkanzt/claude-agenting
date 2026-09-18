@@ -208,6 +208,199 @@ if skill:
           "cheaper" in txt.lower() and ("higher quality" in txt.lower() or "upgrade" in txt.lower()),
           "the gate must offer upgrades, not only downgrades")
 
+# ------------------------------------------------------ session continuity
+
+section("Session continuity — behaviour, not configuration")
+
+continuity = None
+for c in (PLUGIN_ROOT / "hooks" / "session-continuity.py",
+          USER_CLAUDE / "hooks" / "session-continuity.py"):
+    if c.exists():
+        continuity = c
+        break
+check("session-continuity.py found", continuity is not None,
+      str(continuity) if continuity else "hooks/session-continuity.py missing")
+
+hooks_json = PLUGIN_ROOT / "hooks" / "hooks.json"
+if hooks_json.is_file():
+    try:
+        hj = json.loads(hooks_json.read_text(encoding="utf-8"))
+        registered = any(
+            "session-continuity" in h.get("command", "")
+            for group in hj.get("hooks", {}).get("SessionStart", [])
+            for h in group.get("hooks", [])
+        )
+    except Exception:
+        registered = False
+    check("registered on SessionStart in hooks.json", registered,
+          "hooks.json has no SessionStart entry naming session-continuity.py")
+
+if continuity:
+    probe_session = "setup-check-continuity"
+
+    # Make this section idempotent across re-runs: a prior run's --record left
+    # state behind for probe_session, which would make the "unseen" case below
+    # not actually unseen. The continuity script has no --delete, so drop the
+    # key directly from the same state file it reads.
+    state_path = Path(os.path.expanduser("~/.claude/.agenting-session-state.json"))
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        if probe_session in state:
+            del state[probe_session]
+            state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+    def continuity_context(payload):
+        try:
+            out = subprocess.run(
+                [sys.executable, str(continuity)], input=json.dumps(payload),
+                capture_output=True, text=True, timeout=20,
+            ).stdout.strip()
+        except Exception:
+            return None
+        try:
+            return json.loads(out)["hookSpecificOutput"]["additionalContext"]
+        except Exception:
+            return None
+
+    # 2.1.0 redesign: the hook itself never asks anything (the lazy ask is
+    # instruction-layer, driven by the agenting skill at the point it's
+    # actually needed) -- it only silently seeds/carries state. Assert the
+    # negative explicitly, since "doesn't ask" is exactly the property a
+    # regression would violate silently.
+    first = continuity_context({"session_id": probe_session, "cwd": str(PLUGIN_ROOT), "source": "startup"})
+    check("silently seeds an unseen session_id (never asks)",
+          first is not None and "AskUserQuestion" not in first and "mode defaults to `auto`".lower() in first.lower(),
+          "no additionalContext, or it asked something -- the hook must never ask")
+
+    # Disposition is never null/"unset" -- it's seeded "balanced" immediately,
+    # since the final 2.1.0 design has no ask for this axis at all (only the
+    # suggestion axis can be genuinely unset). Confirm via --status BEFORE any
+    # --record call, so this is really the seeded default, not a leftover.
+    fresh_stat = subprocess.run(
+        [sys.executable, str(continuity), "--status", "--session", probe_session],
+        capture_output=True, text=True, timeout=20,
+    )
+    check("disposition defaults to balanced immediately, never null/unset",
+          "disposition=balanced" in fresh_stat.stdout,
+          fresh_stat.stdout.strip()[:100])
+
+    second = continuity_context({"session_id": probe_session, "cwd": str(PLUGIN_ROOT), "source": "compact"})
+    check("carries state forward on a later SessionStart, still never asks",
+          second is not None and "AskUserQuestion" not in second and "carried over" in second,
+          "a later SessionStart for the same id should carry state, not ask")
+
+    rec = subprocess.run(
+        [sys.executable, str(continuity), "--record", "--session", probe_session,
+         "--disposition", "quality", "--suggestion", "on"],
+        capture_output=True, text=True, timeout=20,
+    )
+    check("--record persists disposition and suggestion",
+          rec.returncode == 0 and "disposition=quality" in rec.stdout and "suggestion=on" in rec.stdout,
+          (rec.stdout + rec.stderr).strip()[:100])
+
+    stat = subprocess.run(
+        [sys.executable, str(continuity), "--status", "--session", probe_session],
+        capture_output=True, text=True, timeout=20,
+    )
+    check("--status reports what --record persisted",
+          "disposition=quality" in stat.stdout and "suggestion=on" in stat.stdout,
+          stat.stdout.strip()[:100])
+
+    clear_ctx = continuity_context({"session_id": probe_session, "cwd": str(PLUGIN_ROOT), "source": "clear"})
+    check("/clear does not inherit prior state onto the same session_id",
+          clear_ctx is not None and "carried over" not in clear_ctx,
+          "a clear source should start a fresh continuum, not carry forward")
+
+# ------------------------------------------------- guard auto-mode bypass
+
+section("Guard — auto-mode Stage 2 bypass (2.1.0)")
+
+if guard and continuity:
+    bypass_session = "setup-check-auto-bypass"
+    routed_script = "await agent('x', {model:'haiku', effort:'low'})"
+
+    # Idempotent re-runs: drop any state this probe session left behind last
+    # time, so "unrecorded session" below is actually unrecorded.
+    state_path = Path(os.path.expanduser("~/.claude/.agenting-session-state.json"))
+    try:
+        bstate = json.loads(state_path.read_text(encoding="utf-8"))
+        if bypass_session in bstate:
+            del bstate[bypass_session]
+            state_path.write_text(json.dumps(bstate, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+    # Also clear this probe's prior Stage-2 approval record, if any survived
+    # from an earlier run, so it can't accidentally satisfy the "unrecorded
+    # session still requires approval" check below via the OLD approvals
+    # file instead of the NEW mode-state file this test is actually probing.
+    approvals_path = Path(os.path.expanduser("~/.claude/.routing-approvals.json"))
+    try:
+        approvals = json.loads(approvals_path.read_text(encoding="utf-8"))
+        if bypass_session in approvals:
+            del approvals[bypass_session]
+            approvals_path.write_text(json.dumps(approvals, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+    # The guard NEVER emits permissionDecision:"allow" (see its OUTPUT
+    # CONTRACT docstring) -- that would override the user's own Claude Code
+    # permission settings for Workflow, not just this plugin's routing
+    # opinion. So the auto-mode bypass is a bare {"systemMessage": ...} with
+    # no hookSpecificOutput at all, distinct from both "deny" (has
+    # hookSpecificOutput.permissionDecision == "deny") and the pre-existing
+    # silent pass-through (empty stdout, no opinion, no message).
+    def stage2_result(script, session):
+        payload = json.dumps(
+            {"session_id": session, "tool_name": "Workflow", "tool_input": {"script": script}}
+        )
+        try:
+            out = subprocess.run(
+                [sys.executable, str(guard)], input=payload,
+                capture_output=True, text=True, timeout=20,
+            ).stdout.strip()
+        except Exception:
+            return "error"
+        if not out:
+            return "silent-pass"
+        try:
+            d = json.loads(out)
+        except Exception:
+            return "error"
+        decision = (d.get("hookSpecificOutput") or {}).get("permissionDecision")
+        if decision:
+            return decision
+        if d.get("systemMessage"):
+            return "bypass-note"
+        return "silent-pass"
+
+    check("unrecorded session still requires approval (safe fallback)",
+          stage2_result(routed_script, bypass_session) == "deny",
+          "a session with no recorded mode must NOT bypass Stage 2")
+
+    subprocess.run(
+        [sys.executable, str(continuity), "--record", "--session", bypass_session, "--mode", "manual"],
+        capture_output=True, text=True, timeout=20,
+    )
+    check("explicit mode=manual still requires approval",
+          stage2_result(routed_script, bypass_session) == "deny",
+          "manual must not get the auto bypass")
+
+    subprocess.run(
+        [sys.executable, str(continuity), "--record", "--session", bypass_session, "--mode", "auto"],
+        capture_output=True, text=True, timeout=20,
+    )
+    check("explicit mode=auto bypasses Stage 2 with a visible note, not a permission override",
+          stage2_result(routed_script, bypass_session) == "bypass-note",
+          "recording mode=auto should drop the routing opinion (no --approve needed) "
+          "via a bare systemMessage, never via permissionDecision:\"allow\"")
+
+    check("auto bypass does not affect Stage 1 (still denies unrouted calls)",
+          stage2_result("await agent('x', {schema:S})", bypass_session) == "deny",
+          "an explicit auto mode must never bypass the routing-presence check")
+
 # ------------------------------------------------------- rename integrity
 
 section("Rename integrity — agenting v2")
@@ -223,10 +416,18 @@ for cmd in ("agenting-check.md", "agenting-mode.md"):
 STALE = "agent-routing"
 STALE_EXEMPT = {"CHANGELOG.md", "AGENTING-PLAN-HANDOFF.md", Path(__file__).name}
 
+# __pycache__ is gitignored build output, not source — a .pyc embeds the
+# same string constants as its .py, so scanning it would either double-count
+# a real hit or (as happened once during 2.1.0 development, after running
+# `python3 -m py_compile` by hand) flag a stale string that isn't in any
+# source file the user or harness actually reads.
 scan_targets = []
 for d in ("agents", "commands", "hooks", "scripts", "skills", ".claude-plugin", "templates"):
     if (PLUGIN_ROOT / d).is_dir():
-        scan_targets.extend(p for p in (PLUGIN_ROOT / d).rglob("*") if p.is_file())
+        scan_targets.extend(
+            p for p in (PLUGIN_ROOT / d).rglob("*")
+            if p.is_file() and "__pycache__" not in p.parts
+        )
 scan_targets.extend(p for p in PLUGIN_ROOT.glob("*") if p.is_file())
 
 stale_hits = []
@@ -241,6 +442,41 @@ for p in scan_targets:
 check(f'no stale "{STALE}" string survives the rename',
       not stale_hits,
       "still present in: " + ", ".join(sorted(stale_hits)[:4]))
+
+# The mode axis stopped being conversational-memory-only in 2.1.0 (it's now
+# carried by session-continuity.py's state file) and the default flipped
+# manual -> auto. These phrasings describe the pre-2.1.0 mechanism; if one
+# resurfaces it means a doc was reverted or a new doc copied stale prose.
+# session-continuity.py itself is exempt: its docstring explains that exact
+# history as the reason the hook exists, same reasoning as CHANGELOG.md.
+#
+# Also guards within-2.1.0 regressions caught by later advisor passes:
+# session-continuity.py's SessionStart hook was redesigned mid-release to
+# never ask anything itself (the lazy ask moved into the agenting skill's own
+# procedure, then disposition's ask was cut entirely) -- these exact
+# phrasings claimed the hook does the asking, or that auto mode still needs
+# an --approve round-trip, both true of an earlier draft and true again only
+# as a bug.
+STALE_2_1 = (
+    "conversational memory only", "resets to `manual`", "resets to manual every",
+    "session-continuity.py asks once", "asking the once-per-continuum disposition question",
+    "self-record the approval",
+)
+STALE_2_1_EXEMPT = STALE_EXEMPT | {"session-continuity.py"}
+stale_2_1_hits = []
+for p in scan_targets:
+    if p.name in STALE_2_1_EXEMPT:
+        continue
+    try:
+        text = p.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        continue
+    for s in STALE_2_1:
+        if s in text:
+            stale_2_1_hits.append(f"{p.relative_to(PLUGIN_ROOT)}: {s!r}")
+check("no pre-2.1.0 \"conversational memory only\" / \"resets to manual\" phrasing survives",
+      not stale_2_1_hits,
+      "still present in: " + ", ".join(stale_2_1_hits[:4]))
 
 # The scaffold TEMPLATE shipped with the plugin — not a search for a real
 # project instance, which may legitimately not exist yet.

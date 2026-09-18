@@ -18,13 +18,27 @@ cheaper AND higher quality.
 TWO-STAGE GATE
 --------------
   1. ROUTING: if any agent() call lacks model/agentType or lacks effort, DENY.
+     Never bypassable -- mode has no say here.
   2. APPROVAL: even when every call is routed, DENY until the user has approved
      this particular routing plan in this session. Claude presents the plan
      (as-proposed / cheaper / higher quality), applies the answer, records the
      approval with --approve, and re-runs.
 
+     EXCEPTION (2.1.0): if this session's mode is explicitly recorded as
+     `auto` in ~/.claude/.agenting-session-state.json (written by the sibling
+     SessionStart hook, hooks/session-continuity.py), Stage 2 drops its
+     ROUTING opinion entirely -- no --approve round-trip, no more denying new
+     plans -- but stays silent on PERMISSION (see OUTPUT CONTRACT below): the
+     user's own Claude Code permission settings for the Workflow tool, if
+     any, are untouched either way. A MISSING entry does NOT default to this
+     bypass; only an explicit "auto" does. That's deliberate: if the
+     continuity hook is ever absent or not wired up in some install, this
+     gate keeps today's safe behavior (require an explicit approve) rather
+     than silently skipping it because state happened to be unreadable.
+
 The same plan re-run in the same session passes silently. Change any tier and
-the signature changes, so it asks again.
+the signature changes, so it asks again (except under the auto-mode
+exception above, which never asks again regardless of tier changes).
 
 SINGLE Agent CALLS ARE OUT OF SCOPE
 -----------------------------------
@@ -35,8 +49,16 @@ the skill (skills/agenting/SKILL.md), not to this hook.
 
 OUTPUT CONTRACT
 ---------------
-PreToolUse -> hookSpecificOutput.permissionDecision ("allow"|"deny"|"ask")
-              + permissionDecisionReason
+PreToolUse -> hookSpecificOutput.permissionDecision ("deny" only -- this
+              file never emits "allow"/"ask") + permissionDecisionReason, OR
+              a bare `{"systemMessage": ...}` with NO hookSpecificOutput at
+              all (the auto-mode bypass note() -- a visible remark with no
+              permission opinion), OR truly empty stdout (every other
+              pass-through case: "nothing to say about this call").
+              permissionDecision:"allow" is deliberately never used, because
+              it would override the user's OWN Claude Code permission
+              settings for the Workflow tool, not just this plugin's routing
+              approval -- a stronger claim than this hook should ever make.
 """
 
 import argparse
@@ -49,6 +71,10 @@ import sys
 ESCAPE_HATCH = "routing: inherit"
 MAX_REPORTED = 12
 APPROVALS_PATH = os.path.expanduser("~/.claude/.routing-approvals.json")
+# Same file session-continuity.py's SessionStart hook writes -- deliberately
+# read-only from here. This script never writes it; it only checks whether
+# this session's mode was explicitly recorded as "auto".
+SESSION_STATE_PATH = os.path.expanduser("~/.claude/.agenting-session-state.json")
 KEEP_SESSIONS = 20
 SELF_PATH = os.path.abspath(__file__)
 
@@ -218,6 +244,18 @@ def plan_hash(sig: str) -> str:
     return hashlib.sha256(sig.encode("utf-8")).hexdigest()[:12]
 
 
+def explicit_auto_mode(session: str) -> bool:
+    """True only if session-continuity.py explicitly recorded "auto" for this
+    session_id. A missing/unreadable file or a missing entry returns False --
+    see SESSION_STATE_PATH's comment for why that's the safe default."""
+    try:
+        with open(SESSION_STATE_PATH, "r", encoding="utf-8") as fh:
+            state = json.load(fh)
+        return (state.get(session) or {}).get("mode") == "auto"
+    except Exception:
+        return False
+
+
 # ------------------------------------------------------------------------- main
 
 
@@ -230,6 +268,29 @@ def deny(reason: str, system_msg: str) -> int:
                     "permissionDecision": "deny",
                     "permissionDecisionReason": reason,
                 },
+                "systemMessage": system_msg,
+            }
+        )
+    )
+    return 0
+
+
+def note(system_msg: str) -> int:
+    """No permission opinion -- deliberately does NOT set permissionDecision,
+    unlike deny(). This hook's job is Workflow ROUTING approval only; whether
+    the Workflow tool may run at all is the user's own Claude Code permission
+    setting (defaultMode, an allowlist, etc.), and a `permissionDecision:
+    "allow"` here would override that entirely, not just this plugin's own
+    approval step -- exactly the gap between "I have no opinion" (the
+    pre-existing silent `return 0` pass-through, used everywhere else in this
+    file that isn't a deliberate deny) and "I am overriding your permission
+    settings" (which nothing in this file should ever do). Used only for the
+    auto-mode Stage-2 bypass, so the auto-approval is visible via
+    systemMessage instead of being a silent no-op, without touching the
+    underlying permission decision."""
+    print(
+        json.dumps(
+            {
                 "systemMessage": system_msg,
             }
         )
@@ -305,6 +366,14 @@ For deliberate inheritance, put `// {ESCAPE_HATCH}` on that line or the one abov
     # --- STAGE 2: plan approval --------------------------------------------
     sig = plan_signature(tiers)
     h = plan_hash(sig)
+
+    if explicit_auto_mode(session):
+        return note(
+            f"Workflow routing auto-approved ({len(tiers)} agents, auto mode, "
+            f"plan {h}) — no --approve round-trip needed. Your own Claude Code "
+            f"permission settings, if any, still apply to running Workflow itself."
+        )
+
     if h in load_approvals().get(session, []):
         return 0  # this plan was already approved in this session
 
