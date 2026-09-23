@@ -1,40 +1,18 @@
 # Agenting
 
-Curated by hand and by the plugin together. Read in full at the start of any
-session that considers running a Workflow in this project — unlike
-`log.csv`, this file is never too big to read whole.
+Routing rules for this project. Claude reads this file in full before the first
+Workflow of a session. Rules here override the agenting skill's routing table.
 
-## Rules & Edge Cases
+## Rules
 
-<!-- Hand-curated prose. Claude never auto-writes to this section; edit it
-     yourself, or tell Claude the rule in conversation and ask it to record
-     it here. Example: "always route the synthesis step to opus/xhigh in
-     this project, even in auto mode." -->
+<!-- Hand-written, one bullet per rule. Claude adds a rule only when you state
+     it and ask for it to be recorded. Examples:
+     - Always route the synthesis step to opus/xhigh here, even in auto mode.
+     - Page-counting and OCR-cleanup agents stay on haiku/low. -->
 
 ## Config
 
-<!-- Structured knobs. Each line is `key: value`. Unset keys use the plugin
-     default shown here. -->
+<!-- One `key: value` per line. Delete a line to use the plugin default. -->
 
-- `promotion-threshold: 2` — number of consistent `user`-sourced answers in
-  `log.csv` needed before a task-shape is promoted to a Learned Precedent.
-- `suggestion-default: ask` — `ask` (once per chat continuum, lazily,
-  persisted across compaction, default) / `on` (suggest workflow-shaped
-  tasks without asking) / `off` (never suggest).
-- `auto-disposition-default: balanced` — `fast` / `balanced` (default) /
-  `quality` — sets what `auto` mode defaults to for this project. Disposition
-  is never asked about anywhere (project or no project); this knob only
-  overrides the global `balanced` default, it doesn't gate a question.
-- `matching-strictness: exact` — only `exact` is implemented; any other
-  value prints a warning and falls back to `exact` rather than silently
-  no-op'ing.
-
-## Learned Precedents
-
-<!-- Auto-promoted, one line per established task-shape, deduplicated.
-     Populated once a shape_key in log.csv reaches promotion-threshold
-     consistent `user`-sourced answers. Format:
-       - `shape_key` → `answer`  (n user-sourced occurrences, last YYYY-MM-DD)
-     "Forget that precedent" / "that was wrong, redo as X" (natural
-     language) edits this section and the underlying log.csv rows
-     directly — no dedicated command. -->
+- `auto-disposition-default: balanced` — `fast` / `balanced` / `quality`: the
+  disposition auto mode uses in this project unless you set one for the session.

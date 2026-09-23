@@ -10,7 +10,8 @@
     {
       "name": "agenting",
       "source": ".",
-      "description": "A PreToolUse gate that refuses to run a Workflow until every agent() call carries an explicit model and effort, then asks you to approve the routing plan. Tracks per-project routing memory and precedent. Ships 20 tiered agent definitions and a health check.",
+      "version": "3.0.0",
+      "description": "A PreToolUse gate that refuses to run a Workflow until every agent() call carries an explicit model and effort, and in manual mode asks you to approve the routing plan. Warns when a finished Workflow lost agents, keeps per-project routing rules, and ships 20 tiered agent definitions and a health check.",
       "category": "productivity",
       "keywords": ["agents", "workflow", "cost", "routing", "effort", "subagents", "hooks"]
     }

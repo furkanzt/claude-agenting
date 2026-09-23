@@ -15,6 +15,7 @@ You are a project coordinator. Break large tasks into pieces, assign each to the
 - Break it into pieces, identify dependencies
 
 ### 2. Task Distribution
+The agents named below ship with the agenting plugin; address them as `agenting:<name>` (e.g. `agenting:researcher`).
 ```
 researcher → Codebase scanning, current-state analysis
 coder     → Code generation (parallel batch)

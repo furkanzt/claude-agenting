@@ -1,5 +1,74 @@
 # Changelog
 
+## 3.0.0 — 2026-09-23
+
+### Migration from 2.x
+- **`semi-auto` → `manual`.** Only `auto` and `manual` remain. A session whose
+  state still records `semi-auto` is read as `manual` by both
+  `session-continuity.py` and `workflow-routing-guard.py`, never as `auto`.
+  `--mode semi-auto` is rejected.
+- **`agenting/log.csv` is no longer written or read.** Existing files can be
+  deleted. `templates/log.csv` is gone.
+- **Learned Precedents become Rules.** `agenting/AGENTING.md` now has two
+  sections, `## Rules` (hand-written) and `## Config`. When Claude meets a 2.x
+  file it treats each precedent line as a Rule and offers once to move them
+  under `## Rules`. The `promotion-threshold`, `matching-strictness` and
+  `suggestion-default` knobs are gone; `auto-disposition-default` remains.
+- **The suggestion axis is replaced by the workflows opt-in.** `--suggestion`
+  is gone; `--record --session <id> --workflows on|off` records that the user
+  opted in to Workflows for this chat. An old `suggestion` value is ignored,
+  not converted: it recorded a different consent. It is dropped from the entry
+  on the next `--record`.
+- **Agents are addressed as `agenting:<name>`.** With the user-level copies
+  removed, the plugin's agents are the only ones: `agentType:
+  'agenting:researcher'` in a workflow script, `subagent_type:
+  "agenting:researcher"` for a single `Agent` call. Delete any user-level
+  copies left from an older install.
+- **New hook, `workflow-finish-check.py`** on `UserPromptSubmit`, registered in
+  `hooks/hooks.json`. Nothing to configure.
+
+### Added
+- **`hooks/workflow-finish-check.py`.** When a Workflow's completion
+  notification arrives, it reads the run's `journal.jsonl` and, if any started
+  agent has no result, adds `[agenting] Workflow "<name>": R of N agents
+  returned; missing: <up to 8 labels>…` telling Claude to report the real count
+  before presenting the result. Silent when every agent returned, on any other
+  prompt, and on any error. An agent counts as missing only when neither its
+  `agentId` nor its `key` has a result: the owner's reference run (23 started,
+  18 result lines) turned out to be five interrupted attempts, each restarted
+  under the same key and returned, so an agentId-only count would have raised
+  a false alarm on a complete run. This replaces the skill's post-completion
+  checklist, which ran only when someone remembered it (the gap 1.1.0 flagged).
+- **Workflows opt-in** (`on`/`off`), persisted per session and re-injected
+  after compaction. Outside ultracode, Claude Code runs a Workflow only after
+  the user opts in in their own words; this flag makes a session-wide opt-in
+  durable. It does not change routing.
+- **`AGENTING_STATE_DIR`**: redirects both state files
+  (`.agenting-session-state.json`, `.routing-approvals.json`) away from
+  `~/.claude/`. Honoured by both hooks and `scripts/check-setup.py`.
+- **`tests/`**: pipe tests for session-continuity, the routing guard and the
+  finish check (`python3 -m pytest tests` or `python3 -m unittest discover -s
+  tests`), with trimmed journal fixtures.
+
+### Changed
+- **SessionStart output is one line** (1,289 → 430 characters with the same
+  install path and session id): `[agenting] mode=… · disposition=… ·
+  workflows=… (session <id>). Record changes: … Load the agenting skill before
+  authoring a Workflow.` `--status` prints the same summary.
+- **The skill was restructured** along the writing-great-skills method:
+  `SKILL.md` (38,073 → 7,811 characters) keeps the routing table, the launch
+  procedure, deliberate inheritance, single `Agent` calls and the finish-check
+  response; modes, disposition and the workflows opt-in moved to
+  `reference/modes.md`, the rules file to `reference/project-rules.md`;
+  history, enforcement internals and the dated verified facts moved to the
+  README. The description went from 1,383 to 312 characters, dropping the
+  triggers the hooks now cover by naming the skill in their own output.
+- The guard's Stage-1 message shows both routing forms, including
+  `agentType: 'agenting:<name>'`; Stage 2 names the mode and the skill.
+- `scripts/check-setup.py`: updated for the one-line message, `--workflows`
+  and the two-section template; the `log.csv` template check is gone; a new
+  check keeps the removed 2.x vocabulary from resurfacing.
+
 ## 2.1.0 — 2026-09-18
 
 ### Changed

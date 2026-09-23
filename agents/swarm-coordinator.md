@@ -17,6 +17,8 @@ Orchestrator that distributes complex tasks across parallel agent swarms.
 4. Merge the results
 
 ## Agent/Tier Selection Guide
+The agents below ship with the agenting plugin; address them as `agenting:<name>` (e.g. `agenting:coder`).
+
 | Task | Target |
 |-------|-------|
 | Boilerplate, CRUD | coder |

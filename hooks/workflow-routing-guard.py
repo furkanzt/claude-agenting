@@ -18,34 +18,37 @@ cheaper AND higher quality.
 TWO-STAGE GATE
 --------------
   1. ROUTING: if any agent() call lacks model/agentType or lacks effort, DENY.
-     Never bypassable -- mode has no say here.
+     Never bypassable -- mode has no say here. `agentType: 'agenting:<name>'`
+     (this plugin's agents/, addressed with the plugin prefix) counts as routed.
   2. APPROVAL: even when every call is routed, DENY until the user has approved
      this particular routing plan in this session. Claude presents the plan
-     (as-proposed / cheaper / higher quality), applies the answer, records the
+     (as proposed / cheaper / higher quality), applies the answer, records the
      approval with --approve, and re-runs.
 
-     EXCEPTION (2.1.0): if this session's mode is explicitly recorded as
-     `auto` in ~/.claude/.agenting-session-state.json (written by the sibling
+     AUTO MODE: if this session's mode is explicitly recorded as "auto" in
+     <state dir>/.agenting-session-state.json (written by the sibling
      SessionStart hook, hooks/session-continuity.py), Stage 2 drops its
-     ROUTING opinion entirely -- no --approve round-trip, no more denying new
-     plans -- but stays silent on PERMISSION (see OUTPUT CONTRACT below): the
-     user's own Claude Code permission settings for the Workflow tool, if
-     any, are untouched either way. A MISSING entry does NOT default to this
-     bypass; only an explicit "auto" does. That's deliberate: if the
-     continuity hook is ever absent or not wired up in some install, this
-     gate keeps today's safe behavior (require an explicit approve) rather
-     than silently skipping it because state happened to be unreadable.
+     routing opinion entirely -- no --approve round-trip -- but stays silent on
+     PERMISSION (see OUTPUT CONTRACT below). Only an explicit "auto" does this.
+     A missing entry, a missing file, legacy "semi-auto" or anything else
+     keeps the approval requirement, so an install where the continuity hook
+     is absent degrades to asking rather than to a bypass nobody configured.
 
 The same plan re-run in the same session passes silently. Change any tier and
-the signature changes, so it asks again (except under the auto-mode
-exception above, which never asks again regardless of tier changes).
+the signature changes, so it asks again (except in auto mode, which never asks).
 
 SINGLE Agent CALLS ARE OUT OF SCOPE
 -----------------------------------
-Deliberate: all 20 agent definitions pin both model and effort, and one agent is
-bounded and cheap. A gate there costs more attention than it saves. The
-"sometimes ask" cases where the tier and the task genuinely disagree belong to
-the skill (skills/agenting/SKILL.md), not to this hook.
+Deliberate: every agent definition in this plugin's agents/ pins both model and
+effort, and one agent is bounded and cheap. A gate there costs more attention
+than it saves. The "sometimes ask" cases where the tier and the task genuinely
+disagree belong to the agenting skill, not to this hook.
+
+STATE DIR
+---------
+$AGENTING_STATE_DIR if set (tests use this), else ~/.claude. Holds
+.routing-approvals.json (written here, by --approve) and
+.agenting-session-state.json (read-only here).
 
 OUTPUT CONTRACT
 ---------------
@@ -70,11 +73,11 @@ import sys
 
 ESCAPE_HATCH = "routing: inherit"
 MAX_REPORTED = 12
-APPROVALS_PATH = os.path.expanduser("~/.claude/.routing-approvals.json")
-# Same file session-continuity.py's SessionStart hook writes -- deliberately
-# read-only from here. This script never writes it; it only checks whether
-# this session's mode was explicitly recorded as "auto".
-SESSION_STATE_PATH = os.path.expanduser("~/.claude/.agenting-session-state.json")
+STATE_DIR = os.path.expanduser(os.environ.get("AGENTING_STATE_DIR") or "~/.claude")
+APPROVALS_PATH = os.path.join(STATE_DIR, ".routing-approvals.json")
+# Same file session-continuity.py's SessionStart hook writes -- read-only from
+# here; this script only checks whether the mode was explicitly "auto".
+SESSION_STATE_PATH = os.path.join(STATE_DIR, ".agenting-session-state.json")
 KEEP_SESSIONS = 20
 SELF_PATH = os.path.abspath(__file__)
 
@@ -246,8 +249,8 @@ def plan_hash(sig: str) -> str:
 
 def explicit_auto_mode(session: str) -> bool:
     """True only if session-continuity.py explicitly recorded "auto" for this
-    session_id. A missing/unreadable file or a missing entry returns False --
-    see SESSION_STATE_PATH's comment for why that's the safe default."""
+    session_id. A missing/unreadable file, a missing entry, or legacy
+    "semi-auto" returns False -- the safe default (see the module docstring)."""
     try:
         with open(SESSION_STATE_PATH, "r", encoding="utf-8") as fh:
             state = json.load(fh)
@@ -356,8 +359,9 @@ a cheap one.
 
 {rows}{more}
 
-DO THIS: give every agent() call a model (or agentType) AND an effort.
-Tier table: the agenting skill (SKILL.md) — invoke it if it's not already loaded.
+DO THIS: give every agent() call a model (or agentType) AND an effort, e.g.
+  {{model: 'haiku', effort: 'low'}}  or  {{agentType: 'agenting:researcher', effort: 'medium'}}
+Tier table: load the agenting skill if it isn't loaded yet.
 
 For deliberate inheritance, put `// {ESCAPE_HATCH}` on that line or the one above it.""",
             f"Workflow stopped (1/2): {len(unrouted)} agent() call(s) have no routing.",
@@ -386,7 +390,8 @@ For deliberate inheritance, put `// {ESCAPE_HATCH}` on that line or the one abov
     )
 
     return deny(
-        f"""STAGE 2/2 — PLAN APPROVAL: {len(tiers)} agents, all routed. Waiting on the user.
+        f"""STAGE 2/2 — PLAN APPROVAL: {len(tiers)} agents, all routed. Waiting on the user
+(this session is in manual mode, or has no recorded mode). Procedure: the agenting skill.
 
 {table}
 

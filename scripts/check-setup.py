@@ -27,6 +27,8 @@ from pathlib import Path
 
 HOME = Path.home()
 USER_CLAUDE = HOME / ".claude"
+# The hooks keep their state here; AGENTING_STATE_DIR redirects it (tests use it).
+STATE_DIR = Path(os.path.expanduser(os.environ.get("AGENTING_STATE_DIR") or "~/.claude"))
 # Inside an installed plugin this env var points at the plugin root.
 PLUGIN_ROOT = Path(os.environ.get("CLAUDE_PLUGIN_ROOT", Path(__file__).resolve().parent.parent))
 
@@ -242,7 +244,7 @@ if continuity:
     # state behind for probe_session, which would make the "unseen" case below
     # not actually unseen. The continuity script has no --delete, so drop the
     # key directly from the same state file it reads.
-    state_path = Path(os.path.expanduser("~/.claude/.agenting-session-state.json"))
+    state_path = STATE_DIR / ".agenting-session-state.json"
     try:
         state = json.loads(state_path.read_text(encoding="utf-8"))
         if probe_session in state:
@@ -264,20 +266,18 @@ if continuity:
         except Exception:
             return None
 
-    # 2.1.0 redesign: the hook itself never asks anything (the lazy ask is
-    # instruction-layer, driven by the agenting skill at the point it's
-    # actually needed) -- it only silently seeds/carries state. Assert the
-    # negative explicitly, since "doesn't ask" is exactly the property a
-    # regression would violate silently.
+    # The hook never asks anything: it seeds or carries state and prints one
+    # short [agenting] line. Assert the negative explicitly, since "doesn't
+    # ask" is exactly the property a regression would violate silently.
     first = continuity_context({"session_id": probe_session, "cwd": str(PLUGIN_ROOT), "source": "startup"})
     check("silently seeds an unseen session_id (never asks)",
-          first is not None and "AskUserQuestion" not in first and "mode defaults to `auto`".lower() in first.lower(),
-          "no additionalContext, or it asked something -- the hook must never ask")
+          first is not None and "AskUserQuestion" not in first
+          and first.startswith("[agenting] mode=auto") and "\n" not in first,
+          "no additionalContext, or not the one-line [agenting] status -- the hook must never ask")
 
-    # Disposition is never null/"unset" -- it's seeded "balanced" immediately,
-    # since the final 2.1.0 design has no ask for this axis at all (only the
-    # suggestion axis can be genuinely unset). Confirm via --status BEFORE any
-    # --record call, so this is really the seeded default, not a leftover.
+    # Disposition is never null/"unset": it is seeded "balanced" immediately.
+    # Confirm via --status BEFORE any --record call, so this is really the
+    # seeded default, not a leftover.
     fresh_stat = subprocess.run(
         [sys.executable, str(continuity), "--status", "--session", probe_session],
         capture_output=True, text=True, timeout=20,
@@ -286,36 +286,38 @@ if continuity:
           "disposition=balanced" in fresh_stat.stdout,
           fresh_stat.stdout.strip()[:100])
 
-    second = continuity_context({"session_id": probe_session, "cwd": str(PLUGIN_ROOT), "source": "compact"})
-    check("carries state forward on a later SessionStart, still never asks",
-          second is not None and "AskUserQuestion" not in second and "carried over" in second,
-          "a later SessionStart for the same id should carry state, not ask")
-
     rec = subprocess.run(
         [sys.executable, str(continuity), "--record", "--session", probe_session,
-         "--disposition", "quality", "--suggestion", "on"],
+         "--mode", "manual", "--disposition", "quality", "--workflows", "on"],
         capture_output=True, text=True, timeout=20,
     )
-    check("--record persists disposition and suggestion",
-          rec.returncode == 0 and "disposition=quality" in rec.stdout and "suggestion=on" in rec.stdout,
+    check("--record persists mode, disposition and the workflows opt-in",
+          rec.returncode == 0 and "mode=manual" in rec.stdout
+          and "disposition=quality" in rec.stdout and "workflows=on" in rec.stdout,
           (rec.stdout + rec.stderr).strip()[:100])
+
+    second = continuity_context({"session_id": probe_session, "cwd": str(PLUGIN_ROOT), "source": "compact"})
+    check("carries recorded state across compaction, still never asks",
+          second is not None and "AskUserQuestion" not in second
+          and "mode=manual" in second and "workflows=on" in second,
+          "a compact SessionStart for the same id should re-inject the recorded values")
 
     stat = subprocess.run(
         [sys.executable, str(continuity), "--status", "--session", probe_session],
         capture_output=True, text=True, timeout=20,
     )
     check("--status reports what --record persisted",
-          "disposition=quality" in stat.stdout and "suggestion=on" in stat.stdout,
+          "disposition=quality" in stat.stdout and "workflows=on" in stat.stdout,
           stat.stdout.strip()[:100])
 
     clear_ctx = continuity_context({"session_id": probe_session, "cwd": str(PLUGIN_ROOT), "source": "clear"})
     check("/clear does not inherit prior state onto the same session_id",
-          clear_ctx is not None and "carried over" not in clear_ctx,
+          clear_ctx is not None and "mode=auto" in clear_ctx and "workflows=not opted in" in clear_ctx,
           "a clear source should start a fresh continuum, not carry forward")
 
 # ------------------------------------------------- guard auto-mode bypass
 
-section("Guard — auto-mode Stage 2 bypass (2.1.0)")
+section("Guard — auto-mode Stage 2 bypass")
 
 if guard and continuity:
     bypass_session = "setup-check-auto-bypass"
@@ -323,7 +325,7 @@ if guard and continuity:
 
     # Idempotent re-runs: drop any state this probe session left behind last
     # time, so "unrecorded session" below is actually unrecorded.
-    state_path = Path(os.path.expanduser("~/.claude/.agenting-session-state.json"))
+    state_path = STATE_DIR / ".agenting-session-state.json"
     try:
         bstate = json.loads(state_path.read_text(encoding="utf-8"))
         if bypass_session in bstate:
@@ -336,7 +338,7 @@ if guard and continuity:
     # from an earlier run, so it can't accidentally satisfy the "unrecorded
     # session still requires approval" check below via the OLD approvals
     # file instead of the NEW mode-state file this test is actually probing.
-    approvals_path = Path(os.path.expanduser("~/.claude/.routing-approvals.json"))
+    approvals_path = STATE_DIR / ".routing-approvals.json"
     try:
         approvals = json.loads(approvals_path.read_text(encoding="utf-8"))
         if bypass_session in approvals:
@@ -478,27 +480,41 @@ check("no pre-2.1.0 \"conversational memory only\" / \"resets to manual\" phrasi
       not stale_2_1_hits,
       "still present in: " + ", ".join(stale_2_1_hits[:4]))
 
-# The scaffold TEMPLATE shipped with the plugin — not a search for a real
+# The scaffold TEMPLATE shipped with the plugin -- not a search for a real
 # project instance, which may legitimately not exist yet.
 tpl_md = PLUGIN_ROOT / "templates" / "AGENTING.md"
 if tpl_md.is_file():
     tpl_txt = tpl_md.read_text(encoding="utf-8")
-    absent = [s for s in ("## Rules & Edge Cases", "## Config", "## Learned Precedents")
-              if s not in tpl_txt]
-    check("templates/AGENTING.md carries all three sections",
+    absent = [s for s in ("## Rules", "## Config") if s not in tpl_txt]
+    check("templates/AGENTING.md carries its Rules and Config sections",
           not absent, "missing: " + ", ".join(absent))
 else:
-    check("templates/AGENTING.md carries all three sections", False, f"{tpl_md} missing")
+    check("templates/AGENTING.md carries its Rules and Config sections", False, f"{tpl_md} missing")
 
-LOG_HEADER = "timestamp,source,shape_key,plan_signature,answer"
-tpl_csv = PLUGIN_ROOT / "templates" / "log.csv"
-if tpl_csv.is_file():
-    lines = tpl_csv.read_text(encoding="utf-8").splitlines()
-    header = lines[0].strip() if lines else ""
-    check("templates/log.csv header matches the schema",
-          header == LOG_HEADER, f"got {header!r}, want {LOG_HEADER!r}")
-else:
-    check("templates/log.csv header matches the schema", False, f"{tpl_csv} missing")
+# 3.0.0 removed the semi-auto mode, the suggestion axis and the log.csv /
+# precedent memory, and moved the agents to the plugin (agenting:<name>).
+# None of that vocabulary should resurface in what Claude or the user reads.
+# Exempt: the historical records, this file, and the two hooks that still
+# read a legacy "semi-auto"/"suggestion" state entry on purpose.
+STALE_3_0 = (
+    "semi-auto", "log.csv", "shape_key", "promotion-threshold", "matching-strictness",
+    "suggestion-default", "--suggestion", "Learned Precedents", "~/.claude/agents",
+)
+STALE_3_0_EXEMPT = STALE_EXEMPT | {"session-continuity.py", "workflow-routing-guard.py"}
+stale_3_0_hits = []
+for p in scan_targets:
+    if p.name in STALE_3_0_EXEMPT:
+        continue
+    try:
+        text = p.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        continue
+    for s in STALE_3_0:
+        if s in text:
+            stale_3_0_hits.append(f"{p.relative_to(PLUGIN_ROOT)}: {s!r}")
+check("no pre-3.0.0 semi-auto / suggestion / log.csv vocabulary survives",
+      not stale_3_0_hits,
+      "still present in: " + ", ".join(stale_3_0_hits[:4]))
 
 # Stage 2 must tell the user to approve via the guard that actually ran, not a
 # hardcoded ~/.claude path that breaks the moment the plugin lives elsewhere.
