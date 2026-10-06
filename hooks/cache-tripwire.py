@@ -27,10 +27,11 @@ MAX_SCAN_LINES = 200_000
 STATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cache-tripwire-state.json")
 
 # Approximate list-price input $/MTok, matched by substring against message.model.
+# Verified 2026-10-05 for Haiku 4.5, Sonnet 5.5, Opus 5.5, Fable 5.1.
 PRICES_PER_MTOK = {
     "haiku": 1.00,
-    "sonnet": 3.00,
-    "opus": 5.00,
+    "sonnet": 2.00,
+    "opus": 4.00,
     "fable": 10.00,
 }
 CACHE_WRITE_MULTIPLIER = 1.25  # 5-min ephemeral write; 1h write is 2x but this is a nudge, not a bill.

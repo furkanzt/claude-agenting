@@ -96,6 +96,7 @@ Upgrading from 2.x: see the 3.0.0 entry in [CHANGELOG.md](CHANGELOG.md).
 
 | | |
 |---|---|
+| `evals/` | The measurement harness behind the routing table: real tasks, isolated `claude -p` runs, a pinned judge, a decision bar. Incremental by design: a new model costs only its missing runs. |
 | `hooks/workflow-routing-guard.py` | The two-stage gate (`PreToolUse` on `Workflow`). |
 | `hooks/workflow-finish-check.py` | The finish check (`UserPromptSubmit`). Silent unless a finished Workflow lost agents. |
 | `hooks/session-continuity.py` | `SessionStart`: seeds and re-injects mode, disposition and the workflows opt-in; also the `--record` / `--status` CLI. |
@@ -114,19 +115,19 @@ Address them as `agenting:<name>`: `agentType: 'agenting:researcher'` inside a w
 
 | Tier | Agents |
 |---|---|
-| `haiku` / `low` | `scanner`, `text-mechanic` |
-| `sonnet` / `low` | `coder`, `tech-writer`, `git-specialist` |
+| `haiku` / `low` | `scanner` |
+| `sonnet` / `low` | `coder`, `tech-writer`, `git-specialist`, `text-mechanic` |
 | `sonnet` / `medium` | `researcher`, `frontend-dev`, `cicd-engineer`, `performance-engineer`, `tester-tdd` |
 | `sonnet` / `high` | `coder-ts`, `database-architect`, `ml-developer`, `refactoring-specialist` |
 | `opus` / `high` | `coordinator`, `swarm-coordinator` |
 | `opus` / `xhigh` | `reviewer`, `security-architect`, `system-architect`, `incident-responder` |
 
-> **This roster is one person's opinionated setup.** Delete the ones that don't fit how you work; the gate doesn't depend on any of them.
+> **This roster is one person's opinionated setup.** Delete the ones that don't fit how you work; the gate doesn't depend on any of them. The 2026-10-06 measurement covered the seven routing-table rows only: `scanner` and `text-mechanic` follow their rows, while the architecture, security, incident and orchestration agents are unmeasured and keep their pins.
 
 Two are worth keeping regardless, because they encode a discipline rather than a role:
 
 - **`scanner`** (haiku/low): counts, lists, measures. Carries a *no silent zeroes* rule: a search returning 0 must be cross-checked and the gap explained, never reported as success.
-- **`text-mechanic`** (haiku/low): mechanical text repair with a hard **output ⊆ input** invariant, and a mandatory closing audit (`words in input but missing from output: 0`) that refuses delivery if it isn't zero.
+- **`text-mechanic`** (sonnet/low): mechanical text repair with a hard **output ⊆ input** invariant, and a mandatory closing audit (`words in input but missing from output: 0`) that refuses delivery if it isn't zero.
 
 ## Choosing a tier
 
@@ -138,12 +139,14 @@ Two questions settle almost every case:
 | Task shape | Model | Effort |
 |---|---|---|
 | List files, count pages, collect output | `haiku` | `low` |
-| Mechanical text cleanup (output ⊆ input) | `haiku` | `low` |
+| Mechanical text cleanup (output ⊆ input) | `sonnet` | `low` |
 | Read code/prose and report what it does | `sonnet` | `medium` |
 | Turn prose into rules; classify; judge | `sonnet` | `medium`–`high` |
 | Synthesize across a document or many files | `opus` | `xhigh` |
-| Decide under a "don't guess" constraint | `opus` | `xhigh` |
-| Adversarially verify a finding | `opus` | `high` |
+| Decide under a "don't guess" constraint | `sonnet` | `xhigh` |
+| Adversarially verify a finding | `sonnet` | `high` |
+
+These cells were measured on 2026-10-06 (Sonnet 5.5, Opus 5.5, Fable 5.1, Haiku 4.5), not just assumed. Three changed: cleanup moved to Sonnet `low` because Haiku failed it, and don't-guess and verify moved from Opus to Sonnet because Sonnet made no more errors (and no hallucinations) over 102 and 96 measured items. Synthesis stays on Opus, where Sonnet found fewer real issues. The `quality` disposition keeps Opus on all three. See [`evals/`](evals/README.md), which also keeps the evidence so that when a new model ships only the missing runs are paid for.
 
 ## Deliberate inheritance
 
@@ -275,7 +278,12 @@ measurement date.
 - **Cache key includes model+effort:** a mid-session switch rewrites the whole
   prefix (see `cache-tripwire.py`'s docstring for the measured case). At the
   time, Claude Code showed a confirmation dialog for effort changes; model
-  changes were silent.
+  changes were silent. Update 2026-10-05: Claude Code's docs now say that on
+  Opus 5.5, Sonnet 5.5 and Fable 5.1 an effort change no longer invalidates the
+  cache (not on Bedrock, Google Cloud, HIPAA, or with experimental betas off);
+  a model switch still does. Whether that holds for subagent and Workflow
+  requests is not documented, so re-measure with `cache-tripwire.py` before
+  relying on it.
 - Under subscription, the main session gets a 1-hour cache TTL; **on overage
   it silently drops to 5 minutes** (`ENABLE_PROMPT_CACHING_1H` prevents this).
   A subagent always starts cold with its own cache, 5-minute TTL.
@@ -286,9 +294,12 @@ measurement date.
 - Limits: the **Opus limit was never hit**; the binding constraint is the
   shared session limit (one incident, 2026-08-06 13:54, pre-skill fan-out).
   Switching models does not restore the shared limit.
-- Price ratio, dated: Sonnet's input price was 2.5x cheaper than Opus's during
-  Sonnet's introductory pricing, which ended 2026-08-31. Since then it is
-  1.67x ($3 vs $5 per MTok list). Re-check current pricing before relying on it.
+- Price ratio, dated 2026-10-05: Sonnet 5.5 is $2/$10 and Opus 5.5 is $4/$20 per
+  MTok, so Opus is 2x per token. Sonnet 5's introductory $2/$10 became the
+  permanent price (the planned rise to $3/$15 on 2026-09-01 did not happen).
+  Per-token ratios mislead because effort changes how many tokens a model uses;
+  `evals/` compares measured cost per run instead. Re-check pricing before
+  relying on this.
 - Vector DB decision: **no** for audit work (comprehensiveness can't be
   established via similarity search, and the bill is already re-read-weighted);
   for kazanım (learning-outcome) mapping, a ready ~100-200 record JSON table is

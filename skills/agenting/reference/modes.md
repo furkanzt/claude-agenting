@@ -50,12 +50,23 @@ Baseline per disposition:
 
 | Routing-table row | `fast` | `balanced` | `quality` |
 |---|---|---|---|
-| List / count / mechanical | `haiku`/`low` | `haiku`/`low` | `haiku`/`low` |
+| List / count | `haiku`/`low` | `haiku`/`low` | `haiku`/`low` |
+| Mechanical cleanup | `sonnet`/`low` | `sonnet`/`low` | `sonnet`/`low` |
 | Read code/prose, report | `sonnet`/`low` | `sonnet`/`medium` | `sonnet`/`high` |
 | Prose→rules, classify, judge | `sonnet`/`low` | `sonnet`/`medium` | `sonnet`/`high` |
-| Synthesize across many files | `opus`/`xhigh` | `opus`/`xhigh` | `opus`/`xhigh` |
-| Decide under BELİRSİZ | `opus`/`xhigh` | `opus`/`xhigh` | `opus`/`xhigh` |
-| Adversarial verify/refute | `opus`/`high` | `opus`/`high` | `opus`/`high` |
+| Synthesize across many files | `opus`/`high` | `opus`/`xhigh` | `opus`/`xhigh` |
+| Decide under BELİRSİZ | `sonnet`/`xhigh` | `sonnet`/`xhigh` | `opus`/`xhigh` |
+| Adversarial verify/refute | `sonnet`/`high` | `sonnet`/`high` | `opus`/`high` |
+
+`fast` and `balanced` are the measured cells (2026-10-06, `evals/`). For BELİRSİZ
+and verification `balanced` uses Sonnet: it matched Opus on every measured run at
+about half the cost with no hallucination, and the closed-book gap in the vendor
+cards is knowledge, not abstention discipline; the evidence is a bounded null (a
+gap under about 3 to 5 points is not excluded), so `quality` keeps Opus. For
+synthesis Sonnet does not match Opus (it missed a subtle planted item in 3 of 3
+runs on one task), so `balanced` and `quality` keep `opus`/`xhigh`; `fast` uses
+`opus`/`high`, which saves about a third and missed one planted item in 2 of 9
+runs.
 
 Deviate from the baseline per task, silently and in either direction, whenever
 that task's own stakes call for it, including a different model rather than

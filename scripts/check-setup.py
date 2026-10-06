@@ -183,9 +183,9 @@ for d in agent_dirs():
 check("agent definitions found", len(seen) > 0, "none found")
 print(f"       {DIM}{len(seen)} unique agent(s) across {len(agent_dirs())} directory(ies){RESET}")
 check("every agent declares model AND effort", not missing, ", ".join(missing[:4]))
-check("a cheap tier exists",
-      any(k.startswith("haiku") for k in tiers),
-      "no haiku-tier agent — mechanical work has nowhere cheap to go",
+check("a low-effort tier exists",
+      any(k.endswith("/low") for k in tiers),
+      "no agent runs at low effort — mechanical work has nowhere cheap to go",
       warn=True)
 check("more than one tier in use",
       len(tiers) > 1,

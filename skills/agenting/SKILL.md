@@ -17,12 +17,48 @@ Pick by reasoning demand, not by how important the task feels.
 | Task shape | Model | Effort | Test |
 |---|---|---|---|
 | List files, count pages, run a script, collect output | `haiku` | `low` | A regex or `ls` could nearly do it |
-| Mechanical text cleanup: de-hyphenate, reflow, strip headers | `haiku` | `low` | Output ⊆ input; nothing invented |
+| Mechanical text cleanup: de-hyphenate, reflow, strip headers | `sonnet` | `low` | Output ⊆ input; nothing invented |
 | Read code / prose and report what it does | `sonnet` | `medium` | Answer is present in one place |
 | Turn prose into rules; classify; judge relevance | `sonnet` | `medium`–`high` | Needs judgment, source states the facts |
 | Synthesize across a whole document or many files | `opus` | `xhigh` | Must relate things that are far apart |
-| Decide under a "don't guess" constraint (BELİRSİZ) | `opus` | `xhigh` | **Calibration is the product** |
-| Adversarial verify / refute a finding | `opus` | `high` | A confident wrong answer is expensive |
+| Decide under a "don't guess" constraint (BELİRSİZ) | `sonnet` | `xhigh` | **Calibration is the product** |
+| Adversarial verify / refute a finding | `sonnet` | `high` | A confident wrong answer is expensive |
+
+**How these cells were checked (2026-10-06).** [`evals/`](../../evals/README.md)
+ran every cell of each row on real tasks, three repeats, comparing measured cost
+per run. Three rows changed:
+
+- **Mechanical cleanup, `haiku/low` → `sonnet/low`.** Haiku failed all three runs
+  (it left the page headers in); Sonnet at `low` passed all three.
+- **Don't-guess (BELİRSİZ) and adversarial verify, `opus` → `sonnet`.** Sonnet
+  `xhigh` hallucinated on none of 102 unanswerable items, as Opus `xhigh` did
+  (Haiku: 19); Sonnet `high` gave no wrong verdict in 96, as Opus `high` did.
+  Both rates are bounded below about 3% (95% confidence) and Sonnet cost about
+  half as much. A deep-research pass found no published open-book comparison of
+  the two models and showed that the closed-book gap in the vendor cards is
+  knowledge, not abstention discipline
+  ([`evals/research/2026-10-06-sonnet-vs-opus-open-book.md`](../../evals/research/2026-10-06-sonnet-vs-opus-open-book.md)).
+  This is a bounded null: it cannot exclude a gap of a few points, so the
+  `quality` disposition keeps Opus on these rows.
+- **Kept: scan, read-report, classify, synthesize.** Synthesis stays on Opus
+  `xhigh` because there Sonnet does not do the same thing: Opus `xhigh` found every
+  planted item in all 9 runs, Sonnet `xhigh` missed the same subtle one in 3 of 3
+  on one task and reported fewer genuine extra issues. For scan, read-report and
+  classify no cheaper cell cleared the plugin's evidence rules (pass every run and
+  save at least 25%).
+- **`haiku/low` is just `haiku`:** it ignores `effort` and thinks heavily by
+  default, so on the scan task it was the costliest cell ($0.17 a run; `sonnet/high`
+  also passed 3 of 3 for $0.05 but has no second-round task yet). Anthropic lists
+  Haiku 4.5 for retirement no earlier than 2026-10-15; re-test scan when that moves.
+- **Disposition.** `quality` keeps Opus on rows 5 to 7; `fast` uses Opus `high` for
+  synthesis. See [reference/modes.md](reference/modes.md).
+- **Limits.** Nine runs per cell per high-stakes row, and 102 abstention items per
+  model, show large gaps, not gaps of a few points. A harder paired test (near-miss
+  unanswerable items, long documents) could still find one; the harness is ready
+  for it. The scan row was tested without Bash. The architecture, security, incident
+  and orchestration agents were not measured and keep their pins. Method, every
+  number and the places where the harness's raw output was overridden:
+  `evals/results/REPORT-2026-10-06.md`.
 
 Two questions settle almost every case:
 
@@ -37,8 +73,8 @@ prefix is part of the name, and the guard wants `effort` alongside it.
 
 | Tier | Agents (`agenting:<name>`) |
 |---|---|
-| `haiku`/`low` | `scanner`, `text-mechanic` |
-| `sonnet`/`low` | `coder`, `tech-writer`, `git-specialist` |
+| `haiku`/`low` | `scanner` |
+| `sonnet`/`low` | `coder`, `tech-writer`, `git-specialist`, `text-mechanic` |
 | `sonnet`/`medium` | `researcher`, `frontend-dev`, `cicd-engineer`, `performance-engineer`, `tester-tdd` |
 | `sonnet`/`high` | `coder-ts`, `database-architect`, `ml-developer`, `refactoring-specialist` |
 | `opus`/`high` | `coordinator`, `swarm-coordinator` |

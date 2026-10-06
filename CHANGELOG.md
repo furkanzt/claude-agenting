@@ -1,5 +1,61 @@
 # Changelog
 
+## 3.1.0 — 2026-10-06
+
+### Changed: three routing cells, after measuring all seven
+The seven routing-table rows were re-measured on the 5.5 generation (Sonnet 5.5,
+Opus 5.5, Fable 5.1, Haiku 4.5) with the new `evals/` harness instead of assumed.
+Method, every number and where the harness's raw output was overridden:
+`evals/results/REPORT-2026-10-06.md`.
+- **Mechanical text cleanup: `haiku/low` → `sonnet/low`.** Haiku left page headers
+  in and failed all 3 runs; Sonnet at `low` passed 3 of 3. The `text-mechanic`
+  agent now pins `sonnet/low`.
+- **Don't-guess (BELİRSİZ): `opus/xhigh` → `sonnet/xhigh`.** 0 hallucinations in 102
+  unanswerable items for Sonnet and for Opus (Haiku: 19).
+- **Adversarial verify: `opus/high` → `sonnet/high`.** 0 wrong verdicts in 96 for
+  Sonnet and for Opus. Both rates are bounded below about 3% at 95% confidence, and
+  Sonnet cost about half as much. A deep-research pass
+  (`evals/research/2026-10-06-sonnet-vs-opus-open-book.md`) found no published
+  open-book comparison and showed that the vendor cards' closed-book gap is
+  knowledge, not abstention discipline. It is a bounded null: a gap of a few points
+  is not excluded, so **`quality` keeps Opus** on these rows.
+- **Synthesis stays `opus/xhigh`.** Opus found every planted item in all 9 runs;
+  Sonnet missed the same subtle one in 3 of 3 on one task and found fewer genuine
+  extra issues. Scan, read-report and classify are unchanged: no cheaper cell
+  passed every run and saved at least 25%.
+- **`reference/modes.md`:** `fast` and `balanced` use the measured cells; `quality`
+  keeps the previous Opus cells on rows 5 to 7; `fast` uses `opus/high` for synthesis.
+- **Haiku notes.** Haiku 4.5 ignores `effort` (`haiku/low` is just `haiku`) and thinks
+  heavily by default, so on the scan task it was the costliest cell. `scanner` stays
+  on it for now; Anthropic lists Haiku 4.5 for retirement no earlier than
+  2026-10-15, and `sonnet/high` passed the scan task 3 of 3 at about 70% less
+  cost, pending a second scan task.
+- Upgrading: nothing to configure. To keep Opus on don't-guess and verify for one
+  project, run `/agenting-mode quality` or add a Rule to its `agenting/AGENTING.md`
+  (for example "route BELİRSİZ decisions to opus/xhigh here").
+
+### Added
+- **`evals/`**: the measurement harness. Isolated `claude -p --restricted` runs (no
+  CLAUDE.md, hooks, memory or advisor; exact cost, tokens and model per run), real
+  tasks with computed or planted ground truth, a pinned blind judge for the
+  open-ended rows, a two-tier decision bar and a 25% materiality threshold.
+  Incremental: a run's identity includes a hash of its cell, so a new model or
+  prompt variant re-runs only itself (`python3 evals/evalkit.py plan` lists exactly
+  what is missing). Real project material stays in the gitignored `evals/private/`;
+  only scores, costs and model ids are committed.
+- `evals/research/2026-10-05-models.md`: primary-source facts on the four models,
+  with the 12 routing-critical claims re-verified.
+
+### Fixed
+- `hooks/cache-tripwire.py` priced Sonnet at $3 and Opus at $5 per MTok; the current
+  list prices are $2 and $4.
+- `scripts/check-setup.py` warned when no agent used Haiku; it now checks for a
+  low-effort tier.
+- `external-model-options.md` and the README's price-ratio and cache notes were
+  refreshed to the 2026-10-05 lineup. On Opus 5.5, Sonnet 5.5 and Fable 5.1 Claude
+  Code's docs say an effort change no longer invalidates the prompt cache; whether
+  that holds for subagents is not documented.
+
 ## 3.0.0 — 2026-09-23
 
 ### Migration from 2.x

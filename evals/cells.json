@@ -1,0 +1,129 @@
+{
+  "_note": "Prices are list $/MTok, verified 2026-10-05 against the Anthropic pricing page (research/2026-10-05-models.md). Decisions use measured cost_usd per run, not these. A cell's identity for caching is its cell_hash: sha8 of {cell_id, model_id, effort, system_append}; changing any of them re-runs that cell only.",
+  "cells": {
+    "fable-5-1@high": {
+      "model_id": "claude-fable-5-1",
+      "alias": "fable",
+      "effort": "high",
+      "price": {
+        "input": 10.0,
+        "output": 50.0,
+        "as_of": "2026-10-05"
+      }
+    },
+    "fable-5-1@xhigh": {
+      "model_id": "claude-fable-5-1",
+      "alias": "fable",
+      "effort": "xhigh",
+      "price": {
+        "input": 10.0,
+        "output": 50.0,
+        "as_of": "2026-10-05"
+      }
+    },
+    "haiku-4-5": {
+      "model_id": "claude-haiku-4-5-20251001",
+      "alias": "haiku",
+      "effort": null,
+      "effort_note": "Accepted but no measurable effect (probe 2026-10-05: 15,259 vs 18,149 thinking tokens at low vs xhigh). Runner omits --effort.",
+      "price": {
+        "input": 1.0,
+        "output": 5.0,
+        "as_of": "2026-10-05"
+      }
+    },
+    "opus-5-5@low": {
+      "model_id": "claude-opus-5-5",
+      "alias": "opus",
+      "effort": "low",
+      "price": {
+        "input": 4.0,
+        "output": 20.0,
+        "as_of": "2026-10-05"
+      },
+      "why": "Research candidate A: AA index Opus low 42 at $0.55/task vs Sonnet medium 41 at $0.59."
+    },
+    "opus-5-5@medium": {
+      "model_id": "claude-opus-5-5",
+      "alias": "opus",
+      "effort": "medium",
+      "price": {
+        "input": 4.0,
+        "output": 20.0,
+        "as_of": "2026-10-05"
+      }
+    },
+    "opus-5-5@high": {
+      "model_id": "claude-opus-5-5",
+      "alias": "opus",
+      "effort": "high",
+      "price": {
+        "input": 4.0,
+        "output": 20.0,
+        "as_of": "2026-10-05"
+      }
+    },
+    "opus-5-5@xhigh": {
+      "model_id": "claude-opus-5-5",
+      "alias": "opus",
+      "effort": "xhigh",
+      "price": {
+        "input": 4.0,
+        "output": 20.0,
+        "as_of": "2026-10-05"
+      }
+    },
+    "sonnet-5-5@low": {
+      "model_id": "claude-sonnet-5-5",
+      "alias": "sonnet",
+      "effort": "low",
+      "price": {
+        "input": 2.0,
+        "output": 10.0,
+        "as_of": "2026-10-05"
+      }
+    },
+    "sonnet-5-5@low+think": {
+      "model_id": "claude-sonnet-5-5",
+      "alias": "sonnet",
+      "effort": "low",
+      "system_append": "Think the problem through before you answer.",
+      "price": {
+        "input": 2.0,
+        "output": 10.0,
+        "as_of": "2026-10-05"
+      },
+      "why": "Anthropic's documented fix for Sonnet 5.5 answering structured verdicts without thinking at low/medium (research section 2.6)."
+    },
+    "sonnet-5-5@medium": {
+      "model_id": "claude-sonnet-5-5",
+      "alias": "sonnet",
+      "effort": "medium",
+      "price": {
+        "input": 2.0,
+        "output": 10.0,
+        "as_of": "2026-10-05"
+      }
+    },
+    "sonnet-5-5@high": {
+      "model_id": "claude-sonnet-5-5",
+      "alias": "sonnet",
+      "effort": "high",
+      "price": {
+        "input": 2.0,
+        "output": 10.0,
+        "as_of": "2026-10-05"
+      }
+    },
+    "sonnet-5-5@xhigh": {
+      "model_id": "claude-sonnet-5-5",
+      "alias": "sonnet",
+      "effort": "xhigh",
+      "price": {
+        "input": 2.0,
+        "output": 10.0,
+        "as_of": "2026-10-05"
+      }
+    }
+  }
+}

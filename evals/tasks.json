@@ -1,0 +1,145 @@
+[
+  {
+    "id": "classify-01",
+    "row": "classify",
+    "phase": "screening",
+    "title": "Label 24 MEB curriculum activity sentences with one of 6 close kazanım (Fen 7, unit 5) or NONE",
+    "delivery": "files",
+    "grading_type": "code",
+    "pass_rule": "score >= 0.9",
+    "pass_threshold": 0.9,
+    "task_hash": "e5fa23e9fe3f6f71a600622d7750fca0b5b1f00ef75286d9ab48b95ad1772191"
+  },
+  {
+    "id": "cleanup-01",
+    "row": "cleanup",
+    "phase": "screening",
+    "title": "De-hyphenate, reflow and strip running headers/footers from a hard-wrapped Turkish MEB prose passage",
+    "delivery": "inline",
+    "grading_type": "code",
+    "pass_rule": "score >= 0.9989",
+    "pass_threshold": 0.9989,
+    "task_hash": "c337c9edf0e718db7a79996b54cfbef428253863e56dbb4382d2d98a606f0150"
+  },
+  {
+    "id": "dont-guess-01",
+    "row": "dont-guess",
+    "phase": "screening",
+    "title": "Answer 20 questions from one real Turkish MEB document; 12 answerable, 8 plausible but unstated (BELİRSİZ)",
+    "delivery": "files",
+    "grading_type": "code",
+    "pass_rule": "score >= 0.95",
+    "pass_threshold": 0.95,
+    "task_hash": "8b239db3ddcc2eedf59fcc9ff1d7e0c2848370f028a078637bd816ca7a9cbddb"
+  },
+  {
+    "id": "dont-guess-02",
+    "row": "dont-guess",
+    "phase": "confirmation",
+    "title": "Answer 30 questions from two real Turkish curriculum documents, abstaining with BELİRSİZ where they are silent",
+    "delivery": "files",
+    "grading_type": "code",
+    "pass_rule": "score >= 0.96",
+    "pass_threshold": 0.96,
+    "task_hash": "6d1b91f2dae80436fe782a96b76a2710f555f9f9ce27989067fda8ca9c7061d5"
+  },
+  {
+    "id": "dont-guess-03",
+    "row": "dont-guess",
+    "phase": "confirmation",
+    "title": "Answer questions from real game-project engineering documents; abstain with BELİRSİZ where the documents are silent",
+    "delivery": "files",
+    "grading_type": "code",
+    "pass_rule": "score >= 0.958",
+    "pass_threshold": 0.958,
+    "task_hash": "87e81a802142b8d19cb856fbe757d8e156230de065e5ec65f649b72e5814eadc"
+  },
+  {
+    "id": "read-report-01",
+    "row": "read-report",
+    "phase": "screening",
+    "title": "Answer 12 exact questions about Arrow Escape's board/progression module (lib/game.ts)",
+    "delivery": "files",
+    "grading_type": "code",
+    "pass_rule": "score >= 0.9",
+    "pass_threshold": 0.9,
+    "task_hash": "6c5a859d50f5489bb84e6478f2c0ca22e967a13add5aeb8ccb055828caa4971b"
+  },
+  {
+    "id": "scan-01",
+    "row": "scan",
+    "phase": "screening",
+    "title": "Enumerate and count a three-project game source tree (6 mechanical sub-questions)",
+    "delivery": "files",
+    "grading_type": "code",
+    "pass_rule": "score >= 1.0",
+    "pass_threshold": 1.0,
+    "task_hash": "768ceec37f783d037e2ff94b7d9c1dbe1b864e919e3ad579e1a4d61924dd2645"
+  },
+  {
+    "id": "synthesize-01",
+    "row": "synthesize",
+    "phase": "screening",
+    "title": "Cross-read Arrow Escape's docs and server modules: disagreements and cross-file constraints",
+    "delivery": "files",
+    "grading_type": "judge",
+    "pass_rule": "score >= 1.0",
+    "pass_threshold": 1.0,
+    "task_hash": "ae57deeeb20a7e8a1c7108462431d5b75cca573cfee0a965a00fe5218fa3c6fc"
+  },
+  {
+    "id": "synthesize-02",
+    "row": "synthesize",
+    "phase": "confirmation",
+    "title": "Cross-read Matching Numbers' docs and code: disagreements and cross-file constraints",
+    "delivery": "files",
+    "grading_type": "judge",
+    "pass_rule": "score >= 0.9",
+    "pass_threshold": 0.9,
+    "task_hash": "68326930314d6c4eec4c7ba7711ccae42197713e9ffd8aff77ef375f03654bb3"
+  },
+  {
+    "id": "synthesize-03",
+    "row": "synthesize",
+    "phase": "confirmation",
+    "title": "Cross-read a shared curriculum reference library: disagreements and cross-document constraints",
+    "delivery": "files",
+    "grading_type": "judge",
+    "pass_rule": "score >= 0.85",
+    "pass_threshold": 0.85,
+    "task_hash": "23f9461e623dc53072404b6ef4d5415ddcc919755fba82dce7ee2eacfee41727"
+  },
+  {
+    "id": "verify-01",
+    "row": "adversarial-verify",
+    "phase": "screening",
+    "title": "Confirm or refute 10 claimed defects in a real game module",
+    "delivery": "files",
+    "grading_type": "code",
+    "pass_rule": "score >= 1.0",
+    "pass_threshold": 1.0,
+    "task_hash": "46b3231bedf6394d61a7d2a253d9ea1afd6d82c4e74a378ca4e2a54559ae7d35"
+  },
+  {
+    "id": "verify-02",
+    "row": "adversarial-verify",
+    "phase": "confirmation",
+    "title": "Confirm or refute 12 claimed defects in a real puzzle-game module",
+    "delivery": "files",
+    "grading_type": "code",
+    "pass_rule": "score >= 1.0",
+    "pass_threshold": 1.0,
+    "task_hash": "efe22eaf642605ef04ad634457552be960d27ccb95a4510c2d9200096c48e95b"
+  },
+  {
+    "id": "verify-03",
+    "row": "adversarial-verify",
+    "phase": "confirmation",
+    "title": "Confirm or refute 10 claimed defects in a real Python text-processing module",
+    "delivery": "files",
+    "grading_type": "code",
+    "pass_rule": "score >= 1.0",
+    "pass_threshold": 1.0,
+    "task_hash": "925fb424691aea381570b4d12f092c36237c9b677685fc68bda2aa5b9da39f58"
+  }
+]

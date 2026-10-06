@@ -1,0 +1,229 @@
+{
+  "_note": "role: baseline = the cell the plugin table uses today; effort_down / model_down = the neighbours; up_reference = a stronger cell to fall back to if the baseline fails; ceiling = Fable 5.1 as an upper reference (NOT a safe ceiling for dont-guess: research shows the highest hallucination rate and least abstention); research_candidate = added because the 2026-10-05 research names it. tier: silent_damage rows need confirmation tasks before a change. control_weak = a deliberately weaker cell, run only to show whether a task can separate cells at all.",
+  "rows": [
+    {
+      "id": "scan",
+      "plugin_row": "List files, count pages, run a script, collect output",
+      "tier": "silent_damage",
+      "baseline": "haiku-4-5",
+      "grid": [
+        {
+          "cell": "haiku-4-5",
+          "role": "baseline"
+        },
+        {
+          "cell": "sonnet-5-5@low",
+          "role": "up_reference"
+        },
+        {
+          "cell": "sonnet-5-5@medium",
+          "role": "research_candidate"
+        },
+        {
+          "cell": "sonnet-5-5@high",
+          "role": "research_candidate"
+        }
+      ],
+      "tasks": [
+        "scan-01"
+      ],
+      "tier_note": "Reclassified from noticed on 2026-10-06 after the sweep: every Sonnet failure on scan-01 was one silently omitted list item, which looks like a complete inventory."
+    },
+    {
+      "id": "cleanup",
+      "plugin_row": "Mechanical text cleanup: de-hyphenate, reflow, strip headers",
+      "tier": "noticed",
+      "baseline": "haiku-4-5",
+      "grid": [
+        {
+          "cell": "haiku-4-5",
+          "role": "baseline"
+        },
+        {
+          "cell": "sonnet-5-5@low",
+          "role": "up_reference"
+        }
+      ],
+      "tasks": [
+        "cleanup-01"
+      ]
+    },
+    {
+      "id": "read-report",
+      "plugin_row": "Read code / prose and report what it does",
+      "tier": "noticed",
+      "baseline": "sonnet-5-5@medium",
+      "grid": [
+        {
+          "cell": "sonnet-5-5@medium",
+          "role": "baseline"
+        },
+        {
+          "cell": "sonnet-5-5@low",
+          "role": "effort_down"
+        },
+        {
+          "cell": "haiku-4-5",
+          "role": "model_down"
+        },
+        {
+          "cell": "sonnet-5-5@high",
+          "role": "up_reference"
+        },
+        {
+          "cell": "opus-5-5@low",
+          "role": "research_candidate"
+        }
+      ],
+      "tasks": [
+        "read-report-01"
+      ]
+    },
+    {
+      "id": "classify",
+      "plugin_row": "Turn prose into rules; classify; judge relevance (table says medium-high; baseline taken at the lower bound)",
+      "tier": "silent_damage",
+      "baseline": "sonnet-5-5@medium",
+      "grid": [
+        {
+          "cell": "sonnet-5-5@medium",
+          "role": "baseline"
+        },
+        {
+          "cell": "sonnet-5-5@low",
+          "role": "effort_down"
+        },
+        {
+          "cell": "haiku-4-5",
+          "role": "model_down"
+        },
+        {
+          "cell": "sonnet-5-5@high",
+          "role": "up_reference"
+        },
+        {
+          "cell": "opus-5-5@low",
+          "role": "research_candidate"
+        },
+        {
+          "cell": "sonnet-5-5@low+think",
+          "role": "research_candidate"
+        }
+      ],
+      "tasks": [
+        "classify-01"
+      ]
+    },
+    {
+      "id": "synthesize",
+      "plugin_row": "Synthesize across a whole document or many files",
+      "tier": "silent_damage",
+      "baseline": "opus-5-5@xhigh",
+      "grid": [
+        {
+          "cell": "opus-5-5@xhigh",
+          "role": "baseline"
+        },
+        {
+          "cell": "opus-5-5@high",
+          "role": "effort_down"
+        },
+        {
+          "cell": "opus-5-5@medium",
+          "role": "research_candidate"
+        },
+        {
+          "cell": "sonnet-5-5@xhigh",
+          "role": "model_down"
+        },
+        {
+          "cell": "fable-5-1@high",
+          "role": "ceiling"
+        },
+        {
+          "cell": "haiku-4-5",
+          "role": "control_weak"
+        }
+      ],
+      "tasks": [
+        "synthesize-01",
+        "synthesize-02",
+        "synthesize-03"
+      ]
+    },
+    {
+      "id": "dont-guess",
+      "plugin_row": "Decide under a don't-guess constraint (BELIRSIZ); calibration is the product",
+      "tier": "silent_damage",
+      "baseline": "opus-5-5@xhigh",
+      "grid": [
+        {
+          "cell": "opus-5-5@xhigh",
+          "role": "baseline"
+        },
+        {
+          "cell": "opus-5-5@high",
+          "role": "effort_down"
+        },
+        {
+          "cell": "opus-5-5@medium",
+          "role": "research_candidate"
+        },
+        {
+          "cell": "sonnet-5-5@xhigh",
+          "role": "model_down"
+        },
+        {
+          "cell": "fable-5-1@high",
+          "role": "ceiling"
+        },
+        {
+          "cell": "haiku-4-5",
+          "role": "control_weak"
+        }
+      ],
+      "tasks": [
+        "dont-guess-01",
+        "dont-guess-02",
+        "dont-guess-03"
+      ]
+    },
+    {
+      "id": "adversarial-verify",
+      "plugin_row": "Adversarial verify / refute a finding",
+      "tier": "silent_damage",
+      "baseline": "opus-5-5@high",
+      "grid": [
+        {
+          "cell": "opus-5-5@high",
+          "role": "baseline"
+        },
+        {
+          "cell": "opus-5-5@medium",
+          "role": "effort_down"
+        },
+        {
+          "cell": "opus-5-5@low",
+          "role": "research_candidate"
+        },
+        {
+          "cell": "sonnet-5-5@high",
+          "role": "model_down"
+        },
+        {
+          "cell": "fable-5-1@high",
+          "role": "ceiling"
+        },
+        {
+          "cell": "haiku-4-5",
+          "role": "control_weak"
+        }
+      ],
+      "tasks": [
+        "verify-01",
+        "verify-02",
+        "verify-03"
+      ]
+    }
+  ]
+}

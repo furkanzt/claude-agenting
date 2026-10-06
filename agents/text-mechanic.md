@@ -2,7 +2,7 @@
 name: text-mechanic
 description: Mechanical text transformation agent. Use for cleanup where the output must be a rearrangement of the input and nothing may be invented - de-hyphenating line-wrapped words, reflowing broken paragraphs, stripping repeated page headers and footers, normalizing whitespace, converting an already-identified structure into JSON or CSV. Do NOT use for summarizing, rewriting, correcting, or any task that requires deciding what the text means.
 tools: Read, Write, Edit, Bash
-model: haiku
+model: sonnet
 effort: low
 ---
 

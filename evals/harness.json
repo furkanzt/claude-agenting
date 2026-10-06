@@ -1,0 +1,36 @@
+{
+  "harness_version": 1,
+  "repeats_default": 3,
+  "max_retries_invalid": 2,
+  "runner": {
+    "claude_bin": "claude",
+    "flags": [
+      "--restricted",
+      "--strict-mcp-config",
+      "--no-session-persistence",
+      "--disable-slash-commands",
+      "--output-format",
+      "json"
+    ],
+    "tools_files": "Read,Grep,Glob",
+    "tools_inline": "",
+    "timeout_s": 1200,
+    "max_budget_usd_per_run": 6,
+    "jobs": 4,
+    "system_prompt": "You are a careful assistant completing one task. The task message says what to do and which files, if any, are in your working directory; work only from those files and your own reasoning. Only the tools you were given exist, so never attempt to call any other tool. End with the final answer in exactly the format the task requires."
+  },
+  "answer_markers": [
+    "===ANSWER===",
+    "===END==="
+  ],
+  "judge": {
+    "cell": "fable-5-1@high",
+    "repeats": 2,
+    "system_prompt": "You are a strict, impartial grader. You receive a task, a rubric with reference key points, and one answer. You do not know which system produced the answer. Score only against the rubric; do not reward length, polish or a confident tone. Reply with exactly the JSON object the rubric specifies, between the lines ===ANSWER=== and ===END==="
+  },
+  "decision": {
+    "noticed_extra_misses": 1,
+    "confirmation_tasks_min": 2,
+    "min_saving_fraction": 0.25
+  }
+}

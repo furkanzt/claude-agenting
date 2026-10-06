@@ -9,23 +9,31 @@ revisited with numbers instead of assumptions.
 
 ## 1. Current tiers (what you actually run)
 
+Prices verified 2026-10-05 against Anthropic's pricing page; source and the
+effort/capability evidence in [`evals/research/2026-10-05-models.md`](../../evals/research/2026-10-05-models.md).
+
 | Tier | Model | In $/MTok | Out $/MTok | Context | Agents |
 |---|---|---:|---:|---|---|
 | cheap | Haiku 4.5 | 1.00 | 5.00 | 200K | `scanner`, `text-mechanic` |
-| mid | Sonnet 5 | 3.00 (2.00 intro→2026-08-31) | 15.00 (10.00) | 1M | 12 agents |
-| top | Opus 5 | 5.00 | 25.00 | 1M | 6 agents |
-| max | Fable 5 | 10.00 | 50.00 | 1M | — |
+| mid | Sonnet 5.5 | 2.00 | 10.00 | 1M | see the roster in the README |
+| top | Opus 5.5 | 4.00 | 20.00 | 1M | see the roster in the README |
+| max | Fable 5.1 | 10.00 | 50.00 | 1M | none |
 
-Cache read ≈ 0.1×. Cache write 1.25× (5 min) / 2× (1 h). No long-context
-premium. Batch API −50%, up to 24 h latency.
+Sonnet's $2/$10 was introductory pricing on Sonnet 5; it is now the permanent
+price and Sonnet 5.5 launched at it. Cache reads are $0.10 (Haiku), $0.20
+(Sonnet 5.5, Opus 5.5) and $0.25 (Fable 5.1) per MTok; cache writes are 1.25×
+(5 min) or 2× (1 h) the input price. No long-context premium. Batch API −50%,
+up to 24 h latency. Haiku 4.5 has no effort parameter and its retirement is
+announced for no sooner than 2026-10-15 with no successor named; the harness in
+[`evals/`](../../evals/README.md) is how a replacement gets tested.
 
 ## 2. External candidates
 
 | Vendor / tier | In $/MTok | Out $/MTok | vs Haiku 4.5 | Notes |
 |---|---:|---:|---|---|
 | Gemini 2.5 Flash-Lite | 0.10 | 0.40 | **~10× cheaper** | The only tier with a real cost edge |
-| Gemini 3.1 Pro (<200K) | 2.00 | 12.00 | — | ≈ Sonnet 5 |
-| Gemini 3.1 Pro (>200K) | **4.00** | 12.00 | — | **More than Sonnet 5 ($3.00)** — long-context edge is a myth here |
+| Gemini 3.1 Pro (<200K) | 2.00 | 12.00 | — | ≈ Sonnet 5.5 |
+| Gemini 3.1 Pro (>200K) | **4.00** | 12.00 | — | **Twice Sonnet 5.5's input price ($2.00)** — long-context edge is a myth here |
 | *(add candidate)* | | | | |
 | *(add candidate)* | | | | |
 
@@ -59,7 +67,7 @@ model IDs to keep current. Call that ~2 h/year of your time.
   `scanner` returns ~400 tokens whether it read 10 files or 10,000. An external
   model adds no context isolation on top of that, only a price delta.
 - **"Gemini is better at long context."** Not at Pro tier above 200K, where it
-  costs more than Sonnet 5.
+  costs more than Sonnet 5.5.
 - **"It's free."** It is not free; it is cheap. The maintenance is the cost.
 
 ## 5. What WOULD justify it
@@ -80,5 +88,6 @@ model IDs to keep current. Call that ~2 h/year of your time.
    report `EXTERNAL CALL FAILED` and stop, not quietly substitute.
 3. **Pin it to one job shape**, not a whole layer. "Flash-Lite does the
    de-hyphenation pass" is maintainable; "Gemini is the junior dev tier" is not.
-4. **Re-verify the price table before trusting it.** These numbers were correct
-   on 2026-08-06 and both vendors reprice.
+4. **Re-verify the price table before trusting it.** The Gemini numbers were correct
+   on 2026-08-06 and not re-verified since; the Claude numbers were re-verified
+   on 2026-10-05. Both vendors reprice.
