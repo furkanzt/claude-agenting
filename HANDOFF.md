@@ -139,7 +139,11 @@ shape the harness has no task for; measuring them means writing tasks first.
 What 3.2.0 settled and what it did not. The meter now exists (`measure-tokenomics.py
 anatomy`); everything below needs it.
 
-**E1, a controlled launch-cost test (about $2-3 list; not yet run).** Question: do
+**E2 ran on 2026-10-07/08 (on list price; the window could not be measured on a shared account): clean runs -63% with no quality loss, so the shared clean-run core is due; the lean worker saved 19% on the full pipeline, below the 25% bar, so `agenting:worker` is not shipped.** Details in `evals/research/2026-10-07-launch-cost.md`.
+
+**E1 ran on 2026-10-07: pilot positive** (restricted-tools agent -63% per agent, `general-purpose` no saving, model override honoured, byte-identical prompts write nothing fresh); results and the pre-registered E2 design are in `evals/research/2026-10-07-launch-cost.md`. The original E1 design follows for reference.
+
+**E1, a controlled launch-cost test (about $2-3 list).** Question: do
 typed agents (the plugin's all restrict their tools) start much smaller than generic
 `agent()` calls, and is the cause the type or the restricted tool list? Local
 transcripts say about 15k tokens of first-call context for typed agents without a
@@ -158,6 +162,8 @@ means "pilot positive": replicate it once, or run it on one real fan-out shape, 
 changing any guidance or adding an agent. State in `evals/README.md` that this measures
 launch cost and sits outside the routing-cell bar. Check that `message.model` equals
 the routed full id in every arm.
+
+**Open, to deal with in detail later (owner, 2026-10-08): the experimental `~/.claude/agents/lean-worker.md`** (tools Read, three-line neutral body, pinned sonnet/medium; created for E2). It is kept for now. It missed the 25% bar on the full pipeline (-19%) but saved 32% on a short, tool-free step. Decide whether it stays user-level, moves into the plugin for short steps only, or goes.
 
 **A lean worker agent, only if E1 passes twice and the owner approves.**
 `agents/worker.md`: tools Read (optionally Grep, Glob), a three-line neutral body,

@@ -40,12 +40,16 @@ None of these overrides the routing table or the session's disposition.
    coarsened its output. Batch only when the output can be validated in code
    (every input id exactly once, no foreign id), and do not batch a judge step.
    **untested here.**
-2. **Typed agents without a skill listing (observed, confounded).** They started
-   at about 15k tokens of context (one Opus group 29k), against 36-45k for generic
-   agents on the same models; typed agents that did carry a listing started near
-   37k. The groups differ in task, session and tools. The plugin's agents all
-   restrict their tools, which may be why they carry no listing, but the script
-   does not measure that: a hypothesis under test, not a saving.
+2. **Typed agents with a restricted tool list (measured, one pipeline).** They
+   start without the skill listing: about 10-15k tokens of first-call context
+   against 36-45k for a generic agent. A controlled pilot showed the type alone
+   does not cause it (a `general-purpose` agent starts like a generic one); the
+   restricted tool list goes with it. On real work (Opus 5.5 at xhigh, no quality
+   loss) a neutral Read-only agent cost 19% less per task than generic agents on a
+   two-step pipeline and 32% less on a short, tool-free step. The full-pipeline
+   figure is below the plugin's 25% bar, so no agent is shipped for it; for short,
+   tool-light fan-outs an existing `agenting:` agent with a narrow tool list is the
+   cheaper choice when its role fits (`evals/research/2026-10-07-launch-cost.md`).
 3. **Effort (external, 4 agents on one task).** Effort pins are honoured: thinking
    tokens rose with effort (about 0.4k at low, 1.4k at medium, 1.8k at high,
    4.0-4.4k at xhigh). The table's cells were chosen against a bar (pass every
