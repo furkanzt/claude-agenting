@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.2.1 — 2026-10-08
+
+### Fixed
+- **Finish check: retries under a changed prompt.** A retry whose prompt changed (for
+  example a verify agent re-run after a resume, with new classifier output in its
+  prompt) gets a new key, so its dead first attempt was reported as plainly
+  "missing" although the work had been redone (a KC run read "25 of 27 returned"
+  when every one of its labels had a result). The hook still counts by key and hides
+  nothing, because some scripts give one label to several different items. It now
+  names each missing agent whose label and phase have a later attempt that returned,
+  and says when that is a real failure. The skill's finish-check steps include the
+  matching check.
+
+### Changed
+- **`cleanrun.py --usage-check` shares one reading across processes** for 60 s (the
+  usage endpoint behind a typical check answers HTTP 429 after a few calls). Only real
+  readings are shared; an unreadable result never is.
+
 ## 3.2.0 — 2026-10-08
 
 ### Changed: the cost meter now prices what the transcripts contain
