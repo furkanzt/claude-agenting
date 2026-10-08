@@ -66,7 +66,9 @@ GUARANTEES
   - --usage-check CMD (opt-in): before launches, at most once per 60 s, CMD is run;
     exit 0 = room in the usage window, 2 = window full, anything else = cannot
     tell. "Cannot tell" is retried twice with a backoff, then stops the run as
-    "unreadable", distinct from "window full".
+    "unreadable", distinct from "window full". A real reading is shared for 60 s
+    with every other cleanrun process using the same CMD ($CLEANRUN_USAGE_CACHE, else
+    a file in the temp dir), because usage endpoints refuse frequent calls.
 
 EXIT CODES  0 all tasks done · 1 some failed · 2 usage error, lock held, or stopped by
 --max-usd, the usage check or a claude that cannot start · 3 a task crashed ·
@@ -274,6 +276,55 @@ def load_saved(path):
 # ------------------------------------------------------------------ running
 
 
+class shared_gate:
+    """A usage-check verdict shared by every cleanrun process for GATE_CACHE_S, keyed by the
+    command. The file lives in $CLEANRUN_USAGE_CACHE or the temp dir; an exclusive lock on it
+    makes one process probe while the others wait and then read its verdict."""
+
+    def __init__(self, cmd):
+        self.key = sha(cmd)
+        self.path = Path(os.environ.get("CLEANRUN_USAGE_CACHE") or Path(tempfile.gettempdir()) / "cleanrun_usage_gate.json")
+        self.fd, self.verdict = None, None
+
+    def __enter__(self):
+        try:
+            self.fd = os.open(str(self.path) + ".lock", os.O_CREAT | os.O_RDWR, 0o600)
+            fcntl.flock(self.fd, fcntl.LOCK_EX)
+        except OSError:
+            self.fd = None                         # no shared cache: fall back to probing alone
+        return self
+
+    def __exit__(self, *exc):
+        if self.fd is not None:
+            os.close(self.fd)
+        return False
+
+    def entries(self):
+        data = load_saved(self.path)
+        return data if isinstance(data, dict) else {}
+
+    def fresh(self):
+        if self.fd is None:
+            return False
+        e = self.entries().get(self.key)
+        if isinstance(e, dict) and e.get("verdict") in ("ok", "window full") \
+                and isinstance(e.get("ts"), (int, float)) and 0 <= time.time() - e["ts"] < GATE_CACHE_S:
+            self.verdict = e["verdict"]
+            return True
+        return False
+
+    def store(self, verdict):
+        if self.fd is None:
+            return
+        data = self.entries()
+        data[self.key] = {"verdict": verdict, "ts": time.time()}
+        try:
+            write_atomic(self.path, data)
+        except OSError:
+            pass
+
+
+
 class Budget:
     def __init__(self, cap, per_run):
         self.cap, self.per_run = cap, per_run
@@ -365,22 +416,28 @@ class Runner:
         cmd = self.cfg["usage_check"]
         if not cmd:
             return "ok"
-        with self.gate_lock:                          # one probe at a time; the others read the cache
+        with self.gate_lock:                          # one probe at a time in this process
             t, v = self.gate
             if v is not None and time.time() - t < GATE_CACHE_S:
                 return v
-            backoff = float(os.environ.get("CLEANRUN_GATE_BACKOFF_S", "20"))
-            verdict = "unreadable"
-            for attempt in range(3):
-                rc = self.probe(cmd)
-                if rc == 0:
-                    verdict = "ok"
-                    break
-                if rc == 2:
-                    verdict = "window full"
-                    break
-                if attempt < 2 and self.stop.wait(backoff * (attempt + 1)):
-                    break
+            with shared_gate(cmd) as shared:          # and one across processes: the usage endpoint answers 429
+                if shared.fresh():                    # after a few calls, so parallel runs share one reading
+                    self.gate = (time.time(), shared.verdict)
+                    return shared.verdict
+                backoff = float(os.environ.get("CLEANRUN_GATE_BACKOFF_S", "20"))
+                verdict = "unreadable"
+                for attempt in range(3):
+                    rc = self.probe(cmd)
+                    if rc == 0:
+                        verdict = "ok"
+                        break
+                    if rc == 2:
+                        verdict = "window full"
+                        break
+                    if attempt < 2 and self.stop.wait(backoff * (attempt + 1)):
+                        break
+                if verdict != "unreadable":           # only real readings are shared
+                    shared.store(verdict)
             self.gate = (time.time(), verdict)
             return verdict
 

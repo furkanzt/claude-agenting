@@ -56,7 +56,8 @@ class Case(unittest.TestCase):
         (self.d / "check.py").write_text(VALIDATOR, encoding="utf-8")
         self.env = dict(os.environ, CLEANRUN_CLAUDE_BIN=f"{shlex.quote(sys.executable)} {shlex.quote(str(FAKE))}",
                         FAKE_LOG=str(self.log), FAKE_PIDS_DIR=str(self.pids), FAKE_STATE_DIR=str(self.d / "state"),
-                        CLEANRUN_GATE_BACKOFF_S="0.05", CLEANRUN_GRACE_S="4")
+                        CLEANRUN_GATE_BACKOFF_S="0.05", CLEANRUN_GRACE_S="4",
+                        CLEANRUN_USAGE_CACHE=str(self.d / "usage_gate.json"))
 
     def tearDown(self):
         for f in self.pids.glob("*.pid"):            # never leave a sleeping grandchild or orphan behind
@@ -522,6 +523,39 @@ class UsageCheck(Case):
         self.tasks(["a", "b", "c", "d"])
         self.assertEqual(self.run_cli(self.args("--usage-check", self.gate(0), "--jobs", "4")).returncode, 0)
         self.assertEqual((self.d / "gate.log").read_text(), "x")      # single-flight, then cached
+
+    def test_one_reading_is_shared_by_runs_in_other_processes(self):
+        self.tasks(["a"])
+        gate = self.gate(0)
+        self.assertEqual(self.run_cli(self.args("--usage-check", gate)).returncode, 0)
+        self.assertEqual(self.run_cli(self.args("--usage-check", gate, "--out-dir", str(self.d / "out2"))).returncode, 0)
+        self.assertEqual((self.d / "gate.log").read_text(), "x")      # the second process read the first one's verdict
+
+    def test_a_shared_reading_expires(self):
+        rc_file = self.d / "gate.rc"
+        script = self.d / "gate_var.py"
+        script.write_text(f"import sys\nopen({str(self.d / 'gate.log')!r}, 'a').write('x')\n"
+                          f"sys.exit(int(open({str(rc_file)!r}).read()))\n", encoding="utf-8")
+        gate = f"{shlex.quote(sys.executable)} {shlex.quote(str(script))}"
+        self.tasks(["a"])
+        rc_file.write_text("2", encoding="utf-8")
+        self.assertEqual(self.run_cli(self.args("--usage-check", gate)).returncode, 2)       # "window full" is shared
+        cache = self.d / "usage_gate.json"
+        data = json.loads(cache.read_text(encoding="utf-8"))
+        for entry in data.values():
+            entry["ts"] -= 120                                                              # two minutes old
+        cache.write_text(json.dumps(data), encoding="utf-8")
+        rc_file.write_text("0", encoding="utf-8")
+        r = self.run_cli(self.args("--usage-check", gate, "--out-dir", str(self.d / "out2")))
+        self.assertEqual(r.returncode, 0, r.stdout)                                          # a stale reading is not reused
+        self.assertEqual((self.d / "gate.log").read_text(), "xx")
+
+    def test_an_unreadable_window_is_never_shared(self):
+        self.tasks(["a"])
+        gate = self.gate(1)
+        self.run_cli(self.args("--usage-check", gate))
+        self.run_cli(self.args("--usage-check", gate, "--out-dir", str(self.d / "out2")))
+        self.assertEqual((self.d / "gate.log").read_text(), "xxxxxx")  # each run probed for itself, 3 times
 
     def test_a_full_window_stops_before_any_launch(self):
         self.tasks(["a", "b"])
