@@ -1,0 +1,10 @@
+{"type": "launched"}
+{"type": "started", "agentId": "c1", "key": "k-classify-a", "label": "classify:A", "phase": "Classify"}
+{"type": "result", "agentId": "c1", "key": "k-classify-a"}
+{"type": "started", "agentId": "v1", "key": "k-verify-a-1", "label": "verify:A", "phase": "Verify"}
+{"type": "failed", "agentId": "v1", "key": "k-verify-a-1"}
+{"type": "started", "agentId": "v2", "key": "k-verify-b-1", "label": "verify:B", "phase": "Verify"}
+{"type": "started", "agentId": "v3", "key": "k-verify-a-2", "label": "verify:A", "phase": "Verify"}
+{"type": "result", "agentId": "v3", "key": "k-verify-a-2"}
+{"type": "started", "agentId": "v4", "key": "k-verify-b-2", "label": "verify:B", "phase": "Verify"}
+{"type": "result", "agentId": "v4", "key": "k-verify-b-2"}

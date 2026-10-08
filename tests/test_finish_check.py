@@ -96,6 +96,22 @@ class FinishCheck(HookTestCase):
 
     # -- silent ----------------------------------------------------------------
 
+    def test_a_retry_under_a_changed_key_is_named_not_hidden(self):
+        # a verify agent re-run after a resume embeds new classifier output, so its key changes
+        journal = FIXTURES / "journal_changed_key_retry.jsonl"
+        ctx = self.context(notification(journal))
+        self.assertIn("3 of 5 agents returned; missing: verify:A, verify:B.", ctx)   # counting is unchanged
+        self.assertIn("Every one of them has a later attempt with the same label that returned", ctx)
+        self.assertIn("real failures", ctx)                                          # the caveat travels with it
+        self.assertIn(f"Read {journal}", ctx)
+
+    def test_label_reuse_keeps_real_failures_visible(self):
+        journal = FIXTURES / "journal_label_reuse.jsonl"
+        ctx = self.context(notification(journal))
+        self.assertIn("2 of 4 agents returned; missing: verify:render:0, verify:render:0.", ctx)
+        self.assertIn("1 of them have a later attempt with the same label that returned", ctx)
+        self.assertIn("The others have no result under any attempt", ctx)
+
     def test_complete_run_is_silent(self):
         self.assertIsNone(self.check(notification(FIXTURES / "journal_complete.jsonl")))
 

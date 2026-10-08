@@ -187,6 +187,11 @@ missing: …`. The workflow's result was computed without those agents, so:
    - `[Request interrupted by user]`: the run was interrupted
    - an `is_error` record: read the error itself before guessing ("permission"
      inside a skill description is not a denial)
+   - the message says a missing agent has a later attempt with the same label
+     that returned: a retry under a changed prompt (for example after a resume)
+     gets a new key. Check in the journal that this label names one item in the
+     script; if it does, that work is done. If the script gives one label to
+     several items, it is a real gap.
 3. **Recover only the missing pieces**, fixing the cause first: a batch that
    died of oversized context needs a smaller scope, not the same prompt again.
    `resumeFromRunId` (printed in the notification) replays agents whose prompt

@@ -29,6 +29,14 @@ agentId, and that retry's result covers the first attempt. Counting agentIds
 alone would report those superseded attempts as lost work. A started line
 without a key falls back to agentId alone.
 
+A retry whose prompt changed (an agent that embeds an earlier agent's output,
+re-run after a resume) gets a NEW key, so the dead first attempt stays missing
+by key. The hook cannot know whether that later attempt is the same work: a
+script may give one label to several different items, and then the dead
+attempt is a real failure. So it does not hide it. It still counts by key and
+names each missing agent whose label (and phase) has a LATER attempt that
+returned, so the reader can check the journal per label instead of guessing.
+
 OUTPUT
 ------
 Silent (no stdout) when every started agent is covered, when the prompt holds no
@@ -73,27 +81,52 @@ def read_journal(path):
     return started, result_ids, result_keys
 
 
-def check_journal(path):
-    """Return (returned, total, missing_labels) over logical agents, or None if
-    the journal has no started agents."""
+def journal_detail(path):
+    """Counts over logical agents (by key, else agentId), or None if nothing started.
+
+    Returns {"returned", "total", "missing": [labels], "retried": [labels]}, where
+    `retried` lists the missing agents whose label and phase have a LATER started
+    record that returned (probably a retry under a changed prompt)."""
     started, result_ids, result_keys = read_journal(path)
     if not started:
         return None
-    units = {}  # logical agent (key, else agentId) -> (first started record, agentIds)
-    for rec in started:
+    units = {}  # logical agent (key, else agentId) -> [index of first started record, record, agentIds]
+    for i, rec in enumerate(started):
         unit = rec.get("key") or rec.get("agentId")
         if not unit:
             continue
-        first, ids = units.setdefault(unit, (rec, set()))
+        entry = units.setdefault(unit, [i, rec, set()])
         if rec.get("agentId"):
-            ids.add(rec["agentId"])
-    missing = []
-    for unit, (first, ids) in units.items():
+            entry[2].add(rec["agentId"])
+
+    def returned(rec):
+        return (rec.get("key") in result_keys) or (rec.get("agentId") in result_ids)
+
+    missing, retried = [], []
+    for unit, (i, first, ids) in units.items():
         if unit in result_keys or ids & result_ids:
             continue
-        missing.append(first.get("label") or first.get("agentId") or "?")
+        label = first.get("label") or first.get("agentId") or "?"
+        missing.append(label)
+        same = (first.get("label"), first.get("phase"))
+        if first.get("label") and any((r.get("label"), r.get("phase")) == same and returned(r) for r in started[i + 1:]):
+            retried.append(label)
     total = len(units)
-    return total - len(missing), total, missing
+    return {"returned": total - len(missing), "total": total, "missing": missing, "retried": retried}
+
+
+def check_journal(path):
+    """Return (returned, total, missing_labels) over logical agents, or None if
+    the journal has no started agents."""
+    d = journal_detail(path)
+    return None if d is None else (d["returned"], d["total"], d["missing"])
+
+
+def capped(labels):
+    shown = ", ".join(labels[:MAX_LABELS])
+    if len(labels) > MAX_LABELS:
+        shown += f", … and {len(labels) - MAX_LABELS} more"
+    return shown
 
 
 def warning_for(block):
@@ -105,23 +138,27 @@ def warning_for(block):
     name_m = NAME_RE.search(block)
     name = name_m.group(1) if name_m else "(unnamed)"
     try:
-        res = check_journal(path)
+        d = journal_detail(path)
     except Exception:
         return None
-    if not res:
+    if not d or not d["missing"]:
         return None
-    returned, total, missing = res
-    if not missing:
-        return None
-    shown = ", ".join(missing[:MAX_LABELS])
-    if len(missing) > MAX_LABELS:
-        shown += f", … and {len(missing) - MAX_LABELS} more"
-    return (
-        f'[agenting] Workflow "{name}": {returned} of {total} agents returned; '
-        f"missing: {shown}. The workflow's own summary was built without them. "
-        f"Read {path} and report the real count before presenting or acting on this "
-        f"result (agenting skill: \"When the finish check fires\")."
-    )
+    missing, retried = d["missing"], d["retried"]
+    head = f'[agenting] Workflow "{name}": {d["returned"]} of {d["total"]} agents returned; missing: {capped(missing)}.'
+    tail = (f" Read {path} and report the real count before presenting or acting on this "
+            f"result (agenting skill: \"When the finish check fires\").")
+    if not retried:
+        return head + " The workflow's own summary was built without them." + tail
+    if len(retried) == len(missing):
+        note = (" Every one of them has a later attempt with the same label that returned, which is what a "
+                "retry under a changed prompt looks like (for example after a resume): if each label names one "
+                "item, no work is missing. If the script gives one label to several different items, these "
+                "are real failures.")
+    else:
+        note = (f" {len(retried)} of them have a later attempt with the same label that returned (probably "
+                f"retries under a changed prompt): {capped(retried)}. The others have no result under any "
+                "attempt, and the workflow's own summary was built without them.")
+    return head + note + tail
 
 
 def main():

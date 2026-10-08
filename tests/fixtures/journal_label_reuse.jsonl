@@ -1,0 +1,9 @@
+{"type": "launched"}
+{"type": "started", "agentId": "r1", "key": "k-render-1", "label": "verify:render:0", "phase": "Verify"}
+{"type": "failed", "agentId": "r1", "key": "k-render-1"}
+{"type": "started", "agentId": "r2", "key": "k-render-2", "label": "verify:render:0", "phase": "Verify"}
+{"type": "result", "agentId": "r2", "key": "k-render-2"}
+{"type": "started", "agentId": "r3", "key": "k-render-3", "label": "verify:render:0", "phase": "Verify"}
+{"type": "failed", "agentId": "r3", "key": "k-render-3"}
+{"type": "started", "agentId": "r4", "key": "k-timing-1", "label": "verify:timing:1", "phase": "Verify"}
+{"type": "result", "agentId": "r4", "key": "k-timing-1"}
