@@ -159,8 +159,9 @@ honoured, but the routing table and the session's disposition set effort, not
 this section. Before fanning out to many agents, read
 [reference/fan-outs.md](reference/fan-outs.md): what is measured, what is only
 observed, and the levers that exist (fewer agents with code-side validation;
-typed agents that start without a skill listing, still under test). Every figure there
-is a list price; the usage-window effect was not measured.
+`agenting:` agents with a narrow tool list; and, for many self-contained tasks,
+clean `claude -p` runs through `scripts/cleanrun.py`, 63% cheaper per task on one
+pipeline). Every figure there is a list price; the usage-window effect was not measured.
 
 ## Session settings
 

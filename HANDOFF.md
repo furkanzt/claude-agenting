@@ -163,7 +163,7 @@ changing any guidance or adding an agent. State in `evals/README.md` that this m
 launch cost and sits outside the routing-cell bar. Check that `message.model` equals
 the routed full id in every arm.
 
-**Open, to deal with in detail later (owner, 2026-10-08): the experimental `~/.claude/agents/lean-worker.md`** (tools Read, three-line neutral body, pinned sonnet/medium; created for E2). It is kept for now. It missed the 25% bar on the full pipeline (-19%) but saved 32% on a short, tool-free step. Decide whether it stays user-level, moves into the plugin for short steps only, or goes.
+**Open, to deal with in detail later (owner, 2026-10-08): the experimental user-level agent `lean-worker.md`** (in the user's own agents directory, outside this plugin; tools Read, a three-line neutral body, pinned sonnet/medium; created for E2). It is kept for now. It missed the 25% bar on the full pipeline (-19%) but saved 32% on a short, tool-free step. Decide whether it stays user-level, moves into the plugin for short steps only, or goes.
 
 **A lean worker agent, only if E1 passes twice and the owner approves.**
 `agents/worker.md`: tools Read (optionally Grep, Glob), a three-line neutral body,
@@ -205,15 +205,20 @@ rendered and diffed before trusting a prompt migration (a rule pointer was lost
 once); and a process-group test needs its own helper timeout, or a regression shows
 up as a hung suite instead of a failure.
 
-**Deferred: a shared clean-run core** (`scripts/cleanrun.py`: `Stop`, `kill_group`,
-`build_cmd`, `call_claude`, `parse_call`, `Budget`, `exclusive_lock`, atomic writes,
-`run_pool`, imported by `evalkit.py` and vendored by project runners, with tests on
-`tests/fixtures/fake_claude.py`). About 600 lines and no cost effect on its own, and it
-touches `evalkit.py`'s 192-test surface. Build it when E2 favours clean runs (or the
-owner accepts a list-price-only benefit) and a recurring fan-out of about 20 or more
-context-free, code-validatable tasks exists, or a second runner would otherwise copy
-the kill, lock and budget code. A validator version in `evalkit.py`'s resume key and
-refusing a spawn after `kill_all` (section 4) belong with it.
+**Built 2026-10-08: `scripts/cleanrun.py`, a standalone CLI** (the owner chose a CLI
+first over a library plus an `evalkit.py` refactor). It carries every invariant above
+plus three from E2 and its review: routing pinned on the command line (a project's
+default routing changed under E2 once), output to files rather than pipes (an orphan
+holding a pipe defeated the timeout), and an opt-in usage check that retries before it
+stops, with "window full" and "unreadable" kept apart. The system prompt goes by
+`--system-prompt-file`, byte for byte. Tests: `tests/test_cleanrun.py` (43, end to end
+on `tests/fixtures/fake_claude_cleanrun.py`, whose result shapes were checked against
+claude 2.1.294). Accepted and not fixed: after a run's process group empties, the
+final `killpg` on the reaped pid could in theory reach a new group that reused that
+pid; the window is tiny.
+Still open: moving `evalkit.py` onto shared code (its run ids would change and orphan
+stored scores, about $20 to re-judge), a validator version in its resume key, and
+refusing a spawn after its `kill_all` (section 4).
 
 **Meter caveats.** Advisor and thinking figures are floors: `usage.iterations` and
 thinking counts are present on about a third of calls. Three price rows are partly
@@ -301,6 +306,7 @@ Documented in the report; listed here so nobody tunes them silently.
 | Real task material, truth, graders, answers | `evals/private/` (gitignored; back it up) |
 | Cost meter | `python3 scripts/measure-tokenomics.py` (overview) and `python3 scripts/measure-tokenomics.py anatomy` (launch cost); prices in `PRICES`, dated `PRICES_AS_OF` |
 | Fan-out guidance | `skills/agenting/reference/fan-outs.md` |
-| Tests | `python3 -m pytest tests -q` (253) |
+| Clean-run tool | `python3 scripts/cleanrun.py plan / run / status` (docstring holds the money rules and guarantees) |
+| Tests | `python3 -m pytest tests -q` (296) |
 | Health check | `python3 scripts/check-setup.py` (37 checks) |
 | Earlier design record | `AGENTING-PLAN-HANDOFF.md` (executed 2026-08-17, historical) |

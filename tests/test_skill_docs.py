@@ -61,10 +61,13 @@ class FanOutGuidance(unittest.TestCase):
         for number in re.findall(r"^\d\.\s+\*\*.*?\*\*", lever_block, re.M):
             self.assertRegex(number, r"external|observed|untested|measured")
 
-    def test_no_clean_run_advice_in_the_auto_loaded_text(self):
-        # clean claude -p runs wait for the usage-window measurement (see HANDOFF.md)
-        self.assertNotIn("claude -p", self.text)
-        self.assertNotIn("claude -p", self.skill.split("## Fan-outs", 1)[1].split("\n## ", 1)[0])
+    def test_clean_run_guidance_says_the_saving_is_list_price_only(self):
+        # clean runs entered the guidance once the owner accepted list price as the basis
+        # (2026-10-08): the window effect stays unmeasured, so the caveat must travel with them
+        section = self.text.split("## Clean runs", 1)[1]
+        self.assertIn("list-price only", section)
+        self.assertIn("window effect is not measured", section)
+        self.assertIn("refuses aliases", section)
 
     def test_advisor_is_stated_as_a_fact_not_a_proposal(self):
         self.assertIn("do not raise it", self.text)

@@ -65,7 +65,7 @@ and does the list-price saving carry over to the window?
 
 - **W**: the production Workflow arms (generic `agent()`).
 - **L**: the same Workflow with `agentType: 'lean-worker'`, a neutral user-level agent
-  (`~/.claude/agents/lean-worker.md`: tools Read only, a three-line neutral body).
+  (`lean-worker.md` in the user's own agents directory: tools Read only, a three-line neutral body).
 - **R**: clean `claude -p --restricted` runs (the KC clean runner, rules verbatim in
   `--system-prompt`).
 

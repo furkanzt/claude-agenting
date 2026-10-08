@@ -55,3 +55,26 @@ None of these overrides the routing table or the session's disposition.
    4.0-4.4k at xhigh). The table's cells were chosen against a bar (pass every
    run, save at least 25%); a lower effort than the table's cell needs that bar,
    not this note.
+
+## Clean runs outside Workflow (measured, one pipeline)
+
+For many self-contained tasks, `scripts/cleanrun.py` (it ships with this plugin, two
+levels above this skill's base directory) runs each task as its own
+`claude -p --restricted` process instead of an `agent()` call. On one pipeline (KC
+grade 7, Opus 5.5 at xhigh) that cost 63% less per task at list price, with no
+quality loss on that project's bar (`evals/research/2026-10-07-launch-cost.md`). The
+usage-window effect is not measured, and it cannot be measured locally on an account
+that other computers share; one rough, confounded reading suggested per-task window
+use might be about equal. Treat the saving as list-price only.
+
+- **Use it when all of these hold:** each task is its files plus one prompt; it needs
+  no session context and no tools beyond Read; the tasks do not coordinate; the
+  output can be checked in code (a validator). Otherwise use a Workflow.
+- **Routing is the same decision as for `agent()`:** pick model and effort from the
+  routing table; the tool takes a full model id and refuses aliases.
+- **Prompt placement:** the stable rules go in the system-prompt file, the per-task
+  data in the prompt, so runs that follow each other share a cached prefix. A cold,
+  simultaneous first wave saves little (external: about 6%).
+- **Order of use:** `cleanrun.py plan` (what runs, what resumes, the cost bound), then
+  `run`, then `status`. Its money rules (soft per-run cap, `--max-usd` for new
+  launches only, unknown cost charged at the cap) are in its docstring.

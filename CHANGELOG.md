@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.2.0 — 2026-10-07
+## 3.2.0 — 2026-10-08
 
 ### Changed: the cost meter now prices what the transcripts contain
 `scripts/measure-tokenomics.py` was the plugin's only cost meter and it was wrong in
@@ -26,6 +26,21 @@ measured.
   match the table.
 
 ### Added
+- **`scripts/cleanrun.py`**: runs a fan-out of self-contained tasks as clean
+  `claude -p --restricted` processes instead of Workflow agents (`plan`, `run`,
+  `status`). Routing is explicit (a full model id, aliases refused, and the model that
+  answered must be that id); each process runs in its own group with its output in
+  files, and is killed on timeout, Ctrl-C, SIGTERM or SIGHUP; unknown cost is charged at
+  the per-run cap; `--max-usd` stops new launches; resume re-validates saved outputs;
+  an opt-in usage check retries before stopping. 43 tests run it end to end against a
+  fake `claude` whose result shapes were checked against the real CLI; a mutation
+  check of the script is fully caught; the findings of a three-lens adversarial review
+  (process safety, spec, the real CLI's result shapes) were fixed before release.
+- **E1 and E2** (`evals/research/2026-10-07-launch-cost.md`): on KC grade 7 (Opus 5.5
+  at xhigh), clean runs cost 63% less per task at list price than Workflow agents with
+  no quality loss; a neutral Read-only agent inside Workflow saved 19% on the full
+  pipeline (below the 25% bar, so no agent ships) and 32% on a short, tool-free step.
+  The usage-window effect could not be measured: other computers share the account.
 - **`measure-tokenomics.py anatomy`**: what a Workflow agent costs to start, from the
   local Workflow transcripts, aggregates only (no prompt, response, path, label or id
   is printed or written). First-call context, fresh write against cache read, the

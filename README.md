@@ -107,6 +107,7 @@ Upgrading from 2.x: see the 3.0.0 entry in [CHANGELOG.md](CHANGELOG.md).
 | `commands/` | `/agenting-check`, `/agenting-mode`. |
 | `scripts/check-setup.py` | End-to-end health check: it *runs* things rather than reading config. |
 | `scripts/measure-tokenomics.py` | Recomputes the main/agent cost split (advisor spend included), spawn tax, and effort distribution from real transcripts; `anatomy` breaks down what a Workflow agent costs to start. Dated per-model price table, list price. |
+| `scripts/cleanrun.py` | Runs a fan-out of self-contained tasks as clean `claude -p --restricted` processes instead of Workflow agents: explicit model and effort, a check of the model that answered, process-group kills, a budget cap, resume with re-validation. 63% cheaper per task at list price on one measured pipeline. `plan`, `run`, `status`. |
 | `tests/` | Pipe tests for the stateful hooks and the tokenomics meter. |
 
 ### The shipped roster
