@@ -1,5 +1,71 @@
 # Changelog
 
+## 3.2.0 — 2026-10-07
+
+### Changed: the cost meter now prices what the transcripts contain
+`scripts/measure-tokenomics.py` was the plugin's only cost meter and it was wrong in
+ways that matter for deciding anything about cost. **Its overview dollars change in
+this release because of the price table and the advisor line; that is a correction,
+not a regression.** All figures are list prices; the usage-window effect was not
+measured.
+- **Dated per-model price table, keyed by exact model id.** It had priced Opus at
+  $5/$25 and Sonnet at $3/$15 with a flat 0.1x cache read and 1.25x cache write. The
+  5.5 generation is $4/$20 with $0.20 reads (Opus) and $2/$10 (Sonnet); the previous
+  generation is kept as its own rows; three rows are partly derived and say so.
+  A model that is not in the table is reported as unpriced with its tokens kept,
+  never silently $0. Zero-token `<synthetic>` lines are skipped.
+- **Cache writes are priced by TTL** from `usage.cache_creation`. In the measured
+  install 98% of agent cache-write tokens were 1-hour writes (2x input), which the
+  old flat 1.25x under-counted.
+- **Advisor spend is included.** Top-level usage excludes advisor iterations, so the
+  old overview left them out entirely. They are priced at the advisor model's own
+  rates and shown on a line of their own. In 21 days of that install they were 20% of
+  the list-price total, a floor (`usage.iterations` is present on about a third of
+  calls).
+- `hooks/cache-tripwire.py`: comment only. A test now checks that its input prices
+  match the table.
+
+### Added
+- **`measure-tokenomics.py anatomy`**: what a Workflow agent costs to start, from the
+  local Workflow transcripts, aggregates only (no prompt, response, path, label or id
+  is printed or written). First-call context, fresh write against cache read, the
+  5m/1h split, whole-agent cost, advisor cost, attachment sizes by type, and start
+  order within a workflow. Small groups are suppressed, missing fields print `n/a`,
+  and the report says when advisor and thinking figures are floors. Journal counts
+  reuse the finish-check hook's logic. The old invocation still works.
+- **`skills/agenting/reference/fan-outs.md`** and a short Fan-outs section in
+  `SKILL.md`: what an agent costs to start (measured on one install), and the levers,
+  each tagged measured, observed, external or untested. Typed agents that start
+  without a skill listing began at about a third of a generic agent's context; the
+  cause (the type, or a restricted tool list) is not measured and is the question
+  of the planned controlled test. It does not change the routing
+  table and it contains no clean-run advice (that waits on the usage-window
+  measurement, see HANDOFF.md section 3G). The skill description also triggers when
+  someone is planning a fan-out of many agents.
+- `tests/test_tokenomics.py` (28 tests, every transcript built by hand, expected
+  dollars written from the price page) and `tests/test_skill_docs.py`.
+
+### Fixed
+- **README "Verified facts"** claimed that a subagent always starts cold with a
+  5-minute TTL and that staggering agent starts lets later agents ride the first
+  one's cache. In the measured install writes were 1-hour, and agents started after
+  the first read a shared prefix of about 19k tokens but still wrote 30-34k fresh
+  (by start order, not a controlled test). The 2026-08-10 figures stay as dated
+  history, labelled as computed with the old table and without advisor spend.
+  The spawn-tax dollars also changed basis: the old figure priced the whole first
+  call, the new one prices only the cache write.
+- **Guard wording.** The auto-mode note said "N agents" where N counts `agent()` call
+  sites, so a map over 50 items read as 1. It now says "N agent() call sites". Wording
+  only: still a bare systemMessage, Stage 1 untouched.
+
+### Upgrading
+Nothing to configure. The overview's dollars will differ from before, in both
+directions. On the author's install (21 days, list price) the old script reported
+$8,260 and the new one $8,136: the price corrections alone took about 21% out and the
+advisor line put about 20% back, so a similar total hid a different composition. Run
+`python3 scripts/measure-tokenomics.py anatomy` to see your own launch numbers; they
+come from your transcripts, not from this repository's.
+
 ## 3.1.0 — 2026-10-06
 
 ### Changed: three routing cells, after measuring all seven

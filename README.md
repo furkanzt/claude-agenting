@@ -106,8 +106,8 @@ Upgrading from 2.x: see the 3.0.0 entry in [CHANGELOG.md](CHANGELOG.md).
 | `agents/` | **20 tiered agent definitions**, every one carrying `model` + `effort`. |
 | `commands/` | `/agenting-check`, `/agenting-mode`. |
 | `scripts/check-setup.py` | End-to-end health check: it *runs* things rather than reading config. |
-| `scripts/measure-tokenomics.py` | Recomputes the main/agent cost split, spawn tax, and effort distribution from real transcripts. |
-| `tests/` | Pipe tests for the three stateful hooks. |
+| `scripts/measure-tokenomics.py` | Recomputes the main/agent cost split (advisor spend included), spawn tax, and effort distribution from real transcripts; `anatomy` breaks down what a Workflow agent costs to start. Dated per-model price table, list price. |
+| `tests/` | Pipe tests for the stateful hooks and the tokenomics meter. |
 
 ### The shipped roster
 
@@ -258,11 +258,19 @@ implemented as `permissionDecision: "allow"`; a review caught that this would
 override the user's own permission settings for `Workflow`, and it shipped as a
 bare `systemMessage` instead.
 
-## Verified facts (measured 2026-08-10)
+## Verified facts (measured 2026-08-10, corrected 2026-10-07)
 
 Measured from three weeks of transcripts. `scripts/measure-tokenomics.py`
 recomputes them from whatever transcripts exist now. Figures are as of the
 measurement date.
+
+The 2026-08-10 figures are kept as history. They were computed with the script's
+old price table (Opus $5/$25 and Sonnet $3/$15 per MTok, flat cache multipliers)
+and without advisor spend. The script now prices from a dated per-model table;
+lines that later measurement contradicts say "corrected" and point to the
+2026-10-07 block at the end of this section. Every dollar is a list price from
+one install's transcripts; the effect on a subscription's usage window was not
+measured.
 
 - **Dedup method:** in transcript JSONL, a line is NOT one API call. Take the
   LAST line per `message.id` (duplication factor: main session 2.06x, agents
@@ -274,7 +282,11 @@ measurement date.
 - **Spawn tax** (first call's cache-write): median 17k ≈ **$0.11**; three-week
   total ~$190. Delegation break-even: **~2-3 turns**. An agent pays for itself
   by keeping context OUT of the main session; one or two calls of legwork
-  don't justify a spawn.
+  don't justify a spawn. *Corrected 2026-10-07:* these are 2026-08-10 figures
+  from the old price table, and the dollar basis changed too: the old figure priced
+  the whole first call, the new one prices only the cache write at the write rates.
+  The first-call write is now measured at a median of about 30k tokens (below), and
+  the break-even was derived from the 17k figure and has not been re-derived.
 - **Cache key includes model+effort:** a mid-session switch rewrites the whole
   prefix (see `cache-tripwire.py`'s docstring for the measured case). At the
   time, Claude Code showed a confirmation dialog for effort changes; model
@@ -286,9 +298,18 @@ measurement date.
   relying on it.
 - Under subscription, the main session gets a 1-hour cache TTL; **on overage
   it silently drops to 5 minutes** (`ENABLE_PROMPT_CACHING_1H` prevents this).
-  A subagent always starts cold with its own cache, 5-minute TTL.
+  *Corrected 2026-10-07:* A subagent does not simply "start cold with a
+  5-minute TTL". In one install's transcripts 98% of agent cache-write tokens
+  were 1-hour writes, and agents after the first of their workflow typically
+  read a shared prefix of about 19k tokens (medians) while still writing 30-34k
+  fresh.
 - Same-type agent fan-out opened simultaneously is all cold; staggered by a
   few seconds, later ones ride the first one's system-prompt cache.
+  *Corrected 2026-10-07:* this is by start order, not a controlled stagger test.
+  Agents started after the first in a workflow read about 19k tokens of a shared
+  prefix, so they do ride part of the first one's cache, and still wrote most of
+  their start-up fresh. Medians of fresh cache-write on the first call: first
+  agent 40k tokens, agents 2 and 3 about 34k, agent 4 onward about 30k.
 - Effort distribution (cut at the skill's birth, 2026-08-06T22:31): subagent
   `max` 57% → **1%**, `high` 15% → **57%**.
 - Limits: the **Opus limit was never hit**; the binding constraint is the
@@ -304,6 +325,48 @@ measurement date.
   established via similarity search, and the bill is already re-read-weighted);
   for kazanım (learning-outcome) mapping, a ready ~100-200 record JSON table is
   enough.
+
+### Launch anatomy, 2026-10-07 (one install's transcripts, 21 days, list price)
+
+Regenerate with `python3 scripts/measure-tokenomics.py anatomy` (per-agent launch
+cost, aggregates only) and `python3 scripts/measure-tokenomics.py` (the overview).
+These are one install's numbers: 176 Workflows, 2,465 agents (2,353 generic, 112
+typed), 38,246 calls. Tags: **measured** is a count or median from the script;
+**observed** is a pattern in those numbers that is confounded, not a controlled
+comparison. Every dollar is a list price; the usage-window effect was not measured.
+Workflow-agent figures come from `anatomy`; the spawn tax, the dollar totals and the
+distinct-agent count come from the overview, which scans every agent transcript
+(Workflow and Agent-tool subagents), so the two agent counts differ.
+
+- **Measured, cache TTL:** 98% of agent and 100% of main-session cache-write
+  tokens were 1-hour writes.
+- **Measured, what a generic agent starts with:** a first-call context median of
+  about 43-45k tokens on Sonnet 5.5 at high and Opus 5.5 at high and xhigh, of
+  which about 25-27k is written to cache fresh and about 17-19k is read. Sonnet 5.5
+  at xhigh is the low outlier (36k of context, 17k fresh); across all generic
+  groups the median ranges from 36k to 64k.
+  The overview's spawn tax is a median first-call write of 30,608 tokens (about
+  $0.22 per spawn at the write rates; about $616 over 2,563 agents, 11% of the
+  $5,460 agent spend in the window). That is the first call only: a whole agent
+  writes more as it works.
+- **Measured, by start order in a workflow:** the first agent started wrote a
+  median of 40k tokens fresh (cache-read median 0); agents 2 and 3 wrote 34k and
+  read about 19k; agent 4 onward wrote 30k and read about 19k.
+- **Observed, typed agents that start without a skill listing start smaller:**
+  their first-call context median was 15-16k tokens on Sonnet 5.5 and 14.5k
+  (xhigh) to 28.6k (high) on Opus 5.5, against 36-45k for generic agents on the
+  same models. Typed agents that did carry a skill listing started at about 37k.
+  Confounded: different tasks, sessions and tool sets. The plugin's own agents all
+  restrict their tools, and a restricted tool list may be why they carry no
+  listing; that is a hypothesis, not something the script measures. A controlled
+  test is pending.
+- **Measured, the advisor is billed on top:** in this window advisor iterations
+  were $1,639 of $8,136 total (20%) over 1,253 advisor calls, priced at the advisor
+  model's own rates (overview). The old meter left them out because top-level usage
+  does not include them (checked by hand on a sample of records, not counted by the
+  script). **Inferred, a floor:** `usage.iterations` is present on only 32% of
+  Workflow-agent calls (anatomy), and a missing field may mean either "no advisor
+  call" or "not recorded".
 
 ## Why the health check runs things instead of reading config
 

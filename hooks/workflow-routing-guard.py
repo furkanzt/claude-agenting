@@ -373,7 +373,7 @@ For deliberate inheritance, put `// {ESCAPE_HATCH}` on that line or the one abov
 
     if explicit_auto_mode(session):
         return note(
-            f"Workflow routing auto-approved ({len(tiers)} agents, auto mode, "
+            f"Workflow routing auto-approved ({len(tiers)} agent() call sites, auto mode, "
             f"plan {h}) — no --approve round-trip needed. Your own Claude Code "
             f"permission settings, if any, still apply to running Workflow itself."
         )

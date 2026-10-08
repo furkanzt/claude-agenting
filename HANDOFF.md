@@ -1,9 +1,17 @@
-# Handoff: what is left after agenting 3.1.0
+# Handoff: what is left after agenting 3.2.0
 
 Written 2026-10-06, right after `1362672` (the 3.1.0 release) was pushed to
 `origin/main`. Nothing is in flight: no background runs, no pending workflows, a
 clean working tree. This file lists only what is **not done**. For what was done and
 why, read `evals/results/REPORT-2026-10-06.md` first, then `CHANGELOG.md` (3.1.0).
+
+**Updated 2026-10-07 for 3.2.0.** The cost meter was fixed (a dated per-model price
+table, advisor spend, 5-minute versus 1-hour writes), `scripts/measure-tokenomics.py
+anatomy` was added, the README's cache claims were corrected, and fan-out guidance
+was written (`skills/agenting/reference/fan-outs.md`). 3.2.0 is committed locally and
+**not pushed**. Section 3G is new: the launch-cost experiments and the clean-run
+evidence that waits on them. Sections 3A and 3F changed in place, and the old 3G
+(external evidence) is now 3H.
 
 ## 1. Where things stand
 
@@ -28,7 +36,9 @@ the `balanced` cells elsewhere (`skills/agenting/reference/modes.md`). Agent pin
 ## 2. Owner actions (not code)
 
 1. **Update your own install.** The push does not reach a running install. Your
-   machine is on 3.0.0 until you run `/plugin marketplace update agenting` and then
+   machine runs whatever version it last updated to (3.1.0 on 2026-10-07; check the
+   SessionStart `[agenting]` line or the plugin cache folder) until you run
+   `/plugin marketplace update agenting` and then
    `claude plugin update agenting@agenting` (or enable auto-update under `/plugin` →
    Marketplaces). Friends do the same; auto-update is off by default for third-party
    marketplaces. Claude Code only treats a release as new when `version` changes, and
@@ -59,7 +69,10 @@ The point of the harness is that this costs only the missing runs.
    section 5), then `judge`, `report --phase screening`, `decide`.
 5. For a silent-damage row, a candidate that survives screening needs confirmation
    tasks (`run --phase confirmation --rows <row> --cells <candidate>`).
-6. Write the dated findings to `evals/results/REPORT-<date>.md`, change the table in
+6. Add the model's row to `PRICES` in `scripts/measure-tokenomics.py` (exact model id,
+   dated; `tests/test_tokenomics.py` checks the input prices against
+   `hooks/cache-tripwire.py`, which needs the same row).
+7. Write the dated findings to `evals/results/REPORT-<date>.md`, change the table in
    `skills/agenting/SKILL.md`, `README.md` and `reference/modes.md`, add a CHANGELOG
    entry, bump `version` in `.claude-plugin/plugin.json` and `marketplace.json`, run
    `python3 -m pytest tests -q`, commit.
@@ -110,13 +123,99 @@ shape the harness has no task for; measuring them means writing tasks first.
 - **Haiku's cost** depends on thinking being on (8,000 to 18,000 thinking tokens a
   run in `claude -p`). Subagents inherit the session's thinking setting; measure a
   real subagent run before relying on "Haiku is not cheap".
-- **Whether a Workflow `agent()` honours `effort`** is not confirmed in Claude Code's
-  docs, and a Workflow subagent cannot report its own effort. The harness avoids this
-  by using `claude -p --effort`; the plugin's guard assumes the option works.
+- **Whether a Workflow `agent()` honours `effort`**: observed, not settled. It is not
+  confirmed in Claude Code's docs, and a Workflow subagent cannot report its own
+  effort. External evidence, one task and four agents (one per level): thinking tokens
+  rose with the pinned effort (about 0.4k low, 1.4k medium, 1.8k high, 4.0-4.4k xhigh).
+  Local transcripts show the same ordering at xhigh (median about 4.9k on Opus 5.5)
+  but a much lower `high` (a few hundred tokens) on partial coverage (thinking counts
+  on about a third of calls) and different tasks: unreconciled. The harness avoids the
+  question by using `claude -p --effort`; the plugin's guard assumes the option works.
 - **Cache behaviour on an effort switch** for subagents and Workflow requests
   (`hooks/cache-tripwire.py` measures it).
 
-### G. External evidence to watch
+### G. Launch cost: two experiments, a conditional agent, and the clean-run evidence
+
+What 3.2.0 settled and what it did not. The meter now exists (`measure-tokenomics.py
+anatomy`); everything below needs it.
+
+**E1, a controlled launch-cost test (about $2-3 list; not yet run).** Question: do
+typed agents (the plugin's all restrict their tools) start much smaller than generic
+`agent()` calls, and is the cause the type or the restricted tool list? Local
+transcripts say about 15k tokens of first-call context for typed agents without a
+skill listing against 36-45k for generic ones (typed agents that carry a listing
+start near 37k), but the groups differ in task, session and tools. Design: one throwaway
+Workflow in a chat where the owner has opted in to workflows (Claude does not propose
+running it). Arms of five agents each, interleaved, one trivial task, one schema, one
+deterministic output check: generic `agent({model, effort})`; `agenting:researcher`
+(restricted tools, pinned sonnet/medium); a `general-purpose` agent (typed, all tools)
+to separate "typed" from "tools restricted"; and the generic arm again with
+byte-identical prompts. Report the first agent of each arm separately from the rest.
+Side probe: does `message.model` honour an explicit model given with an `agentType`?
+Pre-registered rule: the restricted-tools arm shows at least 15k less first-call
+context, at least 25% lower total list cost per agent, and an equal pass rate. A pass
+means "pilot positive": replicate it once, or run it on one real fan-out shape, before
+changing any guidance or adding an agent. State in `evals/README.md` that this measures
+launch cost and sits outside the routing-cell bar. Check that `message.model` equals
+the routed full id in every arm.
+
+**A lean worker agent, only if E1 passes twice and the owner approves.**
+`agents/worker.md`: tools Read (optionally Grep, Glob), a three-line neutral body,
+model and effort pinned like the other 20. One worker if the model override holds,
+otherwise one per tier. Update every hard-coded "20 agents" (`plugin.json`, the
+marketplace entry, README, `scripts/check-setup.py`) and the tier table in `SKILL.md`.
+
+**E2, the usage-window effect (about $35-40 list; owner's call, recommended: later, on
+real recurring work).** The clean-run results below are list-price figures. One rough
+reading on the owner's 5-hour window was about 0.6 points per list-dollar for clean
+runs against about 0.24 for Workflow agents, confounded by the main session's own use;
+taken at face value, per-task window use would be about equal. Protocol: arm W
+(Workflow agents) against arm R (sequential `claude -p` clean runs with the rules
+verbatim in `--system-prompt`), same tasks, model and effort, A-B-B-A blocks of about
+$8-10 list each, the owner reading the window percentage by hand before and after each
+block with the main session idle. Step 0 costs nothing: check how finely the readout
+resolves and how noisy it is, and size the blocks to match. Claude never reads, asks
+about or tracks the window; nothing in the plugin does.
+
+**Clean `claude -p` runs: the evidence, kept here until E2 reports** (one external
+pipeline, Opus 5.5 at xhigh, list price, small samples, quality judged by proxies and
+no blind judge run). Step A: $1.16 against $0.72 per task for the Workflow agent and
+the clean run (-38%, n=6 against 12); step B: $0.52 against $0.23 (-55%, n=24 each).
+With the rule files verbatim in `--system-prompt` (a stable cached prefix): step A
+$0.66 cold or $0.48 warm, step B $0.19. A cold, simultaneous first wave saved only about
+6%; runs have to follow each other to share the cached prefix. One run in the Workflow
+arm emitted only 530 output tokens and stays in the mean. Do not quote the single
+cache-warmth pair ($0.54 against $0.16) or the single end-to-end task as general
+figures.
+
+**Invariants for any clean runner** (lessons from the one built on this evidence):
+the answering model must equal the routed full model id (`modelUsage`), so alias drift
+invalidates a run; unknown cost is charged at the per-run cap, never zero; `--max-usd`
+stops only new launches, so the worst-case overshoot is jobs times the per-run cap;
+one exclusive lock; atomic writes; the resume key includes a validator version (or
+resume re-validates); the whole process group is killed on timeout and Ctrl-C and
+nothing new launches after it; the usage gate fails closed; old and new prompts are
+rendered and diffed before trusting a prompt migration (a rule pointer was lost
+once); and a process-group test needs its own helper timeout, or a regression shows
+up as a hung suite instead of a failure.
+
+**Deferred: a shared clean-run core** (`scripts/cleanrun.py`: `Stop`, `kill_group`,
+`build_cmd`, `call_claude`, `parse_call`, `Budget`, `exclusive_lock`, atomic writes,
+`run_pool`, imported by `evalkit.py` and vendored by project runners, with tests on
+`tests/fixtures/fake_claude.py`). About 600 lines and no cost effect on its own, and it
+touches `evalkit.py`'s 192-test surface. Build it when E2 favours clean runs (or the
+owner accepts a list-price-only benefit) and a recurring fan-out of about 20 or more
+context-free, code-validatable tasks exists, or a second runner would otherwise copy
+the kill, lock and budget code. A validator version in `evalkit.py`'s resume key and
+refusing a spawn after `kill_all` (section 4) belong with it.
+
+**Meter caveats.** Advisor and thinking figures are floors: `usage.iterations` and
+thinking counts are present on about a third of calls. Three price rows are partly
+derived (`claude-opus-5` and `claude-fable-5` writes, `claude-sonnet-5` cache reads);
+`claude-opus-4-8` is unpriced. Transcript field names are undocumented; run
+`anatomy` by hand after a Claude Code update before trusting a new number.
+
+### H. External evidence to watch
 
 Grounded or open-book benchmark rows for the 5.5 models (Vectara HHEM, FACTS
 Grounding, HalluHard, Artificial Analysis Omniscience accuracy and hallucination
@@ -194,6 +293,8 @@ Documented in the report; listed here so nobody tunes them silently.
 | Every run and score (public, aggregates only) | `evals/results/runs.jsonl`, `scores.jsonl` |
 | CLI | `python3 evals/evalkit.py --help` (plan, run, judge, grade, report, decide, selfcheck, manifest, status, sanitize) |
 | Real task material, truth, graders, answers | `evals/private/` (gitignored; back it up) |
-| Tests | `python3 -m pytest tests -q` (192) |
+| Cost meter | `python3 scripts/measure-tokenomics.py` (overview) and `python3 scripts/measure-tokenomics.py anatomy` (launch cost); prices in `PRICES`, dated `PRICES_AS_OF` |
+| Fan-out guidance | `skills/agenting/reference/fan-outs.md` |
+| Tests | `python3 -m pytest tests -q` (253) |
 | Health check | `python3 scripts/check-setup.py` (37 checks) |
 | Earlier design record | `AGENTING-PLAN-HANDOFF.md` (executed 2026-08-17, historical) |

@@ -1,6 +1,6 @@
 ---
 name: agenting
-description: Use when writing or editing a Workflow script, choosing a model or effort for an agent() or Agent call, when the user switches agenting mode (auto/manual) or disposition (fast/balanced/quality) or opts in to workflows for this chat, or when a project has agenting/AGENTING.md. Routing table and launch procedure.
+description: Use when writing or editing a Workflow script, planning a fan-out of many agents, choosing a model or effort for an agent() or Agent call, when the user switches agenting mode (auto/manual) or disposition (fast/balanced/quality) or opts in to workflows for this chat, or when a project has agenting/AGENTING.md. Routing table and launch procedure.
 ---
 
 # Agenting
@@ -147,6 +147,20 @@ Ask before spawning when the tier and the task disagree:
 Frame it as a tier question: *"This is really synthesis. Want
 `agenting:system-architect` (opus/xhigh) instead of `agenting:researcher`
 (sonnet/medium)?"*
+
+## Fan-outs: what each agent costs to start
+
+Every `agent()` call pays a start-up cost before it does any work. In one
+install's transcripts (21 days, list price, measured) a generic Workflow agent's
+first call typically carried about 44k tokens of context, about 25-27k of it
+written to cache fresh, and later agents in a workflow still wrote most of that
+fresh. Effort pins are
+honoured, but the routing table and the session's disposition set effort, not
+this section. Before fanning out to many agents, read
+[reference/fan-outs.md](reference/fan-outs.md): what is measured, what is only
+observed, and the levers that exist (fewer agents with code-side validation;
+typed agents that start without a skill listing, still under test). Every figure there
+is a list price; the usage-window effect was not measured.
 
 ## Session settings
 

@@ -116,6 +116,15 @@ class StageTwoAuto(GuardCase):
         self.assertNotIn("hookSpecificOutput", out)
         self.assertNotIn("permissionDecision", str(out))
 
+    def test_auto_note_counts_call_sites_not_agents(self):
+        # a call inside a loop is one call site however many agents it spawns at run time
+        self.record(SID, "--mode", "auto")
+        out = self.guard("for (const x of xs) {\n  await agent(x, {model:'haiku', effort:'low'})\n}\n"
+                         "await agent('y', {model:'haiku', effort:'low'})")
+        self.assertIn("2 agent() call sites", out["systemMessage"])
+        self.assertNotIn("2 agents", out["systemMessage"])
+        self.assertNotIn("hookSpecificOutput", out)   # still no allow, still no ask
+
     def test_seeded_session_is_auto(self):
         self.run_hook(__import__("_util").CONTINUITY,
                       {"session_id": SID, "cwd": "/tmp", "source": "startup"})

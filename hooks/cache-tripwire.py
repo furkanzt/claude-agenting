@@ -34,7 +34,9 @@ PRICES_PER_MTOK = {
     "opus": 4.00,
     "fable": 10.00,
 }
-CACHE_WRITE_MULTIPLIER = 1.25  # 5-min ephemeral write; 1h write is 2x but this is a nudge, not a bill.
+# 5-min ephemeral write; a 1h write is 2x. Local transcripts show almost every cache write is a 1h write
+# (scripts/measure-tokenomics.py prints the share), so this under-states the switch cost; it is a nudge, not a bill.
+CACHE_WRITE_MULTIPLIER = 1.25
 
 
 def read_hook_input() -> dict:
