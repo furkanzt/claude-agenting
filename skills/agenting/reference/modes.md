@@ -29,6 +29,14 @@ command you type yourself.
 The user changes it in words ("switch to manual", "stop deciding for me",
 "decide it yourself") or with `/agenting-mode auto|manual`.
 
+A resumed or forked chat can get a new `session_id` without a new SessionStart
+run, so nothing is recorded under the new id. The guard finds the mode anyway: it
+follows the `[agenting]` line in the chat's own transcript to the id the chat
+started under. That is why changes are recorded under the id the `[agenting]`
+line prints, not under whatever id a later hook reports. The plan the guard shows
+counts `agent()` call sites; a call inside a loop, `map()`, `parallel()` or
+`pipeline()` runs more than once, so say so when you present it.
+
 ## Disposition: fast | balanced | quality
 
 Sets how auto mode leans when it decides. It starts at `balanced` and stays

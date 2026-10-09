@@ -40,14 +40,16 @@ The gate **never offers only "cheaper."**
 **Stage 2: plan approval.** In manual mode, even a fully routed Workflow blocks until you approve *this particular routing plan* in *this session*. Re-running the same plan is silent; changing any tier asks again. In auto mode (the default) Claude decides the plan itself and the gate steps aside.
 
 ```
-STAGE 2/2 — PLAN APPROVAL: 9 agents, all routed. Waiting on the user
-(this session is in manual mode, or has no recorded mode). Procedure: the agenting skill.
+STAGE 2/2 — PLAN APPROVAL: 9 agent() call sites, all routed. Waiting on the user
+(mode is manual). Procedure: the agenting skill.
 
-      4 agent(s)   haiku            effort: low
-      3 agent(s)   sonnet           effort: medium
-      2 agent(s)   opus             effort: xhigh
+      4 call site(s)   haiku            effort: low
+      3 call site(s)   sonnet           effort: medium
+      2 call site(s)   opus             effort: xhigh
 
-9 agents total.  Plan signature: haiku/lowx4|opus/xhighx2|sonnet/mediumx3
+9 agent() call sites -- call sites, not runs: a call inside a loop, map(),
+parallel() or pipeline() runs once per item, so the script launches more agents than this.
+Plan signature: haiku/lowx4|opus/xhighx2|sonnet/mediumx3
 ```
 
 Single `Agent` calls are **deliberately not gated**: one agent is bounded and cheap, and every shipped definition already pins both fields.
@@ -166,7 +168,9 @@ await agent("wants whatever the session is on", { schema: S })
 
 **Stage 2** builds a plan signature from the (model, effort) counts and denies until that signature's hash is approved for this `session_id`. The deny message prints the approve command with the guard's own path: `python3 "<guard>" --approve <hash> --session <id>`. Approvals live in `.routing-approvals.json`.
 
-**Auto mode.** The guard reads this session's recorded mode from `.agenting-session-state.json`, the file `session-continuity.py` writes. Only an explicit `"auto"` drops Stage 2, and it does so with a bare `systemMessage`: no `hookSpecificOutput`, no `permissionDecision`, never `"allow"`. An allow would override your own Claude Code permission settings for the `Workflow` tool, which is not this plugin's decision to make. A missing file, a missing entry, a legacy 2.x mode or anything unreadable keeps the approval requirement, so an install where the continuity hook isn't wired up degrades to asking, not to a bypass nobody configured.
+**Auto mode.** The guard reads this session's recorded mode from `.agenting-session-state.json`, the file `session-continuity.py` writes. Only an explicit `"auto"` drops Stage 2, and it does so with a bare `systemMessage`: no `hookSpecificOutput`, no `permissionDecision`, never `"allow"`. An allow would override your own Claude Code permission settings for the `Workflow` tool, which is not this plugin's decision to make. A missing file, a legacy 2.x mode or anything unreadable keeps the approval requirement, so an install where the continuity hook isn't wired up degrades to asking, not to a bypass nobody configured.
+
+A missing *entry* gets one more look. A resumed or forked chat gets a new `session_id` and its SessionStart hook may not run again, so nothing is ever recorded under the new id. The chat's transcript still holds the `[agenting] mode=… (session <id>)` line the model was given, so the guard reads the hook payload's `transcript_path`, takes the last such line from a SessionStart hook attachment (text that merely quotes it does not count), and uses that id's recorded mode, or the mode printed in the line if that entry has been evicted. It only follows an id found in this chat's own transcript, never "any auto session", and a transcript with no such line still asks.
 
 **Session state.** Keyed on `session_id`, which Claude Code keeps across compaction of the same conversation (verified: three compaction events over ~9 hours shared one id). Resume is assumed to keep the id too, by Claude Code's design; not independently verified here, and a wrong assumption would cost a fresh default, not silent data loss. `/clear` is treated as a new continuum even if the id were reused. The state lives at a fixed user-level path rather than next to the scripts because the installed plugin sits in a versioned cache directory that changes on every update.
 

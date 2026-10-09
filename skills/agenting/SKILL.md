@@ -116,9 +116,10 @@ Every tier here is a Claude model. Before proposing a non-Claude one, read
 **What the guard denies.** `workflow-routing-guard.py` runs before every
 Workflow. Stage 1, in every mode: an `agent()` call missing `model`/`agentType`
 or `effort`, reported by line number; fix the script. Stage 2, in manual mode
-or when no mode is recorded: a routed plan not yet approved in this session;
-ask, apply, run its `--approve` command. Changing any tier asks again. In auto
-mode Stage 2 steps aside with a system message.
+or when no mode can be found for the session (a resumed chat's new id is looked
+up through the `[agenting]` line in its own transcript first): a routed plan not
+yet approved in this session; ask, apply, run its `--approve` command. Changing
+any tier asks again. In auto mode Stage 2 steps aside with a system message.
 
 ## Deliberate inheritance
 

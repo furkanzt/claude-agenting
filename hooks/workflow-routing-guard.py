@@ -34,6 +34,18 @@ TWO-STAGE GATE
      keeps the approval requirement, so an install where the continuity hook
      is absent degrades to asking rather than to a bypass nobody configured.
 
+     RESUMED CHATS: a resumed or forked chat gets a new session_id, and its
+     SessionStart hook may not run again (2026-10-08: ac2d086e resumed 499eb944
+     and no entry was ever written for it, so an auto chat was asked for
+     approval). The new transcript still carries the SessionStart line the
+     model was given, "[agenting] mode=<m> ... (session <id>)". When the
+     payload's own session_id has no entry, the guard takes the LAST such line
+     from payload["transcript_path"] and reads that id's entry instead (the id
+     the model records changes under); if that entry is gone it uses the mode
+     printed in the line. Only SessionStart hook attachments count, so text that
+     merely quotes the line does not; and it only ever follows an id found in
+     THIS chat's transcript, never "any auto session". No usable line -> ask.
+
 The same plan re-run in the same session passes silently. Change any tier and
 the signature changes, so it asks again (except in auto mode, which never asks).
 
@@ -80,6 +92,9 @@ APPROVALS_PATH = os.path.join(STATE_DIR, ".routing-approvals.json")
 SESSION_STATE_PATH = os.path.join(STATE_DIR, ".agenting-session-state.json")
 KEEP_SESSIONS = 20
 SELF_PATH = os.path.abspath(__file__)
+# The line session-continuity.py injects at SessionStart. The separator between
+# the fields is deliberately not matched: transcripts store it as "·" or "\u00b7".
+SESSION_LINE_RE = re.compile(r"\[agenting\] mode=([\w-]+)\b.*?\(session ([\w-]+)\)")
 
 
 # --------------------------------------------------------------- script parsing
@@ -243,20 +258,84 @@ def plan_signature(tiers) -> str:
     return "|".join(f"{m}/{e}x{n}" for (m, e), n in sorted(counts.items()))
 
 
+def call_sites(n: int) -> str:
+    return f"{n} agent() call site" + ("" if n == 1 else "s")
+
+
 def plan_hash(sig: str) -> str:
     return hashlib.sha256(sig.encode("utf-8")).hexdigest()[:12]
 
 
-def explicit_auto_mode(session: str) -> bool:
-    """True only if session-continuity.py explicitly recorded "auto" for this
-    session_id. A missing/unreadable file, a missing entry, or legacy
-    "semi-auto" returns False -- the safe default (see the module docstring)."""
+def load_session_state() -> dict:
     try:
         with open(SESSION_STATE_PATH, "r", encoding="utf-8") as fh:
-            state = json.load(fh)
-        return (state.get(session) or {}).get("mode") == "auto"
+            d = json.load(fh)
+            return d if isinstance(d, dict) else {}
     except Exception:
-        return False
+        return {}
+
+
+def _session_start_texts(attachment: dict):
+    """The text a SessionStart hook put in front of the model, from either form
+    the transcript stores it in."""
+    if attachment.get("hookEvent") != "SessionStart":
+        return
+    kind = attachment.get("type")
+    if kind == "hook_additional_context":
+        content = attachment.get("content")
+        yield from (content if isinstance(content, list) else [content])
+    elif kind == "hook_success":
+        try:
+            yield json.loads(attachment.get("stdout") or "")["hookSpecificOutput"]["additionalContext"]
+        except Exception:
+            return
+
+
+def transcript_session_line(transcript_path):
+    """(mode, session_id) from the last "[agenting] mode=... (session <id>)" line
+    that a SessionStart hook put into this chat's transcript, or None. Streams the
+    file (they reach ~10 MB) and parses only the lines that can hold the marker."""
+    if not isinstance(transcript_path, str) or not transcript_path:
+        return None
+    found = None
+    try:
+        with open(os.path.expanduser(transcript_path), "rb") as fh:
+            for raw in fh:
+                if b"[agenting] mode=" not in raw:
+                    continue
+                try:
+                    record = json.loads(raw)
+                except ValueError:
+                    continue
+                attachment = record.get("attachment") if isinstance(record, dict) else None
+                if not isinstance(attachment, dict):
+                    continue
+                for text in _session_start_texts(attachment):
+                    if isinstance(text, str):
+                        for m in SESSION_LINE_RE.finditer(text):
+                            found = (m.group(1), m.group(2))
+    except OSError:
+        return None
+    return found
+
+
+def session_mode(session: str, transcript_path):
+    """(mode, origin): the mode recorded for this session id, else the one this
+    chat's SessionStart line leads to (see RESUMED CHATS in the module docstring).
+    `origin` is the id it was read from, None when the session's own entry answered.
+    (None, None) when nothing is recorded anywhere -- the caller asks."""
+    state = load_session_state()
+    entry = state.get(session)
+    if isinstance(entry, dict):
+        return entry.get("mode"), None
+    line = transcript_session_line(transcript_path)
+    if line is None:
+        return None, None
+    line_mode, origin = line
+    origin_entry = state.get(origin)
+    if isinstance(origin_entry, dict):
+        return origin_entry.get("mode"), origin
+    return line_mode, origin
 
 
 # ------------------------------------------------------------------------- main
@@ -371,9 +450,11 @@ For deliberate inheritance, put `// {ESCAPE_HATCH}` on that line or the one abov
     sig = plan_signature(tiers)
     h = plan_hash(sig)
 
-    if explicit_auto_mode(session):
+    mode, origin = session_mode(session, payload.get("transcript_path"))
+    if mode == "auto":
+        carried = f", mode carried over from session {origin}" if origin else ""
         return note(
-            f"Workflow routing auto-approved ({len(tiers)} agent() call sites, auto mode, "
+            f"Workflow routing auto-approved ({call_sites(len(tiers))}, auto mode{carried}, "
             f"plan {h}) — no --approve round-trip needed. Your own Claude Code "
             f"permission settings, if any, still apply to running Workflow itself."
         )
@@ -385,17 +466,24 @@ For deliberate inheritance, put `// {ESCAPE_HATCH}` on that line or the one abov
     for model, effort in tiers:
         counts[(model, effort)] = counts.get((model, effort), 0) + 1
     table = "\n".join(
-        f"    {n:>3} agent(s)   {m:<16} effort: {e}"
+        f"    {n:>3} call site(s)   {m:<16} effort: {e}"
         for (m, e), n in sorted(counts.items(), key=lambda x: -x[1])
     )
+    if mode is None:
+        why = (f"no agenting mode is recorded for session {session}, and this chat's SessionStart "
+               f"line could not be found in its transcript, so the guard asks")
+    else:
+        why = f"mode is {mode}" + (f", carried over from session {origin}" if origin else "")
 
     return deny(
-        f"""STAGE 2/2 — PLAN APPROVAL: {len(tiers)} agents, all routed. Waiting on the user
-(this session is in manual mode, or has no recorded mode). Procedure: the agenting skill.
+        f"""STAGE 2/2 — PLAN APPROVAL: {call_sites(len(tiers))}, all routed. Waiting on the user
+({why}). Procedure: the agenting skill.
 
 {table}
 
-{len(tiers)} agents total.  Plan signature: {sig}
+{call_sites(len(tiers))} -- call sites, not runs: a call inside a loop, map(),
+parallel() or pipeline() runs once per item, so the script launches more agents than this.
+Plan signature: {sig}
 
 DO THIS, in order:
   1. Put this plan to the user with AskUserQuestion. Offer ALL THREE
@@ -412,7 +500,7 @@ DO THIS, in order:
   4. Run the Workflow again.
 
 The same plan re-run in this session will not ask again.""",
-        f"Workflow stopped (2/2): a {len(tiers)}-agent routing plan is awaiting approval.",
+        f"Workflow stopped (2/2): a routing plan with {call_sites(len(tiers))} is awaiting approval.",
     )
 
 
