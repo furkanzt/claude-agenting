@@ -307,6 +307,6 @@ Documented in the report; listed here so nobody tunes them silently.
 | Cost meter | `python3 scripts/measure-tokenomics.py` (overview) and `python3 scripts/measure-tokenomics.py anatomy` (launch cost); prices in `PRICES`, dated `PRICES_AS_OF` |
 | Fan-out guidance | `skills/agenting/reference/fan-outs.md` |
 | Clean-run tool | `python3 scripts/cleanrun.py plan / run / status` (docstring holds the money rules and guarantees) |
-| Tests | `python3 -m pytest tests -q` (301) |
+| Tests | `python3 -m pytest tests -q` (312) |
 | Health check | `python3 scripts/check-setup.py` (37 checks) |
 | Earlier design record | `AGENTING-PLAN-HANDOFF.md` (executed 2026-08-17, historical) |

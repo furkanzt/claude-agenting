@@ -1,5 +1,33 @@
 # Changelog
 
+## 3.2.2 — 2026-10-09
+
+### Fixed
+- **Routing guard: an auto chat that was resumed or forked is no longer asked for plan
+  approval.** A resumed or forked chat gets a new `session_id` and its SessionStart hook
+  may not run again, so nothing was ever recorded under the new id and the guard fell
+  back to manual. Seen 2026-10-08: `ac2d086e` resumed `499eb944`, a Workflow was denied
+  at Stage 2, and the user had to answer "agenting should decide this for me" and run
+  `--approve` by hand. When the payload's own id has no entry, the guard now takes the
+  last `[agenting] mode=… (session <id>)` line from a SessionStart hook attachment in
+  the hook payload's `transcript_path` and reads that id's entry; if that entry has been
+  evicted it uses the mode printed in the line. Manual carries over as well as auto.
+  It only follows an id found in this chat's own transcript, text that merely quotes
+  the line does not count, and a transcript with no such line (or no `transcript_path`)
+  still asks. The system message says "mode carried over from session …" when this
+  path was used.
+- **The Stage 2 plan counts call sites, not agents.** It said "2 agents total" for a
+  script whose two `agent()` call sites launched 8 agents. It now says "N agent() call
+  sites" and that a call in a loop, `map()`, `parallel()` or `pipeline()` runs once per
+  item. There is no estimate of the runtime count, because the guard cannot know the
+  item counts. The deny text also says why it is asking: the recorded mode, or that no
+  mode could be found.
+
+### Not changed
+- The guard and `session-continuity.py` were byte-identical in 3.2.0 and 3.2.1, so a
+  session that loaded 3.2.0 hooks and then read the 3.2.1 skill (the plugin updated
+  mid-session) was not part of the cause.
+
 ## 3.2.1 — 2026-10-08
 
 ### Fixed
