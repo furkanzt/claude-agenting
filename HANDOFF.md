@@ -24,6 +24,14 @@ work is committed locally and **not pushed**; the version is **not bumped** (sec
 how to release). Section 3A is done for Haiku 5.5; 3C is half done (a second and third scan
 task exist, still without Bash).
 
+**Updated 2026-10-09 (later): the TDD+BDD spec harness is adopted.** Every observable
+behaviour is a scenario in `features/` (10 files, 571 scenarios: 311 cite an existing test,
+260 are `@gap @wip` backlog), checked on every run by `tests/test_catalogue_integrity.py`.
+Read `CLAUDE.md`, `TDD.md` and `BDD.md` before changing behaviour; the generated
+`Scenarios.md` and `docs/scenarios/coverage-matrix.md` are never edited by hand. Only the
+bootstrap's Phases 0 to 3 were run (established-repo scope): the 260 gaps, the adversarial
+audit of the 311 cited tests and a live-check layer are not done (section 3I).
+
 ## 1. Where things stand
 
 The routing table was re-measured on Haiku 4.5, Sonnet 5.5, Opus 5.5 and Fable 5.1
@@ -251,6 +259,32 @@ derived (`claude-opus-5` and `claude-fable-5` writes, `claude-sonnet-5` cache re
 Grounded or open-book benchmark rows for the 5.5 models (Vectara HHEM, FACTS
 Grounding, HalluHard, Artificial Analysis Omniscience accuracy and hallucination
 components at matched effort). Any of them could change the abstention decision.
+
+### I. Spec harness: backlog, and bugs found while cataloguing (none fixed)
+
+The catalogue writers read every source file; four findings, checked as noted:
+
+1. **Routing guard crashes on valid JSON that is not an object.** `echo '[]' | python3
+   hooks/workflow-routing-guard.py` exits 1 with `AttributeError: 'list' object has no
+   attribute 'get'` (also `null` and `1`; reproduced 2026-10-09). Non-JSON input is handled
+   (exit 0). Claude Code always sends an object, so the practical risk is low; the docstring
+   says malformed input must not break the hook.
+2. **Cache tripwire nudges on every prompt when the session's first assistant line has no
+   `message.model`.** The baseline is stored as `"None|<effort>"`; on read only the effort is
+   converted back from `"None"`, so `prev_model == last_model` is never true
+   (`hooks/cache-tripwire.py`, lines 189 to 196). Read from the code; not run end to end.
+3. **The routing guard accepts a variable for `model` or `effort`** (`{model: M, effort: E}`):
+   only key presence is checked, and the manual plan shows `?`, so a user can approve a plan
+   that hides the tiers. Run by the verifier.
+4. **`scripts/check-setup.py` crashes on a `settings.json` that is valid JSON but not an object**
+   (`settings.get`, about line 140), after printing `settings.json parses` as PASS. From the code;
+   not re-run.
+
+Backlog: the 260 `@gap @wip` scenarios, concentrated where no tests exist: `check-setup.py`
+(49 of 50 scenarios), the cache tripwire (35 of 37), `plugin-docs` pins (30 of 39), the routing
+guard (32 of 63) and session continuity (26 of 46). Each is closed by writing the test,
+red-proofing it and replacing the tag with the citation (`BDD.md`). The 311 cited tests have not
+been audited for sufficiency or red-proofed (`audit.md` in the tdd-bdd-harness skill).
 
 ## 4. Harness follow-ups (engineering debt)
 
