@@ -118,18 +118,18 @@ Address them as `agenting:<name>`: `agentType: 'agenting:researcher'` inside a w
 
 | Tier | Agents |
 |---|---|
-| `haiku` / `low` | `scanner` |
+| `haiku` / `medium` | `scanner` |
 | `sonnet` / `low` | `coder`, `tech-writer`, `git-specialist`, `text-mechanic` |
 | `sonnet` / `medium` | `researcher`, `frontend-dev`, `cicd-engineer`, `performance-engineer`, `tester-tdd` |
 | `sonnet` / `high` | `coder-ts`, `database-architect`, `ml-developer`, `refactoring-specialist` |
 | `opus` / `high` | `coordinator`, `swarm-coordinator` |
 | `opus` / `xhigh` | `reviewer`, `security-architect`, `system-architect`, `incident-responder` |
 
-> **This roster is one person's opinionated setup.** Delete the ones that don't fit how you work; the gate doesn't depend on any of them. The 2026-10-06 measurement covered the seven routing-table rows only: `scanner` and `text-mechanic` follow their rows, while the architecture, security, incident and orchestration agents are unmeasured and keep their pins.
+> **This roster is one person's opinionated setup.** Delete the ones that don't fit how you work; the gate doesn't depend on any of them. The 2026-10-06 and 2026-10-09 measurements covered the seven routing-table rows only: `scanner` and `text-mechanic` follow their rows, while the architecture, security, incident and orchestration agents are unmeasured and keep their pins.
 
 Two are worth keeping regardless, because they encode a discipline rather than a role:
 
-- **`scanner`** (haiku/low): counts, lists, measures. Carries a *no silent zeroes* rule: a search returning 0 must be cross-checked and the gap explained, never reported as success.
+- **`scanner`** (haiku/medium): counts, lists, measures. Carries a *no silent zeroes* rule: a search returning 0 must be cross-checked and the gap explained, never reported as success.
 - **`text-mechanic`** (sonnet/low): mechanical text repair with a hard **output ⊆ input** invariant, and a mandatory closing audit (`words in input but missing from output: 0`) that refuses delivery if it isn't zero.
 
 ## Choosing a tier
@@ -141,15 +141,17 @@ Two questions settle almost every case:
 
 | Task shape | Model | Effort |
 |---|---|---|
-| List files, count pages, collect output | `haiku` | `low` |
+| List files, count pages, collect output | `haiku` | `medium` |
 | Mechanical text cleanup (output ⊆ input) | `sonnet` | `low` |
-| Read code/prose and report what it does | `sonnet` | `medium` |
+| Read code/prose and report what it does | `haiku` | `medium` |
 | Turn prose into rules; classify; judge | `sonnet` | `medium`–`high` |
 | Synthesize across a document or many files | `opus` | `xhigh` |
 | Decide under a "don't guess" constraint | `sonnet` | `xhigh` |
 | Adversarially verify a finding | `sonnet` | `high` |
 
-These cells were measured on 2026-10-06 (Sonnet 5.5, Opus 5.5, Fable 5.1, Haiku 4.5), not just assumed. Three changed: cleanup moved to Sonnet `low` because Haiku failed it, and don't-guess and verify moved from Opus to Sonnet because Sonnet made no more errors (and no hallucinations) over 102 and 96 measured items. Synthesis stays on Opus, where Sonnet found fewer real issues. The `quality` disposition keeps Opus on all three. See [`evals/`](evals/README.md), which also keeps the evidence so that when a new model ships only the missing runs are paid for.
+These cells were measured on 2026-10-06 (Sonnet 5.5, Opus 5.5, Fable 5.1, Haiku 4.5), not just assumed. Three changed: cleanup moved to Sonnet `low` because Haiku failed it, and don't-guess and verify moved from Opus to Sonnet because Sonnet made no more errors (and no hallucinations) over 102 and 96 measured items. Synthesis stays on Opus, where Sonnet found fewer real issues. The `quality` disposition keeps Opus on all three.
+
+They were re-measured on 2026-10-09 when Haiku 5.5 shipped, and the `haiku` alias moved to it. Haiku 5.5 honours `effort` (4.5 did not) and costs $0.10/$0.50 per MTok, so it took two rows: list/count (`haiku`/`medium`: exact in 36 of 36 runs; the old `low` pin 30 of 36) and read-and-report (`haiku`/`medium`, 9 of 9 at about 5% of Sonnet's cost, on exact-answer lookups). For don't-guess only `fast` uses it (`haiku`/`high`: no hallucination in 408 items, but one confident wrong answer in 480 and a cell found by extending efforts after two failed); `balanced` stays Sonnet and `quality` Opus. Cleanup, classify, verify and synthesis stayed where they were: at three runs the harness would have moved most of them, and longer runs showed the cheaper cell failing. See [`evals/`](evals/README.md), which also keeps the evidence so that when a new model ships only the missing runs are paid for.
 
 ## Deliberate inheritance
 

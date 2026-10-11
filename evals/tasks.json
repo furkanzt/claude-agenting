@@ -11,6 +11,28 @@
     "task_hash": "e5fa23e9fe3f6f71a600622d7750fca0b5b1f00ef75286d9ab48b95ad1772191"
   },
   {
+    "id": "classify-02",
+    "row": "classify",
+    "phase": "confirmation",
+    "title": "Label 24 MEB curriculum activity sentences with one of 6 close kazanım (Fen 6, unit 3) or NONE",
+    "delivery": "files",
+    "grading_type": "code",
+    "pass_rule": "score >= 0.9",
+    "pass_threshold": 0.9,
+    "task_hash": "bf28af5437a9b0c4a98cc354ab9778451938bb0521be47d96725a0461209ebb8"
+  },
+  {
+    "id": "classify-03",
+    "row": "classify",
+    "phase": "confirmation",
+    "title": "Label 24 MEB curriculum activity sentences with one of 6 close kazanım (Matematik 7, tema 4) or NONE",
+    "delivery": "files",
+    "grading_type": "code",
+    "pass_rule": "score >= 0.9",
+    "pass_threshold": 0.9,
+    "task_hash": "88f97027f9141a8e28d88725ec063eb9c8d6294639c3c386c6cebd1cd2f51ee0"
+  },
+  {
     "id": "cleanup-01",
     "row": "cleanup",
     "phase": "screening",
@@ -66,6 +88,28 @@
     "task_hash": "6c5a859d50f5489bb84e6478f2c0ca22e967a13add5aeb8ccb055828caa4971b"
   },
   {
+    "id": "read-report-02",
+    "row": "read-report",
+    "phase": "confirmation",
+    "title": "Answer 12 exact questions about Matching Numbers' board/wave module (lib/game.ts)",
+    "delivery": "files",
+    "grading_type": "code",
+    "pass_rule": "score >= 0.9",
+    "pass_threshold": 0.9,
+    "task_hash": "0275c31a51bba6a1a2be00958efe4d797b18ab1be5d7e02bb805dcf1ef94d0d8"
+  },
+  {
+    "id": "read-report-03",
+    "row": "read-report",
+    "phase": "confirmation",
+    "title": "Answer 12 exact questions about AyşeHoca's question-generation export and its live image rule file (Turkish prose)",
+    "delivery": "files",
+    "grading_type": "code",
+    "pass_rule": "score >= 0.9",
+    "pass_threshold": 0.9,
+    "task_hash": "e142f5a07fcae03d1809e74f232c73c874e1e16f709b5715bbe3e9367586830d"
+  },
+  {
     "id": "scan-01",
     "row": "scan",
     "phase": "screening",
@@ -75,6 +119,28 @@
     "pass_rule": "score >= 1.0",
     "pass_threshold": 1.0,
     "task_hash": "768ceec37f783d037e2ff94b7d9c1dbe1b864e919e3ad579e1a4d61924dd2645"
+  },
+  {
+    "id": "scan-02",
+    "row": "scan",
+    "phase": "confirmation",
+    "title": "Enumerate and count five dated snapshots of one game repo, past the Glob/Grep result caps (6 mechanical sub-questions)",
+    "delivery": "files",
+    "grading_type": "code",
+    "pass_rule": "score >= 1.0",
+    "pass_threshold": 1.0,
+    "task_hash": "92ff2e9ba37354ff8d6aacf26695b193d82e508eed53bc7514f2362c45544fbb"
+  },
+  {
+    "id": "scan-03",
+    "row": "scan",
+    "phase": "confirmation",
+    "title": "Enumerate and count a Turkish-content web+API source snapshot past the tool caps (6 mechanical sub-questions)",
+    "delivery": "files",
+    "grading_type": "code",
+    "pass_rule": "score >= 1.0",
+    "pass_threshold": 1.0,
+    "task_hash": "517961710446069a8b8543dd3d0534deb8499f4cd383c59ff3cbc0790bda5cc1"
   },
   {
     "id": "synthesize-01",

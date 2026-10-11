@@ -16,12 +16,12 @@ Pick by reasoning demand, not by how important the task feels.
 
 | Task shape | Model | Effort | Test |
 |---|---|---|---|
-| List files, count pages, run a script, collect output | `haiku` | `low` | A regex or `ls` could nearly do it |
+| List files, count pages, run a script, collect output | `haiku` | `medium` | A regex or `ls` could nearly do it |
 | Mechanical text cleanup: de-hyphenate, reflow, strip headers | `sonnet` | `low` | Output ⊆ input; nothing invented |
-| Read code / prose and report what it does | `sonnet` | `medium` | Answer is present in one place |
+| Read code / prose and report what it does | `haiku` | `medium` | Answer is present in one place |
 | Turn prose into rules; classify; judge relevance | `sonnet` | `medium`–`high` | Needs judgment, source states the facts |
 | Synthesize across a whole document or many files | `opus` | `xhigh` | Must relate things that are far apart |
-| Decide under a "don't guess" constraint (BELİRSİZ) | `sonnet` | `xhigh` | **Calibration is the product** |
+| Decide under a "don't guess" constraint (BELİRSİZ) | `sonnet` | `xhigh` | **Calibration is the product** (`fast`: `haiku`/`high`) |
 | Adversarial verify / refute a finding | `sonnet` | `high` | A confident wrong answer is expensive |
 
 **How these cells were checked (2026-10-06).** [`evals/`](../../evals/README.md)
@@ -40,16 +40,14 @@ per run. Three rows changed:
   ([`evals/research/2026-10-06-sonnet-vs-opus-open-book.md`](../../evals/research/2026-10-06-sonnet-vs-opus-open-book.md)).
   This is a bounded null: it cannot exclude a gap of a few points, so the
   `quality` disposition keeps Opus on these rows.
-- **Kept: scan, read-report, classify, synthesize.** Synthesis stays on Opus
-  `xhigh` because there Sonnet does not do the same thing: Opus `xhigh` found every
-  planted item in all 9 runs, Sonnet `xhigh` missed the same subtle one in 3 of 3
-  on one task and reported fewer genuine extra issues. For scan, read-report and
-  classify no cheaper cell cleared the plugin's evidence rules (pass every run and
-  save at least 25%).
-- **`haiku/low` is just `haiku`:** it ignores `effort` and thinks heavily by
-  default, so on the scan task it was the costliest cell ($0.17 a run; `sonnet/high`
-  also passed 3 of 3 for $0.05 but has no second-round task yet). Anthropic lists
-  Haiku 4.5 for retirement no earlier than 2026-10-15; re-test scan when that moves.
+- **Kept: scan, read-report, classify, synthesize** (scan and read-report moved on
+  2026-10-09, below). Synthesis stays on Opus `xhigh` because there Sonnet does not
+  do the same thing: Opus `xhigh` found every planted item in all 9 runs, Sonnet
+  `xhigh` missed the same subtle one in 3 of 3 on one task and reported fewer
+  genuine extra issues. For classify no cheaper cell cleared the plugin's evidence
+  rules (pass every run and save at least 25%).
+- **Haiku 4.5 ignored `effort`** (on the scan task it was the costliest cell, $0.17 a
+  run). Haiku 5.5 does not; see the next block.
 - **Disposition.** `quality` keeps Opus on rows 5 to 7; `fast` uses Opus `high` for
   synthesis. See [reference/modes.md](reference/modes.md).
 - **Limits.** Nine runs per cell per high-stakes row, and 102 abstention items per
@@ -59,6 +57,43 @@ per run. Three rows changed:
   and orchestration agents were not measured and keep their pins. Method, every
   number and the places where the harness's raw output was overridden:
   `evals/results/REPORT-2026-10-06.md`.
+
+**Re-checked with Haiku 5.5 (2026-10-09).** The `haiku` alias now means Haiku 5.5
+(`claude-haiku-5-5`, CLI 2.1.295): it honours `effort`, costs $0.10/$0.50 per MTok
+for prompts up to 100k tokens (5x above that), and retires no sooner than
+2027-10-07. Every row was re-run against its four effort cells, with six new tasks.
+At three runs per task the harness named a Haiku 5.5 cell on six rows; 12-repeat
+checks (verify, dont-guess, scan, classify; the rules and when each was written:
+[`evals/results/PREREGISTERED-2026-10-09.md`](../../evals/results/PREREGISTERED-2026-10-09.md))
+and judgment overrides changed five of the six:
+
+- **Scan, `haiku/low` → `haiku/medium`.** Exact in 36 of 36 runs over three tasks at
+  $0.009 a run; `low` (the old pin, which the alias had turned into Haiku 5.5) 30 of
+  36; Sonnet `high` 32 of 36 at $0.076; Haiku 4.5 2 of 6 on the new tasks.
+- **Read and report, `sonnet/medium` → `haiku/medium`.** 9 of 9 on three exact-answer
+  tasks at $0.006 a run against $0.118. The tasks do not separate cells (Haiku 4.5
+  passes too), so effort is Anthropic's default, and open-ended reports were not
+  measured; `quality` stays `sonnet/high`. The `researcher` agent keeps
+  `sonnet/medium`: tracing and dependency mapping is wider than what was measured.
+- **Don't guess: `fast` uses `haiku/high`; `balanced` stays `sonnet/xhigh`.** Haiku 5.5
+  `high` made no hallucination in 408 unanswerable items and passed 36 of 36 runs, at
+  $0.020 against $0.329, but it gave one confident wrong answer in 480 answerable ones
+  (Sonnet none). `low` and `medium` hallucinated (3 and 1 times, all on one sibling-trap
+  item: a neighbouring fact copied onto the wrong entity), and `high` was found by
+  extending more efforts after those two failed. `balanced` waits for a fresh
+  confirmation on new items; `quality` keeps Opus.
+- **Kept: cleanup** (Haiku 5.5 `high` passed 6 of 9 and altered at least one word in 7
+  of 9 runs; Sonnet `low` altered none in 3), **classify** (`xhigh` gave 35 wrong labels
+  in 864 against Sonnet `medium`'s 15, and a kazanım to a NONE item 16 times in 144
+  against 5), **verify** (`medium` false-confirmed one finding in 6 of 12 runs; `xhigh`
+  once in 36), **synthesize** (`medium` 3 of 3, then 3 of 6).
+- **`low` was the weakest or tied-weakest effort** on scan, verify, dont-guess, cleanup
+  and classify.
+- **Limits.** Same harness (no Bash, one prompt shape, `effort` passed explicitly; that
+  a subagent applies its pinned effort is unconfirmed), 3 tasks per row (cleanup 1),
+  Sonnet baseline runs #1 to 3 from an older CLI, the adopted cell is the best of four
+  efforts, and prompts stayed far below the 100k tier. 36 of 36 bounds a per-run failure
+  below about 8% but counts runs, not tasks. `evals/results/REPORT-2026-10-09.md`.
 
 Two questions settle almost every case:
 
@@ -73,7 +108,7 @@ prefix is part of the name, and the guard wants `effort` alongside it.
 
 | Tier | Agents (`agenting:<name>`) |
 |---|---|
-| `haiku`/`low` | `scanner` |
+| `haiku`/`medium` | `scanner` |
 | `sonnet`/`low` | `coder`, `tech-writer`, `git-specialist`, `text-mechanic` |
 | `sonnet`/`medium` | `researcher`, `frontend-dev`, `cicd-engineer`, `performance-engineer`, `tester-tdd` |
 | `sonnet`/`high` | `coder-ts`, `database-architect`, `ml-developer`, `refactoring-specialist` |
@@ -140,7 +175,7 @@ The `Agent` tool is not gated: every `agenting:` agent pins its model and
 effort, and one agent is bounded. Spawn it as `subagent_type: "agenting:<name>"`.
 Ask before spawning when the tier and the task disagree:
 
-- `agenting:scanner` (haiku/low) for something that needs a decision, not a count
+- `agenting:scanner` (haiku/medium) for something that needs a decision, not a count
 - `agenting:researcher` (sonnet/medium) for synthesis that needs opus
 - a task where a confident wrong answer would propagate silently
 - the session is on a cheap tier and this call is the hard part of the work

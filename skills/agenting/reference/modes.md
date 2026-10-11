@@ -58,19 +58,31 @@ Baseline per disposition:
 
 | Routing-table row | `fast` | `balanced` | `quality` |
 |---|---|---|---|
-| List / count | `haiku`/`low` | `haiku`/`low` | `haiku`/`low` |
+| List / count | `haiku`/`medium` | `haiku`/`medium` | `haiku`/`medium` |
 | Mechanical cleanup | `sonnet`/`low` | `sonnet`/`low` | `sonnet`/`low` |
-| Read code/prose, report | `sonnet`/`low` | `sonnet`/`medium` | `sonnet`/`high` |
+| Read code/prose, report | `haiku`/`medium` | `haiku`/`medium` | `sonnet`/`high` |
 | Prose→rules, classify, judge | `sonnet`/`low` | `sonnet`/`medium` | `sonnet`/`high` |
 | Synthesize across many files | `opus`/`high` | `opus`/`xhigh` | `opus`/`xhigh` |
-| Decide under BELİRSİZ | `sonnet`/`xhigh` | `sonnet`/`xhigh` | `opus`/`xhigh` |
+| Decide under BELİRSİZ | `haiku`/`high` | `sonnet`/`xhigh` | `opus`/`xhigh` |
 | Adversarial verify/refute | `sonnet`/`high` | `sonnet`/`high` | `opus`/`high` |
 
-`fast` and `balanced` are the measured cells (2026-10-06, `evals/`). For BELİRSİZ
-and verification `balanced` uses Sonnet: it matched Opus on every measured run at
-about half the cost with no hallucination, and the closed-book gap in the vendor
-cards is knowledge, not abstention discipline; the evidence is a bounded null (a
-gap under about 3 to 5 points is not excluded), so `quality` keeps Opus. For
+`fast` and `balanced` are the measured cells (2026-10-06 and 2026-10-09, `evals/`).
+For verification and BELİRSİZ `balanced` uses Sonnet: it matched Opus on every
+measured run at about half the cost, and the closed-book gap in the vendor cards is
+knowledge, not abstention discipline; the evidence is a bounded null (a gap under
+about 3 to 5 points is not excluded), so `quality` keeps Opus. For BELİRSİZ, `fast`
+uses Haiku 5.5 at `high`: 36 of 36 runs and no hallucination in 408 unanswerable
+items, about 16x cheaper than Sonnet `xhigh`, but one confident wrong answer in 480
+answerable ones (Sonnet none), and it is the cell that stayed clean after `low` and
+`medium` hallucinated (3 and 1 times, on one item where a neighbouring fact was
+copied onto the wrong entity), so do not lower its effort. `balanced` waits for a
+fresh confirmation on new sibling-trap items. The 16x holds for prompts under the
+100K-token tier (about 4x on input above it). These Haiku pins also assume the pinned
+effort is actually applied to the subagent, which is unconfirmed for Workflow
+`agent()`. List/count uses Haiku 5.5 at `medium` in all three dispositions (`low`
+missed 6 of 36 exact-count runs). Read-and-report uses Haiku 5.5 at `medium` for
+`fast` and `balanced` (measured on exact-answer lookups only); `quality` keeps
+`sonnet`/`high`. For
 synthesis Sonnet does not match Opus (it missed a subtle planted item in 3 of 3
 runs on one task), so `balanced` and `quality` keep `opus`/`xhigh`; `fast` uses
 `opus`/`high`, which saves about a third and missed one planted item in 2 of 9

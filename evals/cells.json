@@ -1,5 +1,5 @@
 {
-  "_note": "Prices are list $/MTok, verified 2026-10-05 against the Anthropic pricing page (research/2026-10-05-models.md). Decisions use measured cost_usd per run, not these. A cell's identity for caching is its cell_hash: sha8 of {cell_id, model_id, effort, system_append}; changing any of them re-runs that cell only.",
+  "_note": "Prices are list $/MTok, verified 2026-10-05 against the Anthropic pricing page (research/2026-10-05-models.md); the Haiku 5.5 cells were added and priced on 2026-10-09 from the same page. Decisions use measured cost_usd per run, not these. A cell's identity for caching is its cell_hash: sha8 of {cell_id, model_id, effort, system_append}; changing any of them re-runs that cell only.",
   "cells": {
     "fable-5-1@high": {
       "model_id": "claude-fable-5-1",
@@ -30,6 +30,56 @@
         "input": 1.0,
         "output": 5.0,
         "as_of": "2026-10-05"
+      }
+    },
+    "haiku-5-5@low": {
+      "model_id": "claude-haiku-5-5",
+      "alias": "haiku",
+      "effort": "low",
+      "price": {
+        "input": 0.1,
+        "output": 0.5,
+        "input_over_100k": 0.5,
+        "output_over_100k": 2.5,
+        "as_of": "2026-10-09"
+      },
+      "why": "The cell the plugin's `haiku`/`low` pins have run since the `haiku` alias moved to Haiku 5.5 (CLI 2.1.295). Priced per request: prompts over 100k tokens pay the `*_over_100k` rates, so a long synthesis run costs 5x per token."
+    },
+    "haiku-5-5@medium": {
+      "model_id": "claude-haiku-5-5",
+      "alias": "haiku",
+      "effort": "medium",
+      "price": {
+        "input": 0.1,
+        "output": 0.5,
+        "input_over_100k": 0.5,
+        "output_over_100k": 2.5,
+        "as_of": "2026-10-09"
+      },
+      "why": "Haiku 5.5's API default effort (models overview, 2026-10-09)."
+    },
+    "haiku-5-5@high": {
+      "model_id": "claude-haiku-5-5",
+      "alias": "haiku",
+      "effort": "high",
+      "price": {
+        "input": 0.1,
+        "output": 0.5,
+        "input_over_100k": 0.5,
+        "output_over_100k": 2.5,
+        "as_of": "2026-10-09"
+      }
+    },
+    "haiku-5-5@xhigh": {
+      "model_id": "claude-haiku-5-5",
+      "alias": "haiku",
+      "effort": "xhigh",
+      "price": {
+        "input": 0.1,
+        "output": 0.5,
+        "input_over_100k": 0.5,
+        "output_over_100k": 2.5,
+        "as_of": "2026-10-09"
       }
     },
     "opus-5-5@low": {

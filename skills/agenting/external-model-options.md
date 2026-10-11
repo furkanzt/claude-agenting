@@ -9,29 +9,36 @@ revisited with numbers instead of assumptions.
 
 ## 1. Current tiers (what you actually run)
 
-Prices verified 2026-10-05 against Anthropic's pricing page; source and the
-effort/capability evidence in [`evals/research/2026-10-05-models.md`](../../evals/research/2026-10-05-models.md).
+Prices verified 2026-10-05 against Anthropic's pricing page (Haiku 5.5 added and
+re-checked there on 2026-10-09); source and the effort/capability evidence in
+[`evals/research/2026-10-05-models.md`](../../evals/research/2026-10-05-models.md).
 
 | Tier | Model | In $/MTok | Out $/MTok | Context | Agents |
 |---|---|---:|---:|---|---|
-| cheap | Haiku 4.5 | 1.00 | 5.00 | 200K | `scanner`, `text-mechanic` |
+| cheap | Haiku 5.5 | 0.10 (0.50 over 100K) | 0.50 (2.50 over 100K) | 1M | `scanner` |
 | mid | Sonnet 5.5 | 2.00 | 10.00 | 1M | see the roster in the README |
 | top | Opus 5.5 | 4.00 | 20.00 | 1M | see the roster in the README |
 | max | Fable 5.1 | 10.00 | 50.00 | 1M | none |
 
 Sonnet's $2/$10 was introductory pricing on Sonnet 5; it is now the permanent
-price and Sonnet 5.5 launched at it. Cache reads are $0.10 (Haiku), $0.20
+price and Sonnet 5.5 launched at it. Cache reads are $0.01 (Haiku 5.5), $0.20
 (Sonnet 5.5, Opus 5.5) and $0.25 (Fable 5.1) per MTok; cache writes are 1.25×
-(5 min) or 2× (1 h) the input price. No long-context premium. Batch API −50%,
-up to 24 h latency. Haiku 4.5 has no effort parameter and its retirement is
-announced for no sooner than 2026-10-15 with no successor named; the harness in
+(5 min) or 2× (1 h) the input price. No long-context premium except Haiku 5.5,
+which is priced per request: a prompt over 100K tokens pays 5× per token. Batch API
+−50%, up to 24 h latency. Haiku 5.5 (released 2026-10-07, retirement not before
+2027-10-07) honours `effort`; Haiku 4.5 (`claude-haiku-4-5-20251001`, $1/$5, no
+effort parameter) is still active with retirement not before 2026-10-15. The `haiku`
+alias resolves to Haiku 5.5 on CLI 2.1.295. The harness in
 [`evals/`](../../evals/README.md) is how a replacement gets tested.
+
+*Sonnet 5.5's cache read is shown at $0.20 as in the 10-05 note; the pricing page on
+2026-10-09 gives $0.10 (0.05× input). Re-verify before relying on it.*
 
 ## 2. External candidates
 
-| Vendor / tier | In $/MTok | Out $/MTok | vs Haiku 4.5 | Notes |
+| Vendor / tier | In $/MTok | Out $/MTok | vs Haiku 5.5 | Notes |
 |---|---:|---:|---|---|
-| Gemini 2.5 Flash-Lite | 0.10 | 0.40 | **~10× cheaper** | The only tier with a real cost edge |
+| Gemini 2.5 Flash-Lite | 0.10 | 0.40 | same input price, 20% cheaper output; **5× cheaper input** only for prompts over 100K | Was ~10× cheaper than Haiku 4.5; Haiku 5.5 closed most of that gap |
 | Gemini 3.1 Pro (<200K) | 2.00 | 12.00 | — | ≈ Sonnet 5.5 |
 | Gemini 3.1 Pro (>200K) | **4.00** | 12.00 | — | **Twice Sonnet 5.5's input price ($2.00)** — long-context edge is a myth here |
 | *(add candidate)* | | | | |
@@ -43,23 +50,29 @@ announced for no sooner than 2026-10-15 with no successor named; the harness in
 
 ## 3. When does it become worth it?
 
-The only defensible use is **bulk mechanical reading at Flash-Lite tier**.
-Per job of size *N* input tokens, the saving over Haiku 4.5 is `N × $0.90/MTok`:
+The only defensible use is **bulk mechanical reading at Flash-Lite tier**, and since
+Haiku 5.5 it only exists for prompts Haiku 5.5 charges at its long-prompt rate.
+Haiku 5.5 bills each request at $0.10/MTok when the prompt is up to 100K tokens and
+$0.50/MTok above, so a corpus read in chunks under 100K costs the same input price
+as Flash-Lite and saves nothing. For one unchunked prompt over 100K the saving over
+Haiku 5.5 is `N × $0.40/MTok` (Flash-Lite figures unverified since 2026-08-06):
 
-| Job size | Haiku 4.5 | Flash-Lite | You save |
+| Job size (prompts over 100K) | Haiku 5.5 | Flash-Lite | You save |
 |---:|---:|---:|---:|
-| 250K (kazanım index) | $0.25 | $0.025 | **$0.22** |
-| 2M (whole docs corpus) | $2.00 | $0.20 | $1.80 |
-| 20M (10 full passes) | $20.00 | $2.00 | $18.00 |
-| 200M | $200.00 | $20.00 | $180.00 |
+| 250K (kazanım index) | $0.125 | $0.025 | **$0.10** |
+| 2M (whole docs corpus) | $1.00 | $0.20 | $0.80 |
+| 20M (10 full passes) | $10.00 | $2.00 | $8.00 |
+| 200M | $100.00 | $20.00 | $80.00 |
+| any size, chunked under 100K | $0.10/MTok | $0.10/MTok | **$0** |
 
 **Break-even against maintenance.** A second vendor costs: an API key to rotate,
 an auth path that can die silently, a second failure mode, and a second set of
 model IDs to keep current. Call that ~2 h/year of your time.
 
-> **Rule of thumb: wire up an external tier only when a single job exceeds
-> ~20M input tokens, or you run the corpus more than ~10× a month.**
-> Below that you are optimizing a line item smaller than one coffee.
+> **Rule of thumb: do not wire up an external tier for cost while Haiku 5.5 can read
+> the job in chunks under 100K.** The saving is zero there. Revisit only for a job that
+> cannot be chunked, above ~20M input tokens or more than ~10× a month. Below that you
+> are optimizing a line item smaller than one coffee.
 
 ## 4. What does NOT justify it
 

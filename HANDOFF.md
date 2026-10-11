@@ -13,25 +13,37 @@ was written (`skills/agenting/reference/fan-outs.md`). 3.2.0 is committed locall
 evidence that waits on them. Sections 3A and 3F changed in place, and the old 3G
 (external evidence) is now 3H.
 
+**Updated 2026-10-09 for the Haiku 5.5 round.** The `haiku` alias now resolves to
+Haiku 5.5, so the `scanner` pin had silently changed model. All seven rows were re-run
+against four Haiku 5.5 effort cells with six new tasks; two rows moved (scan to
+`haiku/medium`, read-report to `haiku/medium`), don't-guess moved for `fast` only
+(`haiku/high`), the rest held. Read `evals/results/REPORT-2026-10-09.md` (section 9 says what
+an independent audit corrected), then `evals/results/PREREGISTERED-2026-10-09.md`: its
+provenance note says which rules were written before their runs and which were not. This
+work is committed locally and **not pushed**; the version is **not bumped** (section 2 says
+how to release). Section 3A is done for Haiku 5.5; 3C is half done (a second and third scan
+task exist, still without Bash).
+
 ## 1. Where things stand
 
 The routing table was re-measured on Haiku 4.5, Sonnet 5.5, Opus 5.5 and Fable 5.1
-with the new `evals/` harness (165 runs, $121.90 including judge passes). Three cells
-changed; the rest held.
+with the new `evals/` harness (165 runs, $121.90 including judge passes), and again on
+2026-10-09 with Haiku 5.5 ($49.96 more). Table below is the 2026-10-09 state.
 
 | Row | Default (`balanced`) | `quality` | Evidence in one line |
 |---|---|---|---|
-| List / count / collect | `haiku/low` | same | Haiku 3/3; `sonnet/low` 2/3, `sonnet/medium` 1/3 (silent omissions); `sonnet/high` 3/3 at ~70% less cost, **unconfirmed** |
-| Mechanical cleanup | `sonnet/low` | same | Haiku 0/3 (headers left in); Sonnet 3/3 |
-| Read and report | `sonnet/medium` | `sonnet/high` | every cell 3/3; no cheaper cell saved 25% |
-| Classify / judge | `sonnet/medium`–`high` | `sonnet/high` | `low` saved 4%; the narrowing was never tested |
+| List / count / collect | `haiku/medium` (Haiku 5.5) | same | 36/36 exact on 3 tasks at $0.009; `haiku/low` 30/36; `sonnet/high` 32/36 at $0.076 |
+| Mechanical cleanup | `sonnet/low` | same | Haiku 4.5 0/3 (headers left in); Haiku 5.5 `high` 6/9 and it altered a word in 7/9 runs; Sonnet 3/3 |
+| Read and report | `haiku/medium` | `sonnet/high` | every cell that ran 9/9 on 3 exact-answer tasks; Haiku 5.5 at $0.006 against $0.118; tasks do not separate cells |
+| Classify / judge | `sonnet/medium`–`high` | `sonnet/high` | `low` saved 4%; the narrowing was never tested; Haiku 5.5 `xhigh` 35 wrong labels in 864 against Sonnet `medium`'s 15 |
 | Synthesize | `opus/xhigh` | same | Opus `xhigh` found every planted item in 9/9 runs; `opus/high` 7/9; Sonnet `xhigh` 6/9 |
-| Don't guess (BELİRSİZ) | `sonnet/xhigh` | `opus/xhigh` | 0/102 hallucinations each for Sonnet and Opus (Haiku 19/102): a bounded null |
-| Adversarial verify | `sonnet/high` | `opus/high` | 0/96 wrong verdicts each (Haiku 10/96): a bounded null |
+| Don't guess (BELİRSİZ) | `sonnet/xhigh` (`fast`: `haiku/high`) | `opus/xhigh` | 0/408 hallucinations for Haiku 5.5 `high` and Sonnet `xhigh`, but `high` gave 1 confident wrong answer in 480 (Sonnet 0), `low` 3 and `medium` 1 hallucinations on one item, and `high` was found by extending efforts after two failed: a bounded null |
+| Adversarial verify | `sonnet/high` | `opus/high` | 0/96 wrong verdicts each (Haiku 4.5 10/96); Haiku 5.5 `medium` false-confirmed 6 of 12 runs on verify-02, `xhigh` 1 of 36: a bounded null |
 
-`fast` uses `opus/high` for synthesis, `sonnet/low` for read-report and classify, and
-the `balanced` cells elsewhere (`skills/agenting/reference/modes.md`). Agent pins: only `text-mechanic` changed
-(`sonnet/low`).
+`fast` uses `opus/high` for synthesis, `sonnet/low` for classify, `haiku/high` for
+don't-guess, and the `balanced` cells elsewhere (`skills/agenting/reference/modes.md`). Agent pins: `text-mechanic` is
+`sonnet/low` (10-06) and `scanner` is `haiku/medium` (10-09); `researcher` stays
+`sonnet/medium` because its brief is wider than the measured read-report shape.
 
 ## 2. Owner actions (not code)
 
@@ -43,7 +55,7 @@ the `balanced` cells elsewhere (`skills/agenting/reference/modes.md`). Agent pin
    Marketplaces). Friends do the same; auto-update is off by default for third-party
    marketplaces. Claude Code only treats a release as new when `version` changes, and
    `plugin.json` wins over the marketplace entry, so bump both together next time.
-2. **Back up `evals/private/`** (about 7.9 MB). It holds the real test material, the
+2. **Back up `evals/private/`** (about 18 MB since the 2026-10-09 round). It holds the real test material, the
    ground truth, the graders and every stored answer, and it is gitignored on purpose
    (the repo is public). If it is lost the committed scores stay valid evidence but
    nothing can be re-graded or extended, and the tasks must be rebuilt from the
@@ -55,9 +67,16 @@ the `balanced` cells elsewhere (`skills/agenting/reference/modes.md`). Agent pin
 
 ## 3. Next work, in priority order
 
-### A. When Haiku 5.5, Fable 5.5 (or any new model) ships
+### A. When Fable 5.5 (or any new model) ships (Haiku 5.5 done on 2026-10-09)
 
-The point of the harness is that this costs only the missing runs.
+The point of the harness is that this costs only the missing runs. The 2026-10-09
+round added three things to this procedure (they are also in `evals/README.md`):
+refresh every row's `baseline` to the current table first; build new tasks in
+`evals/private/staging/` and move them in when finished; and vet any candidate the bar
+accepts with 12 repeats per task under a rule written down, with its time, before the
+extra runs (at three runs the bar named a Haiku 5.5 cell on six of seven rows and five of
+the six were reversed or re-tuned; the 2026-10-09 rules file was saved after some
+extensions had run, which the audit caught).
 
 1. `evals/cells.json`: add each cell with its **exact** `model_id`, `effort`, and a
    dated price. Do not rely on an alias: `haiku`, `sonnet`, `opus`, `fable` move when a
@@ -77,10 +96,9 @@ The point of the harness is that this costs only the missing runs.
    entry, bump `version` in `.claude-plugin/plugin.json` and `marketplace.json`, run
    `python3 -m pytest tests -q`, commit.
 
-**Haiku 4.5 specifically.** Anthropic lists it for retirement no earlier than
-2026-10-15 (no notice had been issued on 2026-10-05). Scan is the only row still on
-it. If it retires or a successor ships, re-test scan; `sonnet/high` is the standing
-candidate (3/3 at $0.052 a run against Haiku's $0.175).
+**Haiku 4.5 specifically.** Still active, retirement not before 2026-10-15 (checked
+2026-10-09). Nothing in the table uses it any more: the `haiku` alias is Haiku 5.5 and
+Haiku 4.5 passed only 2 of 6 on the new scan tasks.
 
 ### B. Tighten the Sonnet-versus-Opus comparison on abstention and verification
 
@@ -97,12 +115,14 @@ is about 8.5% (about 40% for 5 points). To tighten it:
 - The deep-research note lists what it could not establish:
   `evals/research/2026-10-06-sonnet-vs-opus-open-book.md` (open questions).
 
-### C. Scan needs a second task, with Bash
+### C. Scan with Bash
 
-Scan was tested with Read, Grep and Glob only; the real `scanner` agent has Bash, which
-would probably make both models exact. A second scan task whose subjects get Bash
-(sandboxed copy, no path to the private truth) would settle `sonnet/high`. Until then
-scan stays on `haiku/low` (which is just `haiku`: Haiku ignores `effort`).
+Scan now has three tasks (scan-02 and scan-03 were added on 2026-10-09) and Haiku 5.5
+`medium` is exact on all 36 runs, but every scan task still gives the subject Read, Grep
+and Glob only; the real `scanner` agent has Bash. A scan task whose subjects get Bash
+(sandboxed copy, no path to the private truth; note it needs a per-task tools field in
+`evalkit.py`, since the tool list is part of the harness version) would test the agent
+as shipped.
 
 ### D. Classify: the narrowing was never tested as a decision
 

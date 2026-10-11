@@ -22,10 +22,28 @@
         {
           "cell": "sonnet-5-5@high",
           "role": "research_candidate"
+        },
+        {
+          "cell": "haiku-5-5@low",
+          "role": "new_generation"
+        },
+        {
+          "cell": "haiku-5-5@medium",
+          "role": "new_generation"
+        },
+        {
+          "cell": "haiku-5-5@high",
+          "role": "new_generation"
+        },
+        {
+          "cell": "haiku-5-5@xhigh",
+          "role": "new_generation"
         }
       ],
       "tasks": [
-        "scan-01"
+        "scan-01",
+        "scan-02",
+        "scan-03"
       ],
       "tier_note": "Reclassified from noticed on 2026-10-06 after the sweep: every Sonnet failure on scan-01 was one silently omitted list item, which looks like a complete inventory."
     },
@@ -33,20 +51,37 @@
       "id": "cleanup",
       "plugin_row": "Mechanical text cleanup: de-hyphenate, reflow, strip headers",
       "tier": "noticed",
-      "baseline": "haiku-4-5",
+      "baseline": "sonnet-5-5@low",
       "grid": [
         {
           "cell": "haiku-4-5",
-          "role": "baseline"
+          "role": "prior_baseline"
         },
         {
           "cell": "sonnet-5-5@low",
-          "role": "up_reference"
+          "role": "baseline"
+        },
+        {
+          "cell": "haiku-5-5@low",
+          "role": "new_generation"
+        },
+        {
+          "cell": "haiku-5-5@medium",
+          "role": "new_generation"
+        },
+        {
+          "cell": "haiku-5-5@high",
+          "role": "new_generation"
+        },
+        {
+          "cell": "haiku-5-5@xhigh",
+          "role": "new_generation"
         }
       ],
       "tasks": [
         "cleanup-01"
-      ]
+      ],
+      "baseline_note": "Moved from haiku-4-5 to sonnet-5-5@low on 2026-10-09 to match the routing table (REPORT-2026-10-06 section 1). haiku-4-5 failed cleanup-01 3 of 3."
     },
     {
       "id": "read-report",
@@ -73,10 +108,28 @@
         {
           "cell": "opus-5-5@low",
           "role": "research_candidate"
+        },
+        {
+          "cell": "haiku-5-5@low",
+          "role": "new_generation"
+        },
+        {
+          "cell": "haiku-5-5@medium",
+          "role": "new_generation"
+        },
+        {
+          "cell": "haiku-5-5@high",
+          "role": "new_generation"
+        },
+        {
+          "cell": "haiku-5-5@xhigh",
+          "role": "new_generation"
         }
       ],
       "tasks": [
-        "read-report-01"
+        "read-report-01",
+        "read-report-02",
+        "read-report-03"
       ]
     },
     {
@@ -108,10 +161,28 @@
         {
           "cell": "sonnet-5-5@low+think",
           "role": "research_candidate"
+        },
+        {
+          "cell": "haiku-5-5@low",
+          "role": "new_generation"
+        },
+        {
+          "cell": "haiku-5-5@medium",
+          "role": "new_generation"
+        },
+        {
+          "cell": "haiku-5-5@high",
+          "role": "new_generation"
+        },
+        {
+          "cell": "haiku-5-5@xhigh",
+          "role": "new_generation"
         }
       ],
       "tasks": [
-        "classify-01"
+        "classify-01",
+        "classify-02",
+        "classify-03"
       ]
     },
     {
@@ -143,6 +214,22 @@
         {
           "cell": "haiku-4-5",
           "role": "control_weak"
+        },
+        {
+          "cell": "haiku-5-5@low",
+          "role": "new_generation"
+        },
+        {
+          "cell": "haiku-5-5@medium",
+          "role": "new_generation"
+        },
+        {
+          "cell": "haiku-5-5@high",
+          "role": "new_generation"
+        },
+        {
+          "cell": "haiku-5-5@xhigh",
+          "role": "new_generation"
         }
       ],
       "tasks": [
@@ -155,11 +242,11 @@
       "id": "dont-guess",
       "plugin_row": "Decide under a don't-guess constraint (BELIRSIZ); calibration is the product",
       "tier": "silent_damage",
-      "baseline": "opus-5-5@xhigh",
+      "baseline": "sonnet-5-5@xhigh",
       "grid": [
         {
           "cell": "opus-5-5@xhigh",
-          "role": "baseline"
+          "role": "up_reference"
         },
         {
           "cell": "opus-5-5@high",
@@ -171,7 +258,7 @@
         },
         {
           "cell": "sonnet-5-5@xhigh",
-          "role": "model_down"
+          "role": "baseline"
         },
         {
           "cell": "fable-5-1@high",
@@ -180,23 +267,40 @@
         {
           "cell": "haiku-4-5",
           "role": "control_weak"
+        },
+        {
+          "cell": "haiku-5-5@low",
+          "role": "new_generation"
+        },
+        {
+          "cell": "haiku-5-5@medium",
+          "role": "new_generation"
+        },
+        {
+          "cell": "haiku-5-5@high",
+          "role": "new_generation"
+        },
+        {
+          "cell": "haiku-5-5@xhigh",
+          "role": "new_generation"
         }
       ],
       "tasks": [
         "dont-guess-01",
         "dont-guess-02",
         "dont-guess-03"
-      ]
+      ],
+      "baseline_note": "Moved from opus-5-5@xhigh to sonnet-5-5@xhigh on 2026-10-09 to match the routing table (REPORT-2026-10-06 section 7). The `quality` disposition still uses Opus."
     },
     {
       "id": "adversarial-verify",
       "plugin_row": "Adversarial verify / refute a finding",
       "tier": "silent_damage",
-      "baseline": "opus-5-5@high",
+      "baseline": "sonnet-5-5@high",
       "grid": [
         {
           "cell": "opus-5-5@high",
-          "role": "baseline"
+          "role": "up_reference"
         },
         {
           "cell": "opus-5-5@medium",
@@ -208,7 +312,7 @@
         },
         {
           "cell": "sonnet-5-5@high",
-          "role": "model_down"
+          "role": "baseline"
         },
         {
           "cell": "fable-5-1@high",
@@ -217,13 +321,30 @@
         {
           "cell": "haiku-4-5",
           "role": "control_weak"
+        },
+        {
+          "cell": "haiku-5-5@low",
+          "role": "new_generation"
+        },
+        {
+          "cell": "haiku-5-5@medium",
+          "role": "new_generation"
+        },
+        {
+          "cell": "haiku-5-5@high",
+          "role": "new_generation"
+        },
+        {
+          "cell": "haiku-5-5@xhigh",
+          "role": "new_generation"
         }
       ],
       "tasks": [
         "verify-01",
         "verify-02",
         "verify-03"
-      ]
+      ],
+      "baseline_note": "Moved from opus-5-5@high to sonnet-5-5@high on 2026-10-09 to match the routing table (REPORT-2026-10-06 section 7). The `quality` disposition still uses Opus."
     }
   ]
 }

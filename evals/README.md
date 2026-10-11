@@ -80,7 +80,13 @@ cell). Invalid runs are logged with `valid:false`, are not counted, and
 
 **Haiku 4.5 ignores effort.** Probe 2026-10-05: 15,259 thinking tokens at `low`,
 18,149 at `xhigh` on one prompt. Its cell has `effort: null` and the runner
-omits `--effort`. So `haiku/low` in the plugin is `haiku`.
+omits `--effort`. For Haiku 4.5, `haiku/low` in the plugin was just `haiku`.
+
+**Haiku 5.5 honours effort** (2026-10-09), so its four cells (`haiku-5-5@low` to
+`@xhigh`) carry a real `effort`: on verify-01 the mean thinking tokens were 3.7k at
+`low`, 5.1k at `medium` and 8.5k at `high`. The `haiku` alias moved to Haiku 5.5 in CLI
+2.1.295, so any pin of `haiku` now means `claude-haiku-5-5`; evidence recorded under
+`haiku-4-5` no longer describes what a `haiku` pin runs.
 
 **Answer protocol.** Every prompt ends by requiring the final answer between two
 marker lines, `===ANSWER===` and `===END===`. The runner extracts the last such
@@ -165,13 +171,37 @@ every stored judge-row answer with it.
 
 ## Adding a model (the whole procedure)
 
-1. `cells.json`: add its cells (exact `model_id`, `effort`, dated price).
+0. `rows.json`: first bring every row's `baseline` up to date with the routing table
+   (the cell the plugin actually uses today). A stale baseline makes `decide` compare the
+   newcomer with the wrong cost and pass record. Baseline is not part of `run_id`, so this
+   invalidates no stored run.
+1. `cells.json`: add its cells (exact `model_id`, `effort`, dated price). A model priced by
+   prompt length (Haiku 5.5: 5x per token over 100,000 prompt tokens) gets both rates in
+   `price`; measured `cost_usd` already includes the tier, so decisions are unaffected.
 2. `rows.json`: add the cells to the grids where they compete (`role` says why).
 3. `python3 evals/evalkit.py plan` lists exactly the missing runs. Read it.
 4. `python3 evals/evalkit.py run` (screening tasks by default; `--phase confirmation` for the second round), then `judge` for judge rows. `grade` re-grades stored answers of code tasks after a grader change, with no model call.
 5. `python3 evals/evalkit.py report` and `decide`.
 6. Edit the routing table only where `decide` says a row moves; write the dated
    findings to `results/REPORT-<date>.md`.
+
+**Authoring new tasks.** `load_tasks` scans `private/tasks/` directly, so a half-built task
+there is picked up by `plan` and `run`. Build in `private/staging/<id>/` and move the finished
+directory into `private/tasks/<id>/`; then `python3 evals/evalkit.py manifest`, `selfcheck`, and
+add the id to the row's `tasks` list in `rows.json`. Task scripts must resolve paths from
+`__file__`, so they work from either location. An independent reviewer should recompute the
+truth by a different method before the task is used (the 2026-10-09 round did, and it found
+a missing fixture on scan-03).
+
+**Vetting a candidate the bar accepts.** The bar compares cells over three runs per task, and a
+silent-damage candidate is the best of several cells, so a clean sheet can be luck (on
+2026-10-09 `haiku-5-5@medium` passed synthesize-01 3 of 3 and then 3 of 6 on the confirmation
+tasks; verify-02 fooled three of twelve Haiku 5.5 runs spread across four efforts). Extra
+repeats (`run --repeats N`, which adds runs `#4..N` only) may be added for a candidate the
+bar accepts, under a stopping rule written down BEFORE the extra runs, with the time it was written
+(on 2026-10-09 the rules file was saved after some extensions had run, and the audit caught it):
+adopt only if the cell stays perfect across all of them. Extra repeats can only turn a MOVE into a KEEP, never the
+other way, and `decide` still reads the first three.
 
 Alias drift matters: the plugin's pins use `haiku` / `sonnet` / `opus`. When a
 release moves an alias, every pin silently changes meaning. The harness records

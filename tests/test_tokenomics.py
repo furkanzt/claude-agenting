@@ -35,6 +35,7 @@ tok = load(SCRIPT, "measure_tokenomics_under_test")
 # $/MTok from evals/research/2026-10-05-models.md section 1: input, output, cache read, write 5m, write 1h.
 PRICE_PAGE = {
     "claude-haiku-4-5-20251001": (1, 5, 0.10, 1.25, 2),
+    "claude-haiku-5-5": (0.10, 0.50, 0.01, 0.125, 0.20),
     "claude-sonnet-5-5": (2, 10, 0.20, 2.50, 4),
     "claude-opus-5-5": (4, 20, 0.20, 5, 8),
     "claude-fable-5-1": (10, 50, 0.25, 12.50, 20),
@@ -83,14 +84,17 @@ class PriceTable(unittest.TestCase):
     def test_every_row_prices_each_category_from_the_price_page(self):
         for model, (p_in, p_out, p_read, p_w5, p_w1) in PRICE_PAGE.items():
             with self.subTest(model=model):
-                usd, tokens, priced, legacy = tok.usage_parts(usage(inp=M, out=M, read=M, w5=M, w1=M), model)
+                # A model priced by prompt length is measured with a prompt under the threshold
+                # (4 x 20,000 tokens); its long-prompt row is covered by LongPromptTier.
+                n = 20_000 if tok.norm_model(model) in tok.PRICES_LONG_PROMPT else M
+                usd, tokens, priced, legacy = tok.usage_parts(usage(inp=n, out=n, read=n, w5=n, w1=n), model)
                 self.assertTrue(priced)
                 self.assertFalse(legacy)
-                self.assertAlmostEqual(usd["input"], p_in)
-                self.assertAlmostEqual(usd["output"], p_out)
-                self.assertAlmostEqual(usd["cache_read"], p_read)
-                self.assertAlmostEqual(usd["write_5m"], p_w5)
-                self.assertAlmostEqual(usd["write_1h"], p_w1)
+                self.assertAlmostEqual(usd["input"], p_in * n / M)
+                self.assertAlmostEqual(usd["output"], p_out * n / M)
+                self.assertAlmostEqual(usd["cache_read"], p_read * n / M)
+                self.assertAlmostEqual(usd["write_5m"], p_w5 * n / M)
+                self.assertAlmostEqual(usd["write_1h"], p_w1 * n / M)
 
     def test_previous_generation_is_not_priced_as_5_5(self):
         # Opus 5 is $5/$25 with $0.50 reads; Opus 5.5 is $4/$20 with $0.20 reads.
@@ -119,11 +123,40 @@ class PriceTable(unittest.TestCase):
 
     def test_input_prices_agree_with_the_cache_tripwire_hook(self):
         tripwire = load(ROOT / "hooks" / "cache-tripwire.py", "cache_tripwire_under_test")
-        ours = {"haiku": "claude-haiku-4-5", "sonnet": "claude-sonnet-5-5",
+        ours = {"haiku-5": "claude-haiku-5-5", "haiku": "claude-haiku-4-5", "sonnet": "claude-sonnet-5-5",
                 "opus": "claude-opus-5-5", "fable": "claude-fable-5-1"}
         for family, price in tripwire.PRICES_PER_MTOK.items():
             with self.subTest(family=family):
                 self.assertEqual(price, tok.price_for(ours[family]).input)
+
+
+    def test_tripwire_prices_haiku_5_5_below_the_haiku_4_5_family_rate(self):
+        # "haiku" is a substring of both ids; the first key found wins, so "haiku-5" must come first.
+        tripwire = load(ROOT / "hooks" / "cache-tripwire.py", "cache_tripwire_family_order")
+        self.assertEqual(tripwire.price_for_model("claude-haiku-5-5"), 0.10)
+        self.assertEqual(tripwire.price_for_model("claude-haiku-4-5-20251001"), 1.00)
+
+
+class LongPromptTier(unittest.TestCase):
+    """Haiku 5.5 is billed per request: a prompt over 100,000 tokens pays 5x for every category."""
+
+    def test_prompt_at_the_threshold_pays_the_short_rate(self):
+        usd, _, priced, _ = tok.usage_parts(usage(inp=100_000, out=M), "claude-haiku-5-5")
+        self.assertTrue(priced)
+        self.assertAlmostEqual(usd["input"], 0.10 * 100_000 / M)
+        self.assertAlmostEqual(usd["output"], 0.50)
+
+    def test_prompt_over_the_threshold_pays_the_long_rate_on_every_category(self):
+        # input + cache read + cache write = 100,001 tokens: the whole request moves to the long row.
+        usd, _, _, _ = tok.usage_parts(usage(inp=1, read=50_000, w1=50_000, out=M), "claude-haiku-5-5")
+        self.assertAlmostEqual(usd["input"], 0.50 * 1 / M)
+        self.assertAlmostEqual(usd["cache_read"], 0.05 * 50_000 / M)
+        self.assertAlmostEqual(usd["write_1h"], 1.00 * 50_000 / M)
+        self.assertAlmostEqual(usd["output"], 2.50)
+
+    def test_a_model_without_a_long_row_ignores_the_threshold(self):
+        usd, _, _, _ = tok.usage_parts(usage(inp=200_000), "claude-sonnet-5-5")
+        self.assertAlmostEqual(usd["input"], 2.0 * 200_000 / M)
 
 
 class CostParts(unittest.TestCase):

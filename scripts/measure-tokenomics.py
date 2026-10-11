@@ -77,8 +77,9 @@ from collections import Counter, defaultdict, namedtuple
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-PRICES_AS_OF = "2026-10-05"
-PRICE_SOURCE = "evals/research/2026-10-05-models.md, section 1"
+PRICES_AS_OF = "2026-10-09"
+PRICE_SOURCE = ("evals/research/2026-10-05-models.md, section 1; Haiku 5.5 from the "
+                "Anthropic pricing page, 2026-10-09")
 
 Price = namedtuple("Price", "input output read write_5m write_1h derived")
 
@@ -94,6 +95,7 @@ def _price(inp, out, read, derived=False):
 PRICES = {
     "claude-haiku-4-5-20251001": _price(1, 5, 0.10),
     "claude-haiku-4-5": _price(1, 5, 0.10),
+    "claude-haiku-5-5": _price(0.10, 0.50, 0.01),
     "claude-sonnet-5-5": _price(2, 10, 0.20),
     "claude-opus-5-5": _price(4, 20, 0.20),
     "claude-fable-5-1": _price(10, 50, 0.25),
@@ -101,6 +103,12 @@ PRICES = {
     "claude-opus-5": _price(5, 25, 0.50, derived=True),
     "claude-fable-5": _price(10, 50, 1.00, derived=True),
     "claude-sonnet-5": _price(2, 10, 0.20, derived=True),
+}
+# Haiku 5.5 is priced per request by prompt length: a request whose prompt (input + cache reads +
+# cache writes) is over 100,000 tokens pays the long-prompt row for every category of that request.
+LONG_PROMPT_TOKENS = 100_000
+PRICES_LONG_PROMPT = {
+    "claude-haiku-5-5": _price(0.50, 2.50, 0.05),
 }
 PRICE_NOTES = {
     "claude-opus-5": "input, output and cache read documented; write columns follow the 1.25x/2x rule",
@@ -122,6 +130,16 @@ def norm_model(model_id):
 def price_for(model_id):
     """Price row for a model id (a trailing -YYYYMMDD or [..] suffix is ignored), else None."""
     return PRICES.get(norm_model(model_id))
+
+
+def price_for_call(model_id, prompt_tokens):
+    """price_for, but a model priced by prompt length gets its long-prompt row once the call's
+    prompt (input + cache reads + cache writes) is over LONG_PROMPT_TOKENS."""
+    if prompt_tokens > LONG_PROMPT_TOKENS:
+        long_row = PRICES_LONG_PROMPT.get(norm_model(model_id))
+        if long_row:
+            return long_row
+    return price_for(model_id)
 
 
 def num(x):
@@ -217,7 +235,7 @@ def usage_parts(u, model):
         "output": num(u.get("output_tokens")),
     }
     usd = dict.fromkeys(CATS, 0.0)
-    price = price_for(model)
+    price = price_for_call(model, tok["input"] + tok["cache_read"] + w5 + w1)
     if price:
         usd["input"] = tok["input"] * price.input / 1e6
         usd["cache_read"] = tok["cache_read"] * price.read / 1e6

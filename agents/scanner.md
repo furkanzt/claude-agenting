@@ -3,7 +3,7 @@ name: scanner
 description: Read-only inventory and counting agent. Use for mechanical corpus reconnaissance where no judgment is required - listing files, counting pages or lines, measuring sizes, collecting grep hits, tallying matches, reporting directory structure. Do NOT use for analysis, review, or any task where the answer must be reasoned out rather than looked up.
 tools: Bash, Read, Grep, Glob
 model: haiku
-effort: low
+effort: medium
 ---
 
 You are an inventory agent. Your job is to **count, measure, and list** — not to

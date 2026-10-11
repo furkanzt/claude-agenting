@@ -1,5 +1,49 @@
 # Changelog
 
+## Unreleased — 2026-10-09 (Haiku 5.5 round; version not bumped)
+
+### Changed
+- **The `haiku` alias now means Haiku 5.5** (`claude-haiku-5-5`, CLI 2.1.295). It honours
+  `effort`, costs $0.10/$0.50 per MTok for prompts up to 100k tokens ($0.50/$2.50 above)
+  and retires no sooner than 2027-10-07. The `scanner` agent's `haiku`/`low` pin had
+  silently become an unmeasured model.
+- **Routing table, two rows and one disposition** (`evals/results/REPORT-2026-10-09.md`):
+  - List / count: `haiku/low` → `haiku/medium`. 36 of 36 runs exact on three tasks at
+    $0.0094 a run; `low` 30 of 36; Sonnet `high` 32 of 36 at $0.076.
+  - Read and report: `sonnet/medium` → `haiku/medium` (`quality`: `sonnet/high`). 9 of 9 on
+    three exact-answer tasks at $0.006 a run against $0.118; the tasks do not separate cells.
+  - Don't guess (BELİRSİZ): `fast` → `haiku/high`; `balanced` stays `sonnet/xhigh` and
+    `quality` `opus/xhigh`. `high` made no hallucination in 408 unanswerable items and passed
+    36 of 36 runs, but gave one confident wrong answer in 480 answerable ones (Sonnet none),
+    `low` and `medium` hallucinated on one item, and `high` was found by extending more
+    efforts after those two failed.
+  - Kept: cleanup, classify, verify, synthesize. At three runs the harness named a Haiku 5.5
+    cell on six of seven rows; 12-repeat checks and judgment overrides changed five of the
+    six (report section 1). Classify and verify were reversed by 12-repeat rules; cleanup was
+    kept by an override after 9 repeats on one task; synthesize failed its confirmation tasks.
+- **`agents/scanner.md` pins `haiku`/`medium`.** `researcher` stays `sonnet/medium`.
+- `skills/agenting/SKILL.md`, `README.md`, `reference/modes.md` and
+  `external-model-options.md` follow the table. The external-model note drops the "~10x
+  cheaper" Flash-Lite claim: Haiku 5.5's input price equals Flash-Lite's for prompts up to
+  100k tokens.
+
+### Added
+- `evals/`: four Haiku 5.5 effort cells; six confirmation tasks (`scan-02`, `scan-03`,
+  `classify-02`, `classify-03`, `read-report-02`, `read-report-03`), each built in a staging
+  directory and independently reviewed; row baselines refreshed to the 3.2.2 table; the
+  procedure in `evals/README.md` gains baseline refresh, staging, and vetting of accepted
+  candidates; 711 new runs, none invalid. `evals/results/PREREGISTERED-2026-10-09.md` records
+  the adopt rules with when each was written (some extensions ran before the file was saved).
+- `scripts/measure-tokenomics.py` and `hooks/cache-tripwire.py` price Haiku 5.5, including the
+  100k-token tier (`price_for_call`), with tests; the tripwire no longer prices Haiku 5.5 at
+  Haiku 4.5's rate.
+
+### Not changed
+- Nothing was pushed and the plugin version was not bumped, so the installed 3.2.2 still pins
+  `scanner` at `haiku`/`low`. Until a release, pass `model: 'haiku', effort: 'medium'` for scans.
+- The Sonnet 5.5 cache-read price ($0.20 here) disagrees with the pricing page ($0.10); see the
+  report, section 7.
+
 ## 3.2.2 — 2026-10-09
 
 ### Fixed
