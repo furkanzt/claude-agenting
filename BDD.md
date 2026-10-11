@@ -87,3 +87,4 @@ harness by tests with a stub `claude`; none of them calls a real model.
 | `plugin-docs.feature` | agent pins, skill and doc invariants | `tests/test_skill_docs.py` |
 | `effort-probe.feature` | `evals/probes/read_effort.py`, the subagent-effort reader | `tests/test_effort_probe.py` |
 | `e1-analysis.feature` | `evals/probes/e1_analysis.py`, the E1 rule applier | `tests/test_e1_analysis.py` |
+| `e1b-analysis.feature` | `evals/probes/e1b_analysis.py`, the E1b rule applier (Opus and Haiku xhigh versus Sonnet) | `tests/test_e1b_analysis.py` |
