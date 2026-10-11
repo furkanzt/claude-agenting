@@ -28,6 +28,9 @@
   100k tokens.
 
 ### Added
+- `evals/probes/read_effort.py` and `effort_application.workflow.js`: read the effort a subagent really ran
+  with from its transcript, and the Workflow that launches the probe agents; `tests/test_effort_probe.py`,
+  `features/effort-probe.feature`. `HANDOFF.md` section 2 is the post-update recipe that uses them.
 - `evals/`: four Haiku 5.5 effort cells; six confirmation tasks (`scan-02`, `scan-03`,
   `classify-02`, `classify-03`, `read-report-02`, `read-report-03`), each built in a staging
   directory and independently reviewed; row baselines refreshed to the 3.2.2 table; the
@@ -37,6 +40,17 @@
 - `scripts/measure-tokenomics.py` and `hooks/cache-tripwire.py` price Haiku 5.5, including the
   100k-token tier (`price_for_call`), with tests; the tripwire no longer prices Haiku 5.5 at
   Haiku 4.5's rate.
+
+### Verified
+- A pinned effort is applied to subagents. A Workflow `agent({model, effort})` and a plugin agent's
+  frontmatter effort were each read back from the effort recorded in the subagent transcript
+  (`effort`, `requestedModel`, `perTurnEffort` on every assistant record): 12 of 12 pinned Haiku 5.5
+  probes at four levels, 5 of 5 plugin agents, and the 46 earlier workflow agents all recorded their
+  pin, over the owner's `xhigh` defaults. An unpinned Haiku 5.5 agent recorded its default `medium`.
+  `CLAUDE_CODE_EFFORT_LEVEL` and `maxEffortLevel` were not tested (report, section 10).
+- Re-checked on Claude Code 2.1.296 (the CLI updated from 2.1.295 the same evening): aliases unchanged, the
+  effort probe and the plugin-agent probe recorded every pin again, and a 63-run eval canary flagged 0 of 7
+  cells (report, section 11).
 
 ### Not changed
 - Nothing was pushed and the plugin version was not bumped, so the installed 3.2.2 still pins

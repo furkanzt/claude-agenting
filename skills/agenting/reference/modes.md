@@ -77,9 +77,10 @@ answerable ones (Sonnet none), and it is the cell that stayed clean after `low` 
 `medium` hallucinated (3 and 1 times, on one item where a neighbouring fact was
 copied onto the wrong entity), so do not lower its effort. `balanced` waits for a
 fresh confirmation on new sibling-trap items. The 16x holds for prompts under the
-100K-token tier (about 4x on input above it). These Haiku pins also assume the pinned
-effort is actually applied to the subagent, which is unconfirmed for Workflow
-`agent()`. List/count uses Haiku 5.5 at `medium` in all three dispositions (`low`
+100K-token tier (about 4x on input above it). A pinned effort is applied to Workflow
+`agent()` calls and to plugin agents (checked 2026-10-09 from the effort recorded in
+the subagent transcripts); an unpinned Haiku agent runs at its default `medium`, not
+the session's effort. List/count uses Haiku 5.5 at `medium` in all three dispositions (`low`
 missed 6 of 36 exact-count runs). Read-and-report uses Haiku 5.5 at `medium` for
 `fast` and `balanced` (measured on exact-answer lookups only); `quality` keeps
 `sonnet`/`high`. For

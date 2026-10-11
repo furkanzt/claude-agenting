@@ -89,8 +89,9 @@ and judgment overrides changed five of the six:
   once in 36), **synthesize** (`medium` 3 of 3, then 3 of 6).
 - **`low` was the weakest or tied-weakest effort** on scan, verify, dont-guess, cleanup
   and classify.
-- **Limits.** Same harness (no Bash, one prompt shape, `effort` passed explicitly; that
-  a subagent applies its pinned effort is unconfirmed), 3 tasks per row (cleanup 1),
+- **Limits.** Same harness (no Bash, one prompt shape, `effort` passed explicitly; subagents
+  do apply a pinned effort, checked on 2026-10-09 from the effort recorded in their
+  transcripts), 3 tasks per row (cleanup 1),
   Sonnet baseline runs #1 to 3 from an older CLI, the adopted cell is the best of four
   efforts, and prompts stayed far below the 100k tier. 36 of 36 bounds a per-run failure
   below about 8% but counts runs, not tasks. `evals/results/REPORT-2026-10-09.md`.

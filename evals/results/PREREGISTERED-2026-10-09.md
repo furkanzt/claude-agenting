@@ -40,3 +40,22 @@ classify `sonnet-5-5@medium`, read-report `sonnet-5-5@medium`).
 Where the data hold a `fast` question (a cheaper cell that fails the adopt rule but has a
 small measured error rate), the report states the rate and leaves `balanced` and `quality`
 unchanged. `quality` is not touched by this round.
+
+## Addendum: the CLI 2.1.296 canary (2026-10-09, evening)
+
+Claude Code updated from 2.1.295 to 2.1.296. A canary re-ran the cells most sensitive to CLI behaviour as new
+runs #13 to #15 (fresh run ids, `cli_version` 2.1.296): scan (`haiku-5-5@low`, `haiku-5-5@medium`,
+`sonnet-5-5@high`), dont-guess (`haiku-5-5@medium`, `haiku-5-5@high`) and adversarial-verify (`haiku-5-5@medium`,
+`sonnet-5-5@high`), 9 runs per cell over the three tasks.
+
+**Provenance.** The rule was stated in the working conversation at 20:48Z, before any 2.1.296 eval run, and its
+time was recorded in a scratch file; it was written into this repository file only after the runs, so, as with
+the verify and dont-guess rule above, this file is a record and not a pre-registration.
+
+**Rule.** For each (row, cell), compare the pass count on runs #13 to #15 with the pass count on runs #1 to #12 of
+the same cell. Flag the cell only if the new rate is lower with Fisher exact one-sided p < 0.05. This detects a
+gross change (a tool, alias or effort behaviour that broke), not a small shift: 9 runs cannot see one.
+
+**Outcome.** 63 runs, all valid, $2.24; 0 of 7 cells flagged (lowest p 0.511). The report's section 11 and
+`HANDOFF.md` section 2a hold the table.
+

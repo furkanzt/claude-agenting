@@ -85,3 +85,4 @@ harness by tests with a stub `claude`; none of them calls a real model.
 | `eval-grading.feature` | `evals/evalkit.py` grade, judge, report, decide, manifest, selfcheck | `tests/test_evalkit.py` |
 | `setup-check.feature` | `scripts/check-setup.py`, state isolation | `tests/test_real_state_untouched.py` |
 | `plugin-docs.feature` | agent pins, skill and doc invariants | `tests/test_skill_docs.py` |
+| `effort-probe.feature` | `evals/probes/read_effort.py`, the subagent-effort reader | `tests/test_effort_probe.py` |

@@ -36,7 +36,9 @@ Shared helpers: `tests/_util.py` (`HookTestCase`, script paths). Stubs: `tests/f
 7. **Independent facts.** A test that checks a price, a model id or a date takes the figure from the
    source (the price page, recorded in the test's own table), never from the code under test.
 8. **Red-proof every new test.** Invert the branch it guards, confirm the test fails, revert. A test
-   that survives the inversion is vacuous and does not earn a citation.
+   that survives the inversion is vacuous and does not earn a citation. After the revert, delete the
+   `__pycache__` next to the file you mutated: a same-length inversion (`!=` to `==`) made within the
+   same second can leave a stale `.pyc` that makes a correct file look broken.
 
 ## Commands
 
