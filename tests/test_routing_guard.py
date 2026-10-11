@@ -246,6 +246,69 @@ class StageTwoResumedChat(GuardCase):
         self.assertEqual(self.decision(out), "deny")
 
 
+class NestedOptions(GuardCase):
+    """Observed 2026-10-10: a call whose options hold a nested object (a `schema:`), on one line or
+    several, was denied at Stage 1 although model and effort were there, because the guard read the
+    innermost last {...} as the options. The reverse also held: model/effort keys inside a nested
+    object counted as routing. Routing is read from the top level of the options object only."""
+
+    SCHEMA = "{type:'object', properties:{ok:{type:'boolean'}}}"
+
+    def stage_one(self, script):
+        return "STAGE 1/2" in self.reason(self.guard(script))
+
+    def test_routing_keys_before_a_nested_schema_pass_stage_one(self):
+        out = self.guard(f"await agent('x', {{model:'haiku', effort:'low', schema:{self.SCHEMA}}})")
+        self.assertIn("STAGE 2/2", self.reason(out))
+        self.assertNotIn("STAGE 1/2", self.reason(out))
+
+    def test_routing_keys_after_a_nested_schema_pass_stage_one(self):
+        self.assertFalse(self.stage_one(f"await agent('x', {{schema:{self.SCHEMA}, model:'haiku', effort:'low'}})"))
+
+    def test_options_spread_over_lines_with_a_nested_schema_pass_stage_one(self):
+        script = ("await agent('x', {\n  label: 'l',\n  model: 'haiku',\n  effort: 'low',\n"
+                  "  schema: { type: 'object', properties: { ok: { type: 'boolean' } } },\n})")
+        out = self.guard(script)
+        self.assertIn("STAGE 2/2", self.reason(out))
+        self.assertIn("haiku", self.reason(out))
+
+    def test_a_nested_schema_on_both_sides_of_the_routing_keys_passes_stage_one(self):
+        script = f"await agent('x', {{schema:{self.SCHEMA}, model:'haiku', effort:'low', extra:{self.SCHEMA}}})"
+        self.assertFalse(self.stage_one(script))
+
+    def test_model_and_effort_keys_inside_a_nested_object_are_not_routing(self):
+        self.assertTrue(self.stage_one("await agent('x', {schema:{model:'x', effort:'y'}})"))
+        self.assertTrue(self.stage_one("await agent('x', {opts:{model:'haiku', effort:'low'}})"))
+
+    def test_the_tiers_in_the_plan_come_from_the_top_level_keys(self):
+        self.record(SID, "--mode", "manual")
+        script = ("await agent('x', {schema:{properties:{model:'opus', effort:'low'}}, "
+                  "model:'sonnet', effort:'high'})")
+        reason = self.reason(self.guard(script))
+        self.assertIn("STAGE 2/2", reason)
+        self.assertIn("Plan signature: sonnet/highx1", reason)   # not opus/low from inside the schema
+
+    def test_an_object_in_the_prompt_expression_is_not_the_options(self):
+        self.assertFalse(self.stage_one("await agent(build({a:1}), {model:'haiku', effort:'low'})"))
+        self.assertTrue(self.stage_one("await agent(build({model:'haiku', effort:'low'}), {schema:S})"))
+
+    def test_the_options_are_the_last_top_level_object_of_the_call(self):
+        self.assertFalse(self.stage_one("await agent({a:1}, {model:'haiku', effort:'low'})"))
+        self.assertTrue(self.stage_one("await agent({model:'haiku', effort:'low'}, {schema:S})"))
+
+    def test_a_name_inside_a_value_expression_is_not_a_key(self):
+        # `model` here is a variable in a ternary, not a property of the options
+        self.assertTrue(self.stage_one("await agent('x', {effort: pick ? model : 'low', schema:S})"))
+
+    def test_a_repeated_key_takes_the_last_value_as_javascript_does(self):
+        self.record(SID, "--mode", "manual")
+        reason = self.reason(self.guard("await agent('x', {model:'haiku', model:'opus', effort:'low'})"))
+        self.assertIn("Plan signature: opus/lowx1", reason)
+
+    def test_options_passed_as_a_variable_are_not_inspected_and_are_unrouted(self):
+        self.assertTrue(self.stage_one("await agent('x', opts)"))
+
+
 class PassThrough(GuardCase):
     def test_non_workflow_tool_is_silent(self):
         self.assertIsNone(self.guard(UNROUTED, tool="Bash"))

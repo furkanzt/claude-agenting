@@ -25,6 +25,18 @@
   cheaper" Flash-Lite claim: Haiku 5.5's input price equals Flash-Lite's for prompts up to
   100k tokens.
 
+### Fixed
+- **The routing guard no longer denies a routed `agent()` call whose options hold a nested object.** A call such
+  as `agent(p, {model: 'haiku', effort: 'low', schema: {...}})`, on one line or several, was stopped at Stage 1
+  ("no model, no effort") because the guard took the innermost last `{...}` for the options. The reverse held
+  too: `model`/`effort` keys inside a nested object counted as routing, and could put the wrong tier in the
+  plan. The guard now reads the options as the last top-level object directly inside the call's parentheses and
+  only its own keys (`workflow-routing-guard.py`: `opts_span`, `top_level_keys`, `kv`). Eleven regression tests
+  and scenarios; the previous version fails eight of them. Reported by a peer session on 2026-10-10;
+  the cause there (multi-line options) was a nested `schema:`, not the line breaks.
+- `skills/agenting/SKILL.md` says that none of the plugin's agents has `WebSearch` (only `coordinator` has
+  `WebFetch`), so web research uses `agentType: 'general-purpose'` at the same model and effort.
+
 ### Added
 - **E1, don't-guess fresh confirmation** (`evals/results/REPORT-2026-10-10-E1.md`, rules committed first in
   `PREREGISTERED-E1-2026-10-10.md`): four new tasks (`dont-guess-04` to `-07`, 120 unanswerable near-miss

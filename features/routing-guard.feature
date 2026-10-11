@@ -107,6 +107,74 @@ Feature: The Workflow routing gate denies unrouted agent() calls and asks for pl
     When the routing guard runs
     Then the reason contains "STAGE 1/2"
 
+  # Backed by: tests/test_routing_guard.py::test_routing_keys_before_a_nested_schema_pass_stage_one
+  Scenario: Routing keys before a nested schema object pass Stage 1
+    Given a Workflow script "await agent('x', {model:'haiku', effort:'low', schema:{type:'object', properties:{ok:{type:'boolean'}}}})"
+    When the routing guard runs
+    Then the reason contains "STAGE 2/2" and not "STAGE 1/2"
+
+  # Backed by: tests/test_routing_guard.py::test_routing_keys_after_a_nested_schema_pass_stage_one
+  Scenario: Routing keys after a nested schema object pass Stage 1
+    Given a Workflow script "await agent('x', {schema:{type:'object', properties:{ok:{type:'boolean'}}}, model:'haiku', effort:'low'})"
+    When the routing guard runs
+    Then the reason does not contain "STAGE 1/2"
+
+  # Backed by: tests/test_routing_guard.py::test_options_spread_over_lines_with_a_nested_schema_pass_stage_one
+  Scenario: Options spread over several lines with a nested schema pass Stage 1 and the plan names the model
+    Given a Workflow script whose agent() options span several lines with label, model, effort and a nested schema
+    When the routing guard runs
+    Then the reason contains "STAGE 2/2" and "haiku"
+
+  # Backed by: tests/test_routing_guard.py::test_a_nested_schema_on_both_sides_of_the_routing_keys_passes_stage_one
+  Scenario: A nested object on both sides of the routing keys passes Stage 1
+    Given a Workflow script whose options hold a nested object, then model and effort, then another nested object
+    When the routing guard runs
+    Then the reason does not contain "STAGE 1/2"
+
+  # Backed by: tests/test_routing_guard.py::test_model_and_effort_keys_inside_a_nested_object_are_not_routing
+  Scenario: Model and effort keys inside a nested object are not routing
+    Given Workflow scripts "await agent('x', {schema:{model:'x', effort:'y'}})" and "await agent('x', {opts:{model:'haiku', effort:'low'}})"
+    When the routing guard runs on each
+    Then each reason contains "STAGE 1/2"
+
+  # Backed by: tests/test_routing_guard.py::test_the_tiers_in_the_plan_come_from_the_top_level_keys
+  Scenario: The plan lists the top-level model and effort, not same-named keys inside a schema
+    Given the session record for "guard-test-session" has mode manual
+    And a Workflow script whose options are {schema:{properties:{model:'opus', effort:'low'}}, model:'sonnet', effort:'high'}
+    When the routing guard runs
+    Then the reason contains "STAGE 2/2" and the plan signature "sonnet/highx1"
+
+  # Backed by: tests/test_routing_guard.py::test_an_object_in_the_prompt_expression_is_not_the_options
+  Scenario: An object literal inside the prompt expression is not the options object
+    Given Workflow scripts "await agent(build({a:1}), {model:'haiku', effort:'low'})" and "await agent(build({model:'haiku', effort:'low'}), {schema:S})"
+    When the routing guard runs on each
+    Then the first does not reach "STAGE 1/2" and the second is denied at "STAGE 1/2"
+
+  # Backed by: tests/test_routing_guard.py::test_the_options_are_the_last_top_level_object_of_the_call
+  Scenario: The options are the last top-level object argument of the call
+    Given Workflow scripts "await agent({a:1}, {model:'haiku', effort:'low'})" and "await agent({model:'haiku', effort:'low'}, {schema:S})"
+    When the routing guard runs on each
+    Then the first does not reach "STAGE 1/2" and the second is denied at "STAGE 1/2"
+
+  # Backed by: tests/test_routing_guard.py::test_a_name_inside_a_value_expression_is_not_a_key
+  Scenario: A variable named model inside a value expression is not a model key
+    Given a Workflow script "await agent('x', {effort: pick ? model : 'low', schema:S})"
+    When the routing guard runs
+    Then the reason contains "STAGE 1/2"
+
+  # Backed by: tests/test_routing_guard.py::test_a_repeated_key_takes_the_last_value_as_javascript_does
+  Scenario: A repeated key takes its last value, as JavaScript does
+    Given the session record for "guard-test-session" has mode manual
+    And a Workflow script "await agent('x', {model:'haiku', model:'opus', effort:'low'})"
+    When the routing guard runs
+    Then the plan signature is "opus/lowx1"
+
+  # Backed by: tests/test_routing_guard.py::test_options_passed_as_a_variable_are_not_inspected_and_are_unrouted
+  Scenario: Options passed as a variable cannot be inspected and are treated as unrouted
+    Given a Workflow script "await agent('x', opts)"
+    When the routing guard runs
+    Then the reason contains "STAGE 1/2"
+
   # Backed by: tests/test_routing_guard.py::test_unrouted_is_denied_even_in_auto_mode
   Scenario: Stage 1 is denied even when the session is in mode auto
     Given the session record for "guard-test-session" has mode auto

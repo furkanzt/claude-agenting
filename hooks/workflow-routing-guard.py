@@ -165,34 +165,78 @@ def find_agent_calls(src: str):
 
 
 def opts_span(clean_call: str):
-    """Return (start, end) of the last {...} block inside an agent(...) call.
+    """Return (start, end) of the last top-level {...} argument of an agent(...) call.
+
+    "Top level" means directly inside the call's own parentheses: an object nested in the
+    options (a `schema:`) or one inside another argument's expression (`build({...})`) is not
+    the options object. Taking the innermost last `{` instead made every call with a nested
+    schema look unrouted, and let keys inside a schema count as routing.
 
     Indices are returned because they get applied to two different strings: a
     key's PRESENCE is checked against the stripped text (so the word "model:"
     inside a prompt is not mistaken for routing), while its VALUE is read from
     the raw text (stripping blanks out everything inside quotes).
     """
-    last_open = clean_call.rfind("{")
-    if last_open == -1:
-        return None
-    depth = 0
-    for j in range(last_open, len(clean_call)):
-        if clean_call[j] == "{":
+    span, open_at, depth = None, None, 0
+    for j, ch in enumerate(clean_call):
+        if ch in "([{":
+            if ch == "{" and depth == 1:
+                open_at = j
             depth += 1
-        elif clean_call[j] == "}":
+        elif ch in ")]}":
             depth -= 1
-            if depth == 0:
-                return last_open, j + 1
-    return last_open, len(clean_call)
+            if ch == "}" and depth == 1 and open_at is not None:
+                span, open_at = (open_at, j + 1), None
+    return (open_at, len(clean_call)) if open_at is not None else span
+
+
+IDENT = re.compile(r"[A-Za-z_$][\w$]*")
+COLON = re.compile(r"\s*:")
+QUOTED = re.compile(r"\s*['\"]([^'\"]+)['\"]")
+
+
+def top_level_keys(clean_opts: str) -> dict:
+    """{key: index just after its colon} for the keys of the options object itself.
+
+    Only identifiers that start a property (right after the opening brace or a comma at the
+    options' own depth) count, so keys inside a nested object, and names inside a value
+    expression such as a ternary, are not mistaken for options.
+    """
+    keys, depth, expect_key, i, n = {}, 0, False, 0, len(clean_opts)
+    while i < n:
+        ch = clean_opts[i]
+        if ch in "([{":
+            depth += 1
+            expect_key = depth == 1 and ch == "{"
+            i += 1
+        elif ch in ")]}":
+            depth -= 1
+            i += 1
+        elif depth == 1 and ch == ",":
+            expect_key = True
+            i += 1
+        elif expect_key and (m := IDENT.match(clean_opts, i)):   # expect_key is only ever set at depth 1
+            colon = COLON.match(clean_opts, m.end())
+            if colon:
+                keys[m.group()] = colon.end()   # a repeated key: the last one wins, as in JavaScript
+            expect_key = False
+            i = m.end()
+        else:
+            if depth == 1 and not ch.isspace() and ch != ".":
+                expect_key = False
+            i += 1
+    return keys
 
 
 def has_key(clean_opts: str, key: str) -> bool:
-    return re.search(rf"\b{key}\s*:", clean_opts) is not None
+    return key in top_level_keys(clean_opts)
 
 
-def kv(raw_opts: str, key: str) -> str:
-    """Extract key: 'value' from the raw opts text; empty string if absent."""
-    m = re.search(rf"\b{key}\s*:\s*['\"]([^'\"]+)['\"]", raw_opts)
+def kv(raw_opts: str, clean_opts: str, key: str) -> str:
+    """The quoted value of a top-level key, read from the raw opts text; empty string if the
+    key is absent or its value is not a quoted literal."""
+    at = top_level_keys(clean_opts).get(key)
+    m = QUOTED.match(raw_opts, at) if at is not None else None
     return m.group(1) if m else ""
 
 
@@ -411,9 +455,9 @@ def run_hook() -> int:
         elif not has_key(clean_opts, "effort"):
             unrouted.append((line, "no effort", snippet))
         else:
-            model = kv(raw_opts, "model")
-            atype = kv(raw_opts, "agentType")
-            effort = kv(raw_opts, "effort") or "?"
+            model = kv(raw_opts, clean_opts, "model")
+            atype = kv(raw_opts, clean_opts, "agentType")
+            effort = kv(raw_opts, clean_opts, "effort") or "?"
             tiers.append((model or (f"agent:{atype}" if atype else "?"), effort))
 
     if not tiers and not unrouted:

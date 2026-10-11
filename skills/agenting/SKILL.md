@@ -103,7 +103,9 @@ Two questions settle almost every case:
 
 When one of this plugin's agents fits, route by agent:
 `{agentType: 'agenting:<name>', effort: '<its effort>'}`. The `agenting:`
-prefix is part of the name, and the guard wants `effort` alongside it.
+prefix is part of the name, and the guard wants `effort` alongside it. None of these agents has
+`WebSearch` (only `coordinator` has `WebFetch`; `researcher` has Bash, Read, Grep and Glob), so for
+research on the web use `agentType: 'general-purpose'` at the same model and effort.
 
 | Tier | Agents (`agenting:<name>`) |
 |---|---|

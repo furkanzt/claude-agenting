@@ -254,7 +254,7 @@ verification (a bounded null), the classify narrowing, the clean-run usage-windo
    Code's docs say an effort change no longer does on Opus 5.5, Sonnet 5.5, Fable 5.1 and Haiku 5.5 (not on
    Bedrock, Google Cloud, HIPAA, or with experimental betas off). That file is the owner's.
 
-## 5. Bugs found while cataloguing (none fixed; each needs a regression test and a scenario first)
+## 5. Bugs found while cataloguing (1 to 4 not fixed; each needs a regression test and a scenario first; 5 fixed)
 
 1. `echo '[]' | python3 hooks/workflow-routing-guard.py` exits 1 with `AttributeError` (also `null`, `1`);
    reproduced. Non-JSON input is handled. Fix: `isinstance(payload, dict)` before `payload.get`.
@@ -269,6 +269,11 @@ verification (a bounded null), the classify narrowing, the clean-run usage-windo
    checked, the manual plan shows `?`, so a user can approve a plan that hides the tiers.
 4. `scripts/check-setup.py` crashes on a `settings.json` that is valid JSON but not an object (`settings.get`,
    about line 140) after printing `settings.json parses` as PASS. From the code; not re-run.
+5. **Fixed 2026-10-10:** the guard denied a routed `agent()` call whose options held a nested object (a `schema:`),
+   on one line or several, and counted `model`/`effort` keys inside a nested object as routing. A peer session
+   reported it as "multi-line options"; the cause was `opts_span` taking the innermost last `{`. Now the last
+   top-level object of the call, and only its own keys (`top_level_keys`); 11 tests, 11 scenarios. Still open
+   from the same area: item 3 (variable values), and `{'model': 'x'}` with a quoted key is not recognised.
 
 The 260 `@gap @wip` scenarios are the wider backlog, concentrated where no tests exist: `check-setup.py`
 (49 of 50 scenarios), the cache tripwire (35 of 37), plugin-docs pins (30 of 39), the routing guard (32 of 63),
