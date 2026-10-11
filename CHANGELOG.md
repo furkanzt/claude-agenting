@@ -38,6 +38,14 @@
   `WebFetch`), so web research uses `agentType: 'general-purpose'` at the same model and effort.
 
 ### Added
+- **E1b, Opus versus Sonnet versus Haiku `xhigh` on fresh near-miss items** (`evals/results/REPORT-2026-10-11-E1b.md`,
+  rules committed first in `PREREGISTERED-E1b-2026-10-10.md`): four new tasks (`dont-guess-08` to `-11`, 120
+  unanswerable items in sibling, partial, intent and absent kinds, 48 answerable), each built in staging and reviewed
+  independently three times. 96 runs, none invalid, $18.57, six repeats in every cell. Sonnet `xhigh` 0 and Opus `xhigh` 0
+  hallucinated item-runs of 720, Haiku `xhigh` 1 (one item), Haiku `high` 3. Rule A (move `balanced` to Opus) failed on its
+  first condition (Sonnet's own rate was 0, not at least 1%); Rule B (admit Haiku `xhigh` to `fast`) failed on 1 against
+  Sonnet's 0. **The routing table did not change.** `evals/probes/e1b_analysis.py` applies the rules (committed before
+  the tasks existed), with `tests/test_e1b_analysis.py` and `features/e1b-analysis.feature`.
 - **E1, don't-guess fresh confirmation** (`evals/results/REPORT-2026-10-10-E1.md`, rules committed first in
   `PREREGISTERED-E1-2026-10-10.md`): four new tasks (`dont-guess-04` to `-07`, 120 unanswerable near-miss
   items in sibling, partial, intent, absent and never-before-tested training-knowledge kinds, 48 answerable),

@@ -121,6 +121,50 @@
     "task_hash": "e8a3d5b0327d5a62107e2d130c8475d69690571a5ff820c116203897c67ec653"
   },
   {
+    "id": "dont-guess-08",
+    "row": "dont-guess",
+    "phase": "confirmation",
+    "title": "Answer 42 questions from MEB's Türkçe curriculum (general principles, text types, themes, hour tables), abstaining with BELİRSİZ where it is silent",
+    "delivery": "files",
+    "grading_type": "code",
+    "pass_rule": "score >= 0.97",
+    "pass_threshold": 0.97,
+    "task_hash": "a3252493dedc488a16e7eff52e3727d772e2f030e4edeba50ebbe08595859e69"
+  },
+  {
+    "id": "dont-guess-09",
+    "row": "dont-guess",
+    "phase": "confirmation",
+    "title": "Answer 42 questions from a real project's Turkish cost summaries, design notes and rubric spec, abstaining with BELİRSİZ where they are silent",
+    "delivery": "files",
+    "grading_type": "code",
+    "pass_rule": "score >= 0.97",
+    "pass_threshold": 0.97,
+    "task_hash": "7ebac05c65d0743c5bb722656ee09de7b507620f1f30cee617f440d9edd838c8"
+  },
+  {
+    "id": "dont-guess-10",
+    "row": "dont-guess",
+    "phase": "confirmation",
+    "title": "Answer 42 questions from MEB's Turkish Sosyal Bilgiler curriculum (grade 7), abstaining with BELİRSİZ where it is silent",
+    "delivery": "files",
+    "grading_type": "code",
+    "pass_rule": "score >= 0.97",
+    "pass_threshold": 0.97,
+    "task_hash": "62e84e8a1e30036742dbff3ca6710597ec8a7b73bef191245c0b1f74f718431b"
+  },
+  {
+    "id": "dont-guess-11",
+    "row": "dont-guess",
+    "phase": "confirmation",
+    "title": "Answer 42 questions from four English game-project research and audit notes, abstaining with BELİRSİZ where they are silent",
+    "delivery": "files",
+    "grading_type": "code",
+    "pass_rule": "score >= 0.97",
+    "pass_threshold": 0.97,
+    "task_hash": "9f140cd4897e6ade3f2cac511d944bc94b960f5a89926d80a99181ed6fb5d062"
+  },
+  {
     "id": "read-report-01",
     "row": "read-report",
     "phase": "screening",

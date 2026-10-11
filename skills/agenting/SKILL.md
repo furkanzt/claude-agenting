@@ -79,7 +79,10 @@ and judgment overrides changed five of the six:
   as Sonnet (0 hallucinations in 408 items) and was held to `fast`; a pre-registered round on 120 fresh near-miss
   items (2026-10-10) then gave `haiku/high` 11 hallucinated item-runs of 720, Sonnet `xhigh` 10 of 720 and Opus
   `xhigh` 0 of 360, so `fast` reverted by the rule written beforehand. Training-knowledge traps tripped no cell.
-  Haiku `xhigh` (5 of 720) is a lead, not a decision.
+  A second pre-registered round (E1b, 2026-10-11, 120 fresh items, 6 repeats in every cell) found Sonnet `xhigh` and
+  Opus `xhigh` both clean (0 of 720) and Haiku `xhigh` at 1 of 720 on one item: Rule A needs a Sonnet baseline of at
+  least 1% to move `balanced` to Opus, Rule B needs Haiku `xhigh` no worse than Sonnet for `fast`, so both rows stay
+  `sonnet/xhigh`. Haiku `xhigh` is 13 times cheaper; moving `fast` to it would be the owner's overrule of Rule B.
 - **Kept: cleanup** (Haiku 5.5 `high` passed 6 of 9 and altered at least one word in 7
   of 9 runs; Sonnet `low` altered none in 3), **classify** (`xhigh` gave 35 wrong labels
   in 864 against Sonnet `medium`'s 15, and a kazanım to a NONE item 16 times in 144

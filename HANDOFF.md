@@ -16,10 +16,13 @@ don't-guess moved for `fast` only (`haiku/high`, reverted on 2026-10-10, see bel
 2.1.295 to 2.1.296 the same evening; the post-update re-check is in section 2. **On 2026-10-10 experiment
 E1 ran** (a pre-registered don't-guess confirmation on 120 fresh near-miss items): Haiku 5.5 `high` did not
 earn `balanced`, and `fast` went back to `sonnet/xhigh` by the rule written beforehand. The same data showed
-Sonnet `xhigh` hallucinating about as often as Haiku `high` (10 and 11 of 720) while Opus did not (0 of 360):
-that is the next experiment, E1b (section 3).
+Sonnet `xhigh` hallucinating about as often as Haiku `high` (10 and 11 of 720) while Opus did not (0 of 360).
+**On 2026-10-11 experiment E1b ran** (fresh items built to E1's design lessons, 6 repeats in every cell): Sonnet and
+Opus were both clean (0 of 720 each), Haiku `xhigh` made one hallucinated item-run on one item, so by the rules
+written first nothing changed: `balanced` and `fast` stay `sonnet/xhigh`. Whether to overrule Rule B for `fast`
+(Haiku `xhigh`, 13 times cheaper) is the owner's choice (section 4, decision 2).
 
-**Read, in this order:** this file; `evals/results/REPORT-2026-10-10-E1.md`; `evals/results/REPORT-2026-10-09.md`
+**Read, in this order:** this file; `evals/results/REPORT-2026-10-11-E1b.md`; `evals/results/REPORT-2026-10-10-E1.md`; `evals/results/REPORT-2026-10-09.md`
 (sections 1, 4, 6, 9, 10 and 11); `CLAUDE.md`, `TDD.md`, `BDD.md` before changing any behaviour; `evals/README.md` before
 touching the eval harness.
 
@@ -28,11 +31,11 @@ touching the eval harness.
 ```
 cd <repo root>   # the agenting plugin repository
 git status --short                      # expect clean
-git log origin/main..HEAD --oneline     # expect about 16 unpushed commits (section 9)
+git log origin/main..HEAD --oneline     # expect about 20 unpushed commits (section 9)
 claude --version                        # 2026-10-10: 2.1.296
-python3 -m pytest tests -q              # expect 373 passed, 1 skipped (about 65 s)
+python3 -m pytest tests -q              # expect 412 passed, 1 skipped (about 65 s)
 python3 scripts/check-setup.py          # expect 37 passed, 0 failed
-python3 evals/evalkit.py selfcheck      # expect 23 tasks, 0 problems
+python3 evals/evalkit.py selfcheck      # expect 27 tasks, 0 problems
 python3 evals/evalkit.py status         # run/score totals per row
 ```
 
@@ -55,7 +58,7 @@ task details (item names, answers, source paths).
 | Read and report | `haiku/medium` | same | `sonnet/high` | every cell 9/9 on 3 exact-answer tasks, so tasks do not separate cells; $0.006 vs $0.118 |
 | Classify / judge | `sonnet/medium`-`high` | `sonnet/low` | `sonnet/high` | Haiku 5.5 `xhigh`: 35 wrong labels in 864 vs Sonnet `medium` 15; NONE items given a kazanım 16/144 vs 5 |
 | Synthesize | `opus/xhigh` | `opus/high` | `opus/xhigh` | Haiku 5.5 `medium` 3/3 on screening then 3/6 on confirmation; the other efforts fail |
-| Don't guess (BELİRSİZ) | `sonnet/xhigh` | `sonnet/xhigh` (was `haiku/high` until 2026-10-10) | `opus/xhigh` | E1, 120 near-miss items: Haiku `high` 11 of 720 hallucinated item-runs, Sonnet `xhigh` 10, Haiku `xhigh` 5, Opus `xhigh` 0 of 360; Rule B reverted `fast` |
+| Don't guess (BELİRSİZ) | `sonnet/xhigh` | `sonnet/xhigh` (was `haiku/high` until 2026-10-10) | `opus/xhigh` | E1, 120 near-miss items: Haiku `high` 11 of 720 hallucinated item-runs, Sonnet `xhigh` 10, Haiku `xhigh` 5, Opus `xhigh` 0 of 360; Rule B reverted `fast`. E1b, 120 fresh items, 6 repeats each: Sonnet 0 of 720, Opus 0 of 720, Haiku `xhigh` 1, Haiku `high` 3; Rules A and B both failed, no change |
 | Adversarial verify | `sonnet/high` | same | `opus/high` | Haiku `medium` false-confirmed on verify-02 in 6 of 12 runs; `xhigh` once in 36 |
 
 Agent pins in the repo: `scanner` is `haiku/medium` (changed this round), `text-mechanic`
@@ -73,7 +76,7 @@ in Workflow scans.
   note: it was saved after some of the extensions it describes had run** (the audit caught that).
 - **Pricing:** `scripts/measure-tokenomics.py` and `hooks/cache-tripwire.py` price Haiku 5.5 including
   its 100k-token tier (5x per token above 100k prompt tokens), with tests.
-- **Spec harness:** `features/` (11 files, 577 scenarios: 317 cite an existing test, 260 are `@gap @wip`
+- **Spec harness:** `features/` (13 files, 624 scenarios: 364 cite an existing test, 260 are `@gap @wip`
   backlog), `tests/test_catalogue_integrity.py` (the meta-guard), `scripts/quality/`, `TDD.md`,
   `BDD.md`, `CLAUDE.md`, state in `.tdd-bdd-harness/` (gitignored). Only Phases 0 to 3 of the bootstrap
   were run (an established repo's scope).
@@ -81,6 +84,11 @@ in Workflow scans.
   48 answerable), the rules committed before anything was built (`PREREGISTERED-E1-2026-10-10.md`), the analysis tool
   committed before the data (`evals/probes/e1_analysis.py`, applies Rules A to E to the stored runs), 132 runs
   ($15.53, none invalid, CLI 2.1.296) and `REPORT-2026-10-10-E1.md`.
+- **E1b (2026-10-11):** four more don't-guess tasks (`dont-guess-08` to `-11`; 120 unanswerable items in sibling, partial,
+  intent and absent kinds, 48 answerable), rules `PREREGISTERED-E1b-2026-10-10.md` committed first, analysis tool
+  `evals/probes/e1b_analysis.py` (28 mutations caught), tasks installed before the runs, 96 runs ($18.57, none
+  invalid, CLI 2.1.296), `REPORT-2026-10-11-E1b.md`. Built by 4 builders and reviewed three times (about 4.4M subagent tokens).
+- **Routing guard fix (2026-10-10):** a nested `schema:` object no longer hides `model`/`effort` (section 5, item 5).
 - **Effort probe tool:** `evals/probes/read_effort.py` (reads the effort a subagent really ran with) and
   `evals/probes/effort_application.workflow.js` (the Workflow that launches the probe agents), with
   `tests/test_effort_probe.py` and `features/effort-probe.feature`.
@@ -94,7 +102,8 @@ in Workflow scans.
 - Haiku 5.5 honours `effort`; Haiku 4.5 did not. Prices: $0.10/$0.50 per MTok up to 100k prompt tokens,
   $0.50/$2.50 above; 1M context; retirement not before 2027-10-07. Haiku 4.5 is still active
   (not before 2026-10-15) and is no longer a candidate for anything.
-- Spend: first round $121.90, Haiku 5.5 round $49.96 (runs $34.82, judge $15.14), the 2.1.296 canary $2.24,
+- Spend: first round $121.90, Haiku 5.5 round $49.96 (runs $34.82, judge $15.14), the 2.1.296 canary $2.24, E1 $15.53,
+  E1b $18.57,
   plus about 4.2M subagent tokens for task builders, audits and the catalogue. Total in `evalkit.py status`.
 
 ## 2. After a Claude Code update: the re-check recipe
@@ -175,7 +184,14 @@ Haiku `high` and Sonnet `xhigh` are a tie (3 distinct hallucinated items each, t
 the 10), Opus `xhigh` was clean (0 of 360, about p = 0.02 against Sonnet, unadjusted), Haiku `xhigh` was the best
 Haiku cell (5 of 720, 20 of 24 runs passed), and no cell hallucinated on any of the 26 training-knowledge items.
 
-**E1b. Opus versus Sonnet versus Haiku `xhigh` on fresh near-miss items (the next experiment).** Question: does
+**E1b: DONE 2026-10-11** (`evals/results/REPORT-2026-10-11-E1b.md`; the original plan follows for the record). Rule A (i):
+Sonnet hallucinated 0 of 720, so there was no baseline problem and `balanced` stays `sonnet/xhigh`; Opus also 0 of 720.
+Rule B (i): Haiku `xhigh` 1 against Sonnet's 0, so `fast` stays `sonnet/xhigh` (the one item, an "only a lower bound is
+printed" partial, accounts for all four Haiku hallucinations). Post-hoc: E1's Opus-over-Sonnet gap did not replicate
+on items built to E1's lessons; pooled over both rounds Haiku `xhigh` 6 of 1,440 against Sonnet 10 of 1,440. Next, if
+wanted: a study of which item types make a model invent (report section 7), not another general confirmation.
+
+*Original plan (done):* does
 `opus/xhigh` abstain more reliably than `sonnet/xhigh` on near-miss unanswerable items, and does `haiku/xhigh`
 match Sonnet at a twelfth of the cost? Why: E1 found Sonnet at 1.39% and Opus at 0% on the same items, which
 contradicts the earlier "Sonnet matches Opus" null; if the gap is real, `balanced` should be `opus/xhigh` and
@@ -237,11 +253,12 @@ verification (a bounded null), the classify narrowing, the clean-run usage-windo
    CHANGELOG "Unreleased" entry under the new number (3.3.0 is a reasonable choice: a routing-table change
    and a new tool), push, then on the owner's machine `/plugin marketplace update agenting` and
    `claude plugin update agenting@agenting`. Until then the installed `scanner` is `haiku/low`.
-2. **Don't-guess `fast` reverted to `sonnet/xhigh` (2026-10-10, pre-registered Rule B).** The data show Sonnet is
-   no safer than Haiku `high` on that set (10 versus 11), so the revert buys no measured safety at 17 times the
-   cost; the rule is mechanical and the owner may overrule it, which would be a one-line change in
-   `skills/agenting/reference/modes.md` plus the sentences in `SKILL.md`, `README.md` and `CHANGELOG.md`. Say so
-   in the report if you do.
+2. **Don't-guess `fast` is `sonnet/xhigh` (reverted 2026-10-10 by Rule B, kept 2026-10-11 by E1b's Rule B (i)).**
+   Haiku `xhigh` is 13 times cheaper ($0.019 against $0.253 a run), was under the 1% line in both rounds (5 of 720 in E1,
+   1 of 720 in E1b) and pooled is no worse than Sonnet (6 of 1,440 against 10). It failed only the "no more than
+   Sonnet" comparison on E1b (1 against 0). The rule is mechanical and the owner may overrule it: a change of the
+   `fast` cell in `skills/agenting/reference/modes.md` plus the sentences in `SKILL.md`, `README.md` and
+   `CHANGELOG.md`, noted as an overrule of Rule B (i). Default: no change.
 3. **Back up `evals/private/`** (about 18 MB, gitignored on purpose). Without it the scores stay valid but
    nothing can be re-graded or extended.
 4. **Sonnet 5.5 cache-read price.** The plugin's tables say $0.20 per MTok; the pricing page on 2026-10-09
@@ -411,6 +428,11 @@ Unpushed commits, oldest first (subjects; hashes change when squashed). Group th
 4. **E1, don't-guess fresh confirmation** (one commit): `evals: pre-register E1...`, `evals: the E1 analysis
    tool...`, `evals: install the four E1 don't-guess tasks...`, and the results commit (report, runs, docs, handoff).
    Keep the order visible in the message (the rules commit precedes the tool, the tool precedes the data).
+5. **E1b rules and tool** (one commit): `evals: pre-register E1b...`, `evals: the E1b analysis tool...`.
+6. **Routing guard fix** (stays one commit): `hooks: the routing guard reads the options as the call's top-level
+   object...` (it sits between the E1b commits, so it cannot join either neighbour without reordering).
+7. **E1b tasks, runs, report** (one commit): `evals: install the four E1b don't-guess tasks...` and the results
+   commit. Keep the order visible (rules, tool, install, runs).
 
 The version bump is a **separate commit after the bites** (decision 1). Before pushing, check the net diff for
 `evals/private`, absolute local paths, per-item keys in `evals/results/scores.jsonl`, and private item names
@@ -424,6 +446,7 @@ the work (this round: Claude Sonnet 5.5).
 | Today's findings, tables, overrides, audit, effort follow-up | `evals/results/REPORT-2026-10-09.md` |
 | Adopt rules and when each was written | `evals/results/PREREGISTERED-2026-10-09.md` |
 | E1 (don't-guess fresh confirmation) | `evals/results/REPORT-2026-10-10-E1.md`, rules in `evals/results/PREREGISTERED-E1-2026-10-10.md`, tool `evals/probes/e1_analysis.py` |
+| E1b (Opus, Sonnet, Haiku `xhigh` on fresh items) | `evals/results/REPORT-2026-10-11-E1b.md`, rules in `evals/results/PREREGISTERED-E1b-2026-10-10.md`, tool `evals/probes/e1b_analysis.py` (reuses `e1_analysis.py`) |
 | Previous round | `evals/results/REPORT-2026-10-06.md` |
 | Method, formats, decision bar, procedures | `evals/README.md` |
 | Model facts, prices, effort, Claude Code mechanics | `evals/research/2026-10-05-models.md` (Haiku 5.5 facts are in the report) |
@@ -441,9 +464,8 @@ the work (this round: Claude Sonnet 5.5).
 ## 11. A good first message for the next chat
 
 > Read HANDOFF.md in the agenting repo, run the section 0 checks, tell me what you find, and then start
-> experiment E1b (Opus versus Sonnet versus Haiku xhigh on fresh near-miss items): commit the rules first, then
-> adapt the analysis tool, then build the tasks in staging with two independent review rounds, install, and run.
-> Keep the Mac awake (section 6).
+> experiment E2 (cleanup tasks, Haiku prompt variants): commit the rules first, then build the tasks in staging
+> with two independent review rounds, install, and run. Keep the Mac awake (section 6).
 
-(Swap E1b for whichever experiment in section 3 you want first. If the Claude Code version has changed since
+(Swap E2 for whichever experiment in section 3 you want first, or for the item-type study named in the E1b report. If the Claude Code version has changed since
 2026-10-09, do section 2 first.)

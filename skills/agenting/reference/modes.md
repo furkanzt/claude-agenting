@@ -71,10 +71,12 @@ For verification and BELİRSİZ `fast` and `balanced` use Sonnet: on the first r
 Opus on every measured run at about half the cost, and the closed-book gap in the vendor cards is knowledge, not
 abstention discipline. That was a bounded null, and a later one was less clean: on 120 harder near-miss
 unanswerable items (2026-10-10, `evals/results/REPORT-2026-10-10-E1.md`) Sonnet `xhigh` hallucinated 10 of 720
-item-runs and Opus `xhigh` none of 360, so `quality` keeps Opus and the question of whether `balanced` should use
-it is open (a pre-registered round on fresh items is the next step). Haiku 5.5 does not get BELİRSİZ: at `high` it
+item-runs and Opus `xhigh` none of 360, so `quality` keeps Opus; a pre-registered round on 120 fresh items (2026-10-11,
+`evals/results/REPORT-2026-10-11-E1b.md`) then found Sonnet and Opus both clean (0 of 720 each), so `balanced` stays Sonnet. Haiku 5.5 does not get BELİRSİZ: at `high` it
 hallucinated 11 of 720 on the same items, the same as Sonnet within noise and above the 1% line the pre-registered
-rule set for `fast`, so `fast` reverted to Sonnet; `haiku`/`xhigh` (5 of 720) is a lead for that later round.
+rule set for `fast`, so `fast` reverted to Sonnet; `haiku`/`xhigh` made 5 of 720 there and 1 of 720 on the fresh items (Sonnet 0),
+which failed the pre-registered "no more than Sonnet" test by one item-run, so `fast` stays Sonnet (moving it to `haiku`/`xhigh`,
+13 times cheaper, would be the owner's overrule of that rule).
 Training-knowledge traps did not trip any cell. The 16x cost gap holds for prompts under the 100K-token tier
 (about 4x on input above it). A pinned effort is applied to Workflow
 `agent()` calls and to plugin agents (checked 2026-10-09 from the effort recorded in
