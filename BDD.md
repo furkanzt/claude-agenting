@@ -86,3 +86,4 @@ harness by tests with a stub `claude`; none of them calls a real model.
 | `setup-check.feature` | `scripts/check-setup.py`, state isolation | `tests/test_real_state_untouched.py` |
 | `plugin-docs.feature` | agent pins, skill and doc invariants | `tests/test_skill_docs.py` |
 | `effort-probe.feature` | `evals/probes/read_effort.py`, the subagent-effort reader | `tests/test_effort_probe.py` |
+| `e1-analysis.feature` | `evals/probes/e1_analysis.py`, the E1 rule applier | `tests/test_e1_analysis.py` |

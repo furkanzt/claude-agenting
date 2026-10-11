@@ -12,11 +12,9 @@
     $0.0094 a run; `low` 30 of 36; Sonnet `high` 32 of 36 at $0.076.
   - Read and report: `sonnet/medium` → `haiku/medium` (`quality`: `sonnet/high`). 9 of 9 on
     three exact-answer tasks at $0.006 a run against $0.118; the tasks do not separate cells.
-  - Don't guess (BELİRSİZ): `fast` → `haiku/high`; `balanced` stays `sonnet/xhigh` and
-    `quality` `opus/xhigh`. `high` made no hallucination in 408 unanswerable items and passed
-    36 of 36 runs, but gave one confident wrong answer in 480 answerable ones (Sonnet none),
-    `low` and `medium` hallucinated on one item, and `high` was found by extending more
-    efforts after those two failed.
+  - Don't guess (BELİRSİZ): stays `sonnet/xhigh` for `fast` and `balanced`, `opus/xhigh` for
+    `quality`. `haiku/high` was adopted for `fast` on 2026-10-09 (no hallucination in 408 items) and
+    **reverted on 2026-10-10** by the rule written beforehand, after E1 (below).
   - Kept: cleanup, classify, verify, synthesize. At three runs the harness named a Haiku 5.5
     cell on six of seven rows; 12-repeat checks and judgment overrides changed five of the
     six (report section 1). Classify and verify were reversed by 12-repeat rules; cleanup was
@@ -28,6 +26,14 @@
   100k tokens.
 
 ### Added
+- **E1, don't-guess fresh confirmation** (`evals/results/REPORT-2026-10-10-E1.md`, rules committed first in
+  `PREREGISTERED-E1-2026-10-10.md`): four new tasks (`dont-guess-04` to `-07`, 120 unanswerable near-miss
+  items in sibling, partial, intent, absent and never-before-tested training-knowledge kinds, 48 answerable),
+  each built in staging and reviewed independently twice. 132 runs, none invalid, $15.53. `haiku-5-5@high`:
+  11 hallucinated item-runs of 720 against Sonnet `xhigh` 10 of 720; Opus `xhigh` 0 of 360; Haiku `xhigh`
+  5 of 720. Rule A keeps `balanced` on Sonnet, Rule B reverts `fast` to Sonnet (1.53% against a 1% line).
+  No cell hallucinated on a training-knowledge item. `evals/probes/e1_analysis.py` applies the rules to the
+  stored runs (committed before the data), with `tests/test_e1_analysis.py` and `features/e1-analysis.feature`.
 - `evals/probes/read_effort.py` and `effort_application.workflow.js`: read the effort a subagent really ran
   with from its transcript, and the Workflow that launches the probe agents; `tests/test_effort_probe.py`,
   `features/effort-probe.feature`. `HANDOFF.md` section 2 is the post-update recipe that uses them.

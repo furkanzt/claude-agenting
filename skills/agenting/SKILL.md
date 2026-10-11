@@ -21,7 +21,7 @@ Pick by reasoning demand, not by how important the task feels.
 | Read code / prose and report what it does | `haiku` | `medium` | Answer is present in one place |
 | Turn prose into rules; classify; judge relevance | `sonnet` | `medium`–`high` | Needs judgment, source states the facts |
 | Synthesize across a whole document or many files | `opus` | `xhigh` | Must relate things that are far apart |
-| Decide under a "don't guess" constraint (BELİRSİZ) | `sonnet` | `xhigh` | **Calibration is the product** (`fast`: `haiku`/`high`) |
+| Decide under a "don't guess" constraint (BELİRSİZ) | `sonnet` | `xhigh` | **Calibration is the product** |
 | Adversarial verify / refute a finding | `sonnet` | `high` | A confident wrong answer is expensive |
 
 **How these cells were checked (2026-10-06).** [`evals/`](../../evals/README.md)
@@ -75,13 +75,11 @@ and judgment overrides changed five of the six:
   passes too), so effort is Anthropic's default, and open-ended reports were not
   measured; `quality` stays `sonnet/high`. The `researcher` agent keeps
   `sonnet/medium`: tracing and dependency mapping is wider than what was measured.
-- **Don't guess: `fast` uses `haiku/high`; `balanced` stays `sonnet/xhigh`.** Haiku 5.5
-  `high` made no hallucination in 408 unanswerable items and passed 36 of 36 runs, at
-  $0.020 against $0.329, but it gave one confident wrong answer in 480 answerable ones
-  (Sonnet none). `low` and `medium` hallucinated (3 and 1 times, all on one sibling-trap
-  item: a neighbouring fact copied onto the wrong entity), and `high` was found by
-  extending more efforts after those two failed. `balanced` waits for a fresh
-  confirmation on new items; `quality` keeps Opus.
+- **Don't guess stays `sonnet/xhigh`** for `fast` and `balanced`. On 2026-10-09 Haiku 5.5 `high` looked as safe
+  as Sonnet (0 hallucinations in 408 items) and was held to `fast`; a pre-registered round on 120 fresh near-miss
+  items (2026-10-10) then gave `haiku/high` 11 hallucinated item-runs of 720, Sonnet `xhigh` 10 of 720 and Opus
+  `xhigh` 0 of 360, so `fast` reverted by the rule written beforehand. Training-knowledge traps tripped no cell.
+  Haiku `xhigh` (5 of 720) is a lead, not a decision.
 - **Kept: cleanup** (Haiku 5.5 `high` passed 6 of 9 and altered at least one word in 7
   of 9 runs; Sonnet `low` altered none in 3), **classify** (`xhigh` gave 35 wrong labels
   in 864 against Sonnet `medium`'s 15, and a kazanım to a NONE item 16 times in 144

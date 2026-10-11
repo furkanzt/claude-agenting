@@ -288,7 +288,11 @@
       "tasks": [
         "dont-guess-01",
         "dont-guess-02",
-        "dont-guess-03"
+        "dont-guess-03",
+        "dont-guess-04",
+        "dont-guess-05",
+        "dont-guess-06",
+        "dont-guess-07"
       ],
       "baseline_note": "Moved from opus-5-5@xhigh to sonnet-5-5@xhigh on 2026-10-09 to match the routing table (REPORT-2026-10-06 section 7). The `quality` disposition still uses Opus."
     },

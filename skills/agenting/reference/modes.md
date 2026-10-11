@@ -63,21 +63,20 @@ Baseline per disposition:
 | Read code/prose, report | `haiku`/`medium` | `haiku`/`medium` | `sonnet`/`high` |
 | Prose→rules, classify, judge | `sonnet`/`low` | `sonnet`/`medium` | `sonnet`/`high` |
 | Synthesize across many files | `opus`/`high` | `opus`/`xhigh` | `opus`/`xhigh` |
-| Decide under BELİRSİZ | `haiku`/`high` | `sonnet`/`xhigh` | `opus`/`xhigh` |
+| Decide under BELİRSİZ | `sonnet`/`xhigh` | `sonnet`/`xhigh` | `opus`/`xhigh` |
 | Adversarial verify/refute | `sonnet`/`high` | `sonnet`/`high` | `opus`/`high` |
 
 `fast` and `balanced` are the measured cells (2026-10-06 and 2026-10-09, `evals/`).
-For verification and BELİRSİZ `balanced` uses Sonnet: it matched Opus on every
-measured run at about half the cost, and the closed-book gap in the vendor cards is
-knowledge, not abstention discipline; the evidence is a bounded null (a gap under
-about 3 to 5 points is not excluded), so `quality` keeps Opus. For BELİRSİZ, `fast`
-uses Haiku 5.5 at `high`: 36 of 36 runs and no hallucination in 408 unanswerable
-items, about 16x cheaper than Sonnet `xhigh`, but one confident wrong answer in 480
-answerable ones (Sonnet none), and it is the cell that stayed clean after `low` and
-`medium` hallucinated (3 and 1 times, on one item where a neighbouring fact was
-copied onto the wrong entity), so do not lower its effort. `balanced` waits for a
-fresh confirmation on new sibling-trap items. The 16x holds for prompts under the
-100K-token tier (about 4x on input above it). A pinned effort is applied to Workflow
+For verification and BELİRSİZ `fast` and `balanced` use Sonnet: on the first round's items it matched
+Opus on every measured run at about half the cost, and the closed-book gap in the vendor cards is knowledge, not
+abstention discipline. That was a bounded null, and a later one was less clean: on 120 harder near-miss
+unanswerable items (2026-10-10, `evals/results/REPORT-2026-10-10-E1.md`) Sonnet `xhigh` hallucinated 10 of 720
+item-runs and Opus `xhigh` none of 360, so `quality` keeps Opus and the question of whether `balanced` should use
+it is open (a pre-registered round on fresh items is the next step). Haiku 5.5 does not get BELİRSİZ: at `high` it
+hallucinated 11 of 720 on the same items, the same as Sonnet within noise and above the 1% line the pre-registered
+rule set for `fast`, so `fast` reverted to Sonnet; `haiku`/`xhigh` (5 of 720) is a lead for that later round.
+Training-knowledge traps did not trip any cell. The 16x cost gap holds for prompts under the 100K-token tier
+(about 4x on input above it). A pinned effort is applied to Workflow
 `agent()` calls and to plugin agents (checked 2026-10-09 from the effort recorded in
 the subagent transcripts); an unpinned Haiku agent runs at its default `medium`, not
 the session's effort. List/count uses Haiku 5.5 at `medium` in all three dispositions (`low`

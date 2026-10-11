@@ -77,6 +77,50 @@
     "task_hash": "87e81a802142b8d19cb856fbe757d8e156230de065e5ec65f649b72e5814eadc"
   },
   {
+    "id": "dont-guess-04",
+    "row": "dont-guess",
+    "phase": "confirmation",
+    "title": "Answer 42 questions from MEB's Turkish DKAB curriculum (grades 7-8), abstaining with BELİRSİZ where it is silent",
+    "delivery": "files",
+    "grading_type": "code",
+    "pass_rule": "score >= 0.97",
+    "pass_threshold": 0.97,
+    "task_hash": "4891f27f9b56503ebb3afc339e846fda5ca0c81056393915ed49c8d9c265e74e"
+  },
+  {
+    "id": "dont-guess-05",
+    "row": "dont-guess",
+    "phase": "confirmation",
+    "title": "Answer 42 questions from a real project's Turkish quality-loop reports, abstaining with BELİRSİZ where they are silent",
+    "delivery": "files",
+    "grading_type": "code",
+    "pass_rule": "score >= 0.97",
+    "pass_threshold": 0.97,
+    "task_hash": "64168e6996e055ef49a8ca18829109b65690fe4d6e925e65e15e9582cac5306c"
+  },
+  {
+    "id": "dont-guess-06",
+    "row": "dont-guess",
+    "phase": "confirmation",
+    "title": "Answer 42 questions from real MEB Fen Bilimleri programme pages, abstaining with BELİRSİZ where the pages are silent even when the fact is common knowledge",
+    "delivery": "files",
+    "grading_type": "code",
+    "pass_rule": "score >= 0.976",
+    "pass_threshold": 0.976,
+    "task_hash": "3ad4beeeb5a6e44f281ddf783f3c750d55e5e86a10edecda80cc03f9e57086ee"
+  },
+  {
+    "id": "dont-guess-07",
+    "row": "dont-guess",
+    "phase": "confirmation",
+    "title": "Answer 42 questions from four real English technical documents, abstaining with BELİRSİZ where they are silent",
+    "delivery": "files",
+    "grading_type": "code",
+    "pass_rule": "score >= 0.97",
+    "pass_threshold": 0.97,
+    "task_hash": "e8a3d5b0327d5a62107e2d130c8475d69690571a5ff820c116203897c67ec653"
+  },
+  {
     "id": "read-report-01",
     "row": "read-report",
     "phase": "screening",
