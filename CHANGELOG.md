@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — 2026-10-09 (Haiku 5.5 round; version not bumped)
+## 3.3.0 — 2026-10-11 (Haiku 5.5 round, E1 and E1b, routing guard fix)
 
 ### Changed
 - **The `haiku` alias now means Haiku 5.5** (`claude-haiku-5-5`, CLI 2.1.295). It honours
@@ -79,8 +79,8 @@
   cells (report, section 11).
 
 ### Not changed
-- Nothing was pushed and the plugin version was not bumped, so the installed 3.2.2 still pins
-  `scanner` at `haiku`/`low`. Until a release, pass `model: 'haiku', effort: 'medium'` for scans.
+- The don't-guess row: after E1 and E1b both `fast` and `balanced` are `sonnet/xhigh` and `quality` is
+  `opus/xhigh`; moving `fast` to `haiku`/`xhigh` is left to the owner (E1b report, section 7).
 - The Sonnet 5.5 cache-read price ($0.20 here) disagrees with the pricing page ($0.10); see the
   report, section 7.
 
