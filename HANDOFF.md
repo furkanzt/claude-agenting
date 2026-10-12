@@ -248,11 +248,11 @@ verification (a bounded null), the classify narrowing, the clean-run usage-windo
 
 ## 4. Decisions waiting for the owner
 
-1. **Release.** Everything since 3.2.2 is unreleased and **unpushed**. A release is its own commit: bump
-   `version` in `.claude-plugin/plugin.json` **and** `marketplace.json` together (`plugin.json` wins), move the
-   CHANGELOG "Unreleased" entry under the new number (3.3.0 is a reasonable choice: a routing-table change
-   and a new tool), push, then on the owner's machine `/plugin marketplace update agenting` and
-   `claude plugin update agenting@agenting`. Until then the installed `scanner` is `haiku/low`.
+1. **Release.** 3.3.1 (2026-10-12) is released and pushed; nothing is unreleased. A release is its own commit:
+   bump `version` in `.claude-plugin/plugin.json` **and** `marketplace.json` together (`plugin.json` wins), move
+   the CHANGELOG "Unreleased" entry under the new number, push, then on the owner's machine
+   `claude plugin marketplace update agenting` and `claude plugin update agenting@agenting`, and
+   `/reload-plugins` in each open session.
 2. **Don't-guess `fast` is `sonnet/xhigh` (reverted 2026-10-10 by Rule B, kept 2026-10-11 by E1b's Rule B (i)).**
    Haiku `xhigh` is 13 times cheaper ($0.019 against $0.253 a run), was under the 1% line in both rounds (5 of 720 in E1,
    1 of 720 in E1b) and pooled is no worse than Sonnet (6 of 1,440 against 10). It failed only the "no more than
@@ -440,31 +440,13 @@ override; the classify rule written after nine-run data; dont-guess `balanced` h
 
 ## 9. Push plan (when the owner says push)
 
-Unpushed commits, oldest first (subjects; hashes change when squashed). Group them into these bites, then
-`CLAUDE_SKIP_SQUASH_GUARD=1 git push`:
-
-1. **Haiku 5.5 round** (one commit): `tokenomics: price Haiku 5.5...`, `evals: Haiku 5.5 cells, six
-   confirmation tasks, 711 runs...`, `routing: scanner pins haiku/medium...`, `evals: report for the Haiku 5.5
-   round...`, `evals: say when the vetting rules were written...`. Fold each member's reasoning into numbered
-   paragraphs.
-2. **TDD+BDD adoption** (one commit): `tdd-bdd: install the spec harness...`, `docs: TDD.md, BDD.md and
-   CLAUDE.md...`.
-3. **Effort verification, probe tool, canary** (one commit): `docs: a pinned effort is applied to subagents...`,
-   `evals: a tool that reads the effort a subagent really ran with...`, `handoff: rewrite HANDOFF.md as a
-   fresh-chat entry point...`, `handoff: name modes.md, the eval lock and settings.json by their full paths`.
-4. **E1, don't-guess fresh confirmation** (one commit): `evals: pre-register E1...`, `evals: the E1 analysis
-   tool...`, `evals: install the four E1 don't-guess tasks...`, and the results commit (report, runs, docs, handoff).
-   Keep the order visible in the message (the rules commit precedes the tool, the tool precedes the data).
-5. **E1b rules and tool** (one commit): `evals: pre-register E1b...`, `evals: the E1b analysis tool...`.
-6. **Routing guard fix** (stays one commit): `hooks: the routing guard reads the options as the call's top-level
-   object...` (it sits between the E1b commits, so it cannot join either neighbour without reordering).
-7. **E1b tasks, runs, report** (one commit): `evals: install the four E1b don't-guess tasks...` and the results
-   commit. Keep the order visible (rules, tool, install, runs).
-
-The version bump is a **separate commit after the bites** (decision 1). Before pushing, check the net diff for
-`evals/private`, absolute local paths, per-item keys in `evals/results/scores.jsonl`, and private item names
-(`git diff origin/main | grep -n -i "private/\|/Users/"`). The `Co-Authored-By` trailer names the model that did
-the work (this round: Claude Sonnet 5.5).
+Nothing is unpushed as of 3.3.1 (2026-10-12). For the next push: group the unpushed commits into bites
+(consecutive runs belonging to one piece of work, one commit each, members folded into numbered paragraphs,
+never reordered), keep the version bump a separate commit after the bites, then
+`CLAUDE_SKIP_SQUASH_GUARD=1 git push`. Before pushing, check the net diff for `evals/private`, absolute local
+paths, per-item keys in `evals/results/scores.jsonl`, and private item names
+(`git diff origin/main | grep -n -i "private/\|/Users/"`). The `Co-Authored-By` trailer names the model that
+did the work.
 
 ## 10. Where everything is
 

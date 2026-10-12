@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — 2026-10-12 (version not bumped)
+## 3.3.1 — 2026-10-12 (routing guard: spreads named, shorthand keys, literal undefined)
 
 ### Fixed
 - **The routing guard's Stage 1 denial names a spread it cannot read and gives the fix.** A fan-out that kept
