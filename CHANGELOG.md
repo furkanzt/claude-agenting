@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased — 2026-10-12 (version not bumped)
+
+### Fixed
+- **The routing guard's Stage 1 denial names a spread it cannot read and gives the fix.** A fan-out that kept
+  each item's routing as data and spread it into the options (`{..., schema: CLAIMS, ...lens.route}`) was
+  denied as "no model, no effort" with no hint why: the guard reads the source, so routing inside a spread is
+  invisible to it. The cause now reads `[no model, no effort; the guard cannot read ...lens.route]`, and the
+  denial says to spell per-item routing out (`agentType: lens.agentType, model: lens.model, effort:
+  lens.effort`) and that only a key's presence is checked. A spread next to explicit `model` and `effort`
+  keys still passes. Reported by a peer session on 2026-10-12.
+- **A key whose value is the literal `undefined` or `null` is no longer routing** (`{model: undefined, effort:
+  'low'}` is denied as `[model is undefined]`; `{agentType: 'x', model: undefined, effort: 'm'}` still passes).
+  A call with an effort but no model is reported as `[no model]`, not `[no model, no effort]`.
+- **Shorthand routing keys count** (`agent(prompt, {label, model, effort})`, as a destructured fan-out writes
+  it). They were not read as keys, so the call was denied, and next to a spread the new cause blamed the spread.
+  A shorthand key counts on presence, like any variable value. A spread's name in the cause drops a trailing
+  comment and is capped at 40 characters. Found by a pre-release review workflow.
+- Not fixed, by decision: a key whose value is a variable (`effort: lens.effort`) still passes on presence,
+  and the manual plan shows `?`. The guard cannot know a run-time value; denying variables would also deny the
+  explicit-keys form above, the only one left for per-item routing (HANDOFF section 5, item 3).
+
+### Known issues (unchanged since 3.3.0)
+- A template literal nested inside `${...}` that contains an apostrophe can hide every later `agent()` call from
+  the guard, so the gate does not run for that script; regex literals can do the same. HANDOFF section 5, items
+  7 and 8.
+
 ## 3.3.0 — 2026-10-11 (Haiku 5.5 round, E1 and E1b, routing guard fix)
 
 ### Changed

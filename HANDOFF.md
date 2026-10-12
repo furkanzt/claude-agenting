@@ -271,7 +271,7 @@ verification (a bounded null), the classify narrowing, the clean-run usage-windo
    Code's docs say an effort change no longer does on Opus 5.5, Sonnet 5.5, Fable 5.1 and Haiku 5.5 (not on
    Bedrock, Google Cloud, HIPAA, or with experimental betas off). That file is the owner's.
 
-## 5. Bugs found while cataloguing (1 to 4 not fixed; each needs a regression test and a scenario first; 5 fixed)
+## 5. Bugs found while cataloguing (1 to 4, 7 and 8 not fixed; each needs a regression test and a scenario first; 5 and 6 fixed)
 
 1. `echo '[]' | python3 hooks/workflow-routing-guard.py` exits 1 with `AttributeError` (also `null`, `1`);
    reproduced. Non-JSON input is handled. Fix: `isinstance(payload, dict)` before `payload.get`.
@@ -283,18 +283,45 @@ verification (a bounded null), the classify narrowing, the clean-run usage-windo
    mid-session" and then "<synthetic>/? -> sonnet-5-5/xhigh: re-wrote 32k tokens, ~$0.08". A fix should skip
    records whose model is `<synthetic>` or missing.
 3. The routing guard accepts a variable for `model` or `effort` (`{model: M, effort: E}`): only key presence is
-   checked, the manual plan shows `?`, so a user can approve a plan that hides the tiers.
+   checked, the manual plan shows `?`, so a user can approve a plan that hides the tiers. Seen for real on
+   2026-10-12 (item 6): `effort: lens.effort` passes even when `lens.effort` is undefined at run time. Kept open
+   by decision: denying variables would deny the only per-item routing form left. Options not tried: resolve
+   `lens.x` through a const array the call iterates (`pipeline(LENSES, lens => ...)`), or a run-time check
+   inside the script, which would mean the hook rewriting the Workflow input (it never emits `allow` today).
 4. `scripts/check-setup.py` crashes on a `settings.json` that is valid JSON but not an object (`settings.get`,
    about line 140) after printing `settings.json parses` as PASS. From the code; not re-run.
 5. **Fixed 2026-10-10:** the guard denied a routed `agent()` call whose options held a nested object (a `schema:`),
    on one line or several, and counted `model`/`effort` keys inside a nested object as routing. A peer session
    reported it as "multi-line options"; the cause was `opts_span` taking the innermost last `{`. Now the last
    top-level object of the call, and only its own keys (`top_level_keys`); 11 tests, 11 scenarios. Still open
-   from the same area: item 3 (variable values), and `{'model': 'x'}` with a quoted key is not recognised.
+   from the same area: item 3 (variable values), and `{'model': 'x'}` with a quoted key is not recognised
+   (shorthand `{model, effort}` is, since 3.3.1).
+6. **Fixed 2026-10-12:** a peer's fan-out spread per-lens routing into the options (`...lens.route`) and was
+   denied as "no model, no effort" with no hint that the spread was the cause. The guard still cannot read a
+   spread (source only), but the cause now names it and the denial gives the explicit-keys form; a literal
+   `undefined`/`null` value no longer counts as routing; `{effort: 'low'}` reports `[no model]`. The pre-release
+   review (a 10-agent workflow, 2026-10-12) added: shorthand keys count (`{model, effort}` was denied, and next
+   to a spread the cause blamed the spread), each spread is named without a trailing comment and capped at 40
+   characters. 14 tests, 11 new scenarios and 3 armed; 18 mutations each caught. Old and new guard agree on all
+   178 Workflow scripts persisted on the owner's machine. The peer's workaround exposed item 3 for real.
+7. **Open, found in the same review: a template literal nested inside `${...}` can hide every later `agent()`
+   call, so the gate does not run at all.** `strip_comments_and_strings` treats a template as one flat string, so
+   the inner backtick ends the outer template; the inner text is then scanned as code, and an apostrophe in it
+   (``${x ? `The instructor's deck` : ''}``) opens a fake string that blanks the rest of the script. Seen in 2 of
+   177 persisted real scripts (both routed, so nothing slipped through there); a crafted script with an unrouted
+   call after the nested template passes silently, and an unbalanced paren inside one drops a call from the
+   Stage 2 plan. Same in 3.3.0. Fix: a `${`-depth stack in the stripper so interpolation code is scanned as code
+   (keep it visible, so an `agent()` inside an interpolation is still checked); then consider failing closed on
+   an unterminated string, which alone would wrongly deny those two routed scripts. Rerun the corpus diff
+   (old vs new guard over `~/.claude/projects/*/*/workflows/scripts/*.js`) before shipping it.
+8. **Open, same review, not independently verified: regex literals are not stripped.** A quote in a regex
+   (`s.replace(/'/g, '')`) opens a fake string that hides later calls; a brace in one (`/[,}]/`) closes the
+   options early and denies a routed call. Same in 3.3.0. Fix with item 7: treat `/` in operand position as a
+   regex literal.
 
-The 260 `@gap @wip` scenarios are the wider backlog, concentrated where no tests exist: `check-setup.py`
-(49 of 50 scenarios), the cache tripwire (35 of 37), plugin-docs pins (30 of 39), the routing guard (32 of 63),
-session continuity (26 of 46). The 317 cited tests have **not** been audited for sufficiency or red-proofed
+The 257 `@gap @wip` scenarios are the wider backlog, concentrated where no tests exist: `check-setup.py`
+(49 of 50 scenarios), the cache tripwire (35 of 37), plugin-docs pins (30 of 39), the routing guard (29 of 85),
+session continuity (26 of 46). The 378 ARMED scenarios' cited tests have **not** been audited for sufficiency or red-proofed
 (bootstrap Phases 4 to 6; `audit.md` in the tdd-bdd-harness skill).
 
 ## 6. How measurement works here: rules and traps (read before running anything)

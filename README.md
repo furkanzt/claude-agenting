@@ -164,7 +164,7 @@ await agent("wants whatever the session is on", { schema: S })
 
 ## How enforcement works
 
-**Parsing.** The guard reads the inline `script` (or the file at `scriptPath`), blanks out comments and string bodies while preserving offsets, then finds `agent(` calls by balanced parentheses. A key's *presence* is checked on the blanked text, so `"model: opus"` inside a prompt is not routing; its *value* is read from the raw text. `// routing: inherit` on the call's line or the line above marks deliberate inheritance.
+**Parsing.** The guard reads the inline `script` (or the file at `scriptPath`), blanks out comments and string bodies while preserving offsets, then finds `agent(` calls by balanced parentheses. A key's *presence* is checked on the blanked text, so `"model: opus"` inside a prompt is not routing; its *value* is read from the raw text. Only the options object's own keys count, shorthand (`{model, effort}`) included. A key whose whole value is the literal `undefined` or `null` is no routing (`[model is undefined]`). A variable value (`effort: lens.effort`) counts on presence alone: the guard cannot know what it holds at run time, and the plan shows `?`. Routing inside a spread (`...lens.route`) or an options variable is invisible to it; when routing is missing, the cause names the spread (`[no model, no effort; the guard cannot read ...lens.route]`) and the denial shows the explicit-keys form. `// routing: inherit` on the call's line or the line above marks deliberate inheritance.
 
 **Stage 1** denies when any call lacks `model`/`agentType` or lacks `effort`. It is never bypassed, in any mode.
 

@@ -175,6 +175,85 @@ Feature: The Workflow routing gate denies unrouted agent() calls and asks for pl
     When the routing guard runs
     Then the reason contains "STAGE 1/2"
 
+  # Backed by: tests/test_routing_guard.py::test_an_effort_without_a_model_is_reported_as_no_model
+  Scenario: A call with an effort but no model is reported as "no model"
+    Given a Workflow script "await agent('x', {effort:'low', schema:S})"
+    When the routing guard runs
+    Then the reason contains "line    1  [no model]"
+    And the reason does not contain "no effort"
+
+  # Backed by: tests/test_routing_guard.py::test_routing_inside_a_spread_is_named_in_the_stage_one_cause
+  Scenario: Routing inside a spread is named in the Stage 1 cause, with the explicit-keys fix
+    Given a Workflow script whose line 2 is "await pipeline(LENSES, (lens) => agent(lens.prompt, { label: `inspect:${lens.key}`, phase: 'Inspect', schema: CLAIMS, ...lens.route }))"
+    When the routing guard runs
+    Then the reason contains "STAGE 1/2"
+    And the reason contains "line    2  [no model, no effort; the guard cannot read ...lens.route]"
+    And the reason contains "agentType: lens.agentType, model: lens.model, effort: lens.effort"
+
+  # Backed by: tests/test_routing_guard.py::test_a_spread_inside_a_nested_object_is_not_named
+  Scenario: A spread inside a nested object is not named as routing
+    Given a Workflow script "await agent('x', {schema: {...base, type:'object'}})"
+    When the routing guard runs
+    Then the reason contains "line    1  [no model, no effort]"
+    And the reason does not contain "cannot read"
+
+  # Backed by: tests/test_routing_guard.py::test_explicit_routing_keys_pass_stage_one_next_to_a_spread
+  Scenario: Explicit routing keys pass Stage 1 next to a spread, before or after it
+    Given Workflow scripts "await agent('x', {...common, model:'haiku', effort:'low'})" and "await agent('x', {model:'haiku', effort:'low', ...extra})"
+    When the routing guard runs on each
+    Then neither reason contains "STAGE 1/2"
+
+  # Backed by: tests/test_routing_guard.py::test_a_literal_undefined_or_null_value_is_not_routing
+  Scenario: A key whose value is the literal undefined or null is not routing
+    Given Workflow scripts "await agent('x', {model: undefined, effort:'low'})" and one whose options span lines with "model: 'haiku'" and "effort: null"
+    When the routing guard runs on each
+    Then the first reason contains "line    1  [model is undefined]"
+    And the second reason contains "line    1  [effort is null]"
+    And "await agent('x', {model: undefined ?? 'haiku', effort:'low'})" does not reach "STAGE 1/2"
+
+  # Backed by: tests/test_routing_guard.py::test_an_agent_type_beside_model_undefined_passes_stage_one
+  Scenario: An agentType passes Stage 1 beside model: undefined
+    Given a Workflow script "await agent('x', {agentType:'agenting:researcher', model: undefined, effort:'medium'})"
+    When the routing guard runs
+    Then the reason contains "STAGE 2/2"
+    And the reason contains "agent:agenting:researcher"
+
+  # Backed by: tests/test_routing_guard.py::test_every_spread_is_named_and_nothing_after_it_leaks_in
+  Scenario: Every top-level spread is named, and the key after a spread is not part of its name
+    Given a Workflow script "await agent('x', {...a, schema: S, ...b})"
+    When the routing guard runs
+    Then the reason contains "line    1  [no model, no effort; the guard cannot read ...a, ...b]"
+
+  # Backed by: tests/test_routing_guard.py::test_a_spread_name_drops_a_trailing_comment_and_is_capped
+  Scenario: A spread's name drops a trailing comment and is capped at 40 characters
+    Given a Workflow script whose options are "...lens.route // per-lens routing" on a line of their own
+    And a Workflow script whose options spread a call with twelve arguments
+    When the routing guard runs on each
+    Then the first reason contains "[no model, no effort; the guard cannot read ...lens.route]"
+    And the second names the spread's start, ends it with "…" and keeps it within 40 characters after "..."
+
+  # Backed by: tests/test_routing_guard.py::test_a_destructured_fan_out_forwarding_shorthand_keys_passes_stage_one
+  Scenario: A destructured fan-out that forwards shorthand model and effort keys passes Stage 1
+    Given the session record for "guard-test-session" has mode manual
+    And a Workflow script "await pipeline(LENSES, ({prompt, model, effort}) => agent(prompt, {label: 'l', model, effort}))"
+    When the routing guard runs
+    Then the reason contains "STAGE 2/2"
+    And the reason contains "Plan signature: ?/?x1"
+    # {model, effort} is {model: model, effort: effort}: presence only, like any variable value.
+
+  # Backed by: tests/test_routing_guard.py::test_shorthand_and_explicit_keys_mix_and_a_spread_is_not_blamed
+  Scenario: Shorthand and explicit routing keys mix, on one line or several, and a spread beside them is not blamed
+    Given Workflow scripts "await agent('x', {model, effort: 'low'})", "await agent('x', {agentType: 'agenting:scanner', effort})", "await agent('x', {model, effort, ...extra})" and one whose options hold "model," and "effort" on lines of their own
+    When the routing guard runs on each
+    Then each reason contains "STAGE 2/2"
+    And no reason contains "cannot read"
+
+  # Backed by: tests/test_routing_guard.py::test_a_shorthand_name_that_is_not_a_routing_key_is_still_unrouted
+  Scenario: A shorthand key that is not model, agentType or effort is not routing
+    Given a Workflow script "await agent('x', {label, schema})"
+    When the routing guard runs
+    Then the reason contains "line    1  [no model, no effort]"
+
   # Backed by: tests/test_routing_guard.py::test_unrouted_is_denied_even_in_auto_mode
   Scenario: Stage 1 is denied even when the session is in mode auto
     Given the session record for "guard-test-session" has mode auto
@@ -204,8 +283,7 @@ Feature: The Workflow routing gate denies unrouted agent() calls and asks for pl
     When the routing guard runs
     Then the reason contains "STAGE 1/2"
 
-  @gap @wip
-  # Backed by: @gap
+  # Backed by: tests/test_routing_guard.py::test_stage_one_reports_each_unrouted_call_by_line_and_cause
   Scenario: Stage 1 reports each unrouted call by line number and cause
     Given a Workflow script whose line 1 is "const a = 1", line 2 is "await agent('x', {schema:S})" and line 3 is "await agent('y', {model:'opus'})"
     When the routing guard runs
@@ -535,17 +613,17 @@ Feature: The Workflow routing gate denies unrouted agent() calls and asks for pl
     Then the exit code is 0
     And stdout is empty
 
-  @gap @wip
-  # Backed by: @gap
+  # Backed by: tests/test_routing_guard.py::test_variable_routing_values_pass_on_presence_and_show_question_marks
   Scenario: A call whose model and effort are variables passes Stage 1 and shows "?" in the plan
     Given the session record for "guard-test-session" has mode manual
-    And a Workflow script "await agent('x', {model:M, effort:E})"
-    When the routing guard runs
-    Then the reason contains "STAGE 2/2"
-    And the reason contains "Plan signature: ?/?x1"
+    And Workflow scripts "await agent('x', {model:M, effort:E})" and a pipeline() call whose options are {..., agentType: lens.agentType, model: lens.model, effort: lens.effort}
+    When the routing guard runs on each
+    Then each reason contains "STAGE 2/2"
+    And each reason contains "Plan signature: ?/?x1"
+    # Presence only: the guard cannot know what a variable holds at run time, so an item whose
+    # effort is undefined still inherits the session tier. The Stage 1 text says so.
 
-  @gap @wip
-  # Backed by: @gap
+  # Backed by: tests/test_routing_guard.py::test_options_passed_as_a_variable_are_reported_by_line_and_cause
   Scenario: A call whose options are a variable is denied at Stage 1
     Given a Workflow script "await agent('x', opts)"
     When the routing guard runs

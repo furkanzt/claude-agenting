@@ -20,6 +20,12 @@ TWO-STAGE GATE
   1. ROUTING: if any agent() call lacks model/agentType or lacks effort, DENY.
      Never bypassable -- mode has no say here. `agentType: 'agenting:<name>'`
      (this plugin's agents/, addressed with the plugin prefix) counts as routed.
+     The check is static: it reads the keys of the options object in the source.
+     A key whose value is the literal undefined or null is no routing; a key whose
+     value is a variable (`effort: lens.effort`, or shorthand `{model, effort}`)
+     counts on presence alone, since its run-time value is unknowable here; routing
+     inside a spread (`...lens.route`) is invisible, and the denial names the
+     spread (2026-10-12, a peer's fan-out).
   2. APPROVAL: even when every call is routed, DENY until the user has approved
      this particular routing plan in this session. Claude presents the plan
      (as proposed / cheaper / higher quality), applies the answer, records the
@@ -192,17 +198,24 @@ def opts_span(clean_call: str):
 
 IDENT = re.compile(r"[A-Za-z_$][\w$]*")
 COLON = re.compile(r"\s*:")
+SHORTHAND_END = re.compile(r"\s*(?:[,}]|$)")   # `{model, effort}` is `{model: model, effort: effort}`
+SPREAD_NAME_MAX = 40
 QUOTED = re.compile(r"\s*['\"]([^'\"]+)['\"]")
+# A value that is nothing but `undefined` or `null`: JavaScript passes no routing for it.
+NULLISH = re.compile(r"\s*(undefined|null)\s*(?=[,}]|$)")
 
 
-def top_level_keys(clean_opts: str) -> dict:
-    """{key: index just after its colon} for the keys of the options object itself.
+def top_level_entries(clean_opts: str):
+    """({key: index just after its colon}, [(start, end) of each spread expression]) for the
+    options object itself.
 
     Only identifiers that start a property (right after the opening brace or a comma at the
     options' own depth) count, so keys inside a nested object, and names inside a value
-    expression such as a ternary, are not mistaken for options.
+    expression such as a ternary, are not mistaken for options. A spread (`...lens.route`) is
+    recorded, not resolved: what it holds is only known at run time.
     """
-    keys, depth, expect_key, i, n = {}, 0, False, 0, len(clean_opts)
+    keys, spreads, depth, expect_key, i, n = {}, [], 0, False, 0, len(clean_opts)
+    spread_at = None
     while i < n:
         ch = clean_opts[i]
         if ch in "([{":
@@ -211,25 +224,76 @@ def top_level_keys(clean_opts: str) -> dict:
             i += 1
         elif ch in ")]}":
             depth -= 1
+            if depth == 0 and spread_at is not None:
+                spreads.append((spread_at, i))
+                spread_at = None
             i += 1
         elif depth == 1 and ch == ",":
+            if spread_at is not None:
+                spreads.append((spread_at, i))
+                spread_at = None
             expect_key = True
             i += 1
+        elif expect_key and clean_opts.startswith("...", i):
+            spread_at, expect_key = i + 3, False
+            i += 3
         elif expect_key and (m := IDENT.match(clean_opts, i)):   # expect_key is only ever set at depth 1
             colon = COLON.match(clean_opts, m.end())
             if colon:
                 keys[m.group()] = colon.end()   # a repeated key: the last one wins, as in JavaScript
+            elif SHORTHAND_END.match(clean_opts, m.end()):
+                keys[m.group()] = m.start()     # shorthand: its value is the variable of the same name
             expect_key = False
             i = m.end()
         else:
-            if depth == 1 and not ch.isspace() and ch != ".":
+            if depth == 1 and not ch.isspace():
                 expect_key = False
             i += 1
-    return keys
+    if spread_at is not None:   # options left unclosed (opts_span ran to the end of the call)
+        spreads.append((spread_at, n))
+    return keys, spreads
 
 
-def has_key(clean_opts: str, key: str) -> bool:
-    return key in top_level_keys(clean_opts)
+def top_level_keys(clean_opts: str) -> dict:
+    return top_level_entries(clean_opts)[0]
+
+
+def nullish(clean_opts: str, key: str) -> str:
+    """'undefined' or 'null' when a top-level key's whole value is that literal, else ''."""
+    at = top_level_keys(clean_opts).get(key)
+    m = NULLISH.match(clean_opts, at) if at is not None else None
+    return m.group(1) if m else ""
+
+
+def missing_routing(clean_opts: str, raw_opts: str) -> str:
+    """Why this options object carries no routing, or '' when it has a model (or agentType) and an
+    effort. A key whose value is the literal undefined or null is no routing. When something is
+    missing and the options spread another object in, the spread is named: the guard reads the
+    source, so whatever routing the spread carries at run time is invisible to it."""
+    keys, spreads = top_level_entries(clean_opts)
+    routed = [k for k in ("model", "agentType") if k in keys and not nullish(clean_opts, k)]
+    causes = []
+    if not routed:
+        empty = next((k for k in ("model", "agentType") if k in keys), None)
+        causes.append(f"{empty} is {nullish(clean_opts, empty)}" if empty else "no model")
+    if "effort" not in keys:
+        causes.append("no effort")
+    elif nullish(clean_opts, "effort"):
+        causes.append(f"effort is {nullish(clean_opts, 'effort')}")
+    why = ", ".join(causes)
+    if why and spreads:
+        why += "; the guard cannot read " + ", ".join(spread_name(clean_opts, raw_opts, s) for s in spreads)
+    return why
+
+
+def spread_name(clean_opts: str, raw_opts: str, span) -> str:
+    """`...<expr>` as written, without a trailing comment (blank in the stripped text) and capped."""
+    a, b = span
+    b = a + len(clean_opts[a:b].rstrip())
+    name = " ".join(raw_opts[a:b].split())
+    if len(name) > SPREAD_NAME_MAX:
+        name = name[: SPREAD_NAME_MAX - 1] + "…"
+    return "..." + name
 
 
 def kv(raw_opts: str, clean_opts: str, key: str) -> str:
@@ -450,10 +514,9 @@ def run_hook() -> int:
         snippet = " ".join(raw_call.split())[:70]
 
         # PRESENCE from the stripped text, VALUE from the raw text.
-        if not (has_key(clean_opts, "model") or has_key(clean_opts, "agentType")):
-            unrouted.append((line, "no model, no effort", snippet))
-        elif not has_key(clean_opts, "effort"):
-            unrouted.append((line, "no effort", snippet))
+        why = missing_routing(clean_opts, raw_opts)
+        if why:
+            unrouted.append((line, why, snippet))
         else:
             model = kv(raw_opts, clean_opts, "model")
             atype = kv(raw_opts, clean_opts, "agentType")
@@ -485,6 +548,13 @@ a cheap one.
 DO THIS: give every agent() call a model (or agentType) AND an effort, e.g.
   {{model: 'haiku', effort: 'low'}}  or  {{agentType: 'agenting:researcher', effort: 'medium'}}
 Tier table: load the agenting skill if it isn't loaded yet.
+
+Write the keys into the options object itself: the guard reads the source, so it
+cannot see routing inside a spread (`...lens.route`) or an options variable. For
+per-item routing, spell the keys out:
+  {{agentType: lens.agentType, model: lens.model, effort: lens.effort}}
+Only a key's presence is checked, not what a variable holds at run time, so every
+item must set it; a literal undefined or null does not count.
 
 For deliberate inheritance, put `// {ESCAPE_HATCH}` on that line or the one above it.""",
             f"Workflow stopped (1/2): {len(unrouted)} agent() call(s) have no routing.",

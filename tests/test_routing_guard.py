@@ -309,6 +309,125 @@ class NestedOptions(GuardCase):
         self.assertTrue(self.stage_one("await agent('x', opts)"))
 
 
+class StageOneCauses(GuardCase):
+    """Stage 1 names, per call, what is missing, so the fix is obvious from the denial alone."""
+
+    def test_stage_one_reports_each_unrouted_call_by_line_and_cause(self):
+        reason = self.reason(self.guard("const a = 1\nawait agent('x', {schema:S})\nawait agent('y', {model:'opus'})"))
+        self.assertIn("line    2  [no model, no effort]", reason)
+        self.assertIn("line    3  [no effort]", reason)
+        self.assertIn("2 agent() call(s) specify no model/effort", reason)
+
+    def test_an_effort_without_a_model_is_reported_as_no_model(self):
+        reason = self.reason(self.guard("await agent('x', {effort:'low', schema:S})"))
+        self.assertIn("line    1  [no model]", reason)
+        self.assertNotIn("no effort", reason)
+
+    def test_options_passed_as_a_variable_are_reported_by_line_and_cause(self):
+        reason = self.reason(self.guard("await agent('x', opts)"))
+        self.assertIn("STAGE 1/2", reason)
+        self.assertIn("line    1  [no model, no effort]", reason)
+
+
+class SpreadsAndNullishValues(GuardCase):
+    """Observed 2026-10-12 (a peer session in ~/Desktop/impark): a fan-out kept each lens's routing as
+    data and spread it into the options, `{..., schema: CLAIMS, ...lens.route}`. The guard reads the
+    source, not run-time values, so routing inside a spread is invisible to it, and the Stage 1 cause did
+    not say so. The workaround, explicit keys with variable values, passes on key presence alone: the
+    guard cannot know what `lens.effort` holds at run time, and says so in the denial text."""
+
+    PEER = ("const LENSES = [{ key: 'auth-code', route: { agentType: 'agenting:researcher', effort: 'medium' },"
+            " prompt: 'p' }]\n"
+            "await pipeline(LENSES, (lens) => agent(lens.prompt, { label: `inspect:${lens.key}`,"
+            " phase: 'Inspect', schema: CLAIMS, ...lens.route }))")
+
+    def stage_one(self, script):
+        return "STAGE 1/2" in self.reason(self.guard(script))
+
+    def test_routing_inside_a_spread_is_named_in_the_stage_one_cause(self):
+        reason = self.reason(self.guard(self.PEER))
+        self.assertIn("STAGE 1/2", reason)
+        self.assertIn("line    2  [no model, no effort; the guard cannot read ...lens.route]", reason)
+        self.assertIn("agentType: lens.agentType, model: lens.model, effort: lens.effort", reason)
+
+    def test_a_spread_inside_a_nested_object_is_not_named(self):
+        reason = self.reason(self.guard("await agent('x', {schema: {...base, type:'object'}})"))
+        self.assertIn("line    1  [no model, no effort]", reason)
+        self.assertNotIn("cannot read", reason)
+
+    def test_explicit_routing_keys_pass_stage_one_next_to_a_spread(self):
+        self.assertFalse(self.stage_one("await agent('x', {...common, model:'haiku', effort:'low'})"))
+        self.assertFalse(self.stage_one("await agent('x', {model:'haiku', effort:'low', ...extra})"))
+
+    def test_variable_routing_values_pass_on_presence_and_show_question_marks(self):
+        # the guard cannot evaluate lens.effort; the plan says "?" rather than guessing a tier
+        self.record(SID, "--mode", "manual")
+        workaround = self.PEER.replace("...lens.route",
+                                       "agentType: lens.agentType, model: lens.model, effort: lens.effort")
+        for script in ("await agent('x', {model:M, effort:E})", workaround):
+            with self.subTest(script=script[-60:]):
+                reason = self.reason(self.guard(script))
+                self.assertIn("STAGE 2/2", reason)
+                self.assertIn("Plan signature: ?/?x1", reason)
+
+    def test_a_literal_undefined_or_null_value_is_not_routing(self):
+        self.assertIn("line    1  [model is undefined]",
+                      self.reason(self.guard("await agent('x', {model: undefined, effort:'low'})")))
+        self.assertIn("line    1  [effort is null]",
+                      self.reason(self.guard("await agent('x', {\n  model: 'haiku',\n  effort: null\n})")))
+        self.assertFalse(self.stage_one("await agent('x', {model: undefined ?? 'haiku', effort:'low'})"))
+
+    def test_every_spread_is_named_and_nothing_after_it_leaks_in(self):
+        # each spread ends at the comma or brace that closes it, so the key after it is not part of its name
+        reason = self.reason(self.guard("await agent('x', {...a, schema: S, ...b})"))
+        self.assertIn("line    1  [no model, no effort; the guard cannot read ...a, ...b]", reason)
+
+    def test_a_spread_name_drops_a_trailing_comment_and_is_capped(self):
+        reason = self.reason(self.guard("await agent('x', {\n  ...lens.route // per-lens routing\n})"))
+        self.assertIn("[no model, no effort; the guard cannot read ...lens.route]", reason)
+        long = "pick(" + ", ".join(f"option{i}" for i in range(12)) + ")"
+        reason = self.reason(self.guard(f"await agent('x', {{...{long}}})"))
+        cause = re.search(r"cannot read (\.\.\.[^\]]*)\]", reason).group(1)
+        self.assertTrue(cause.startswith("...pick(option0, option1"), cause)
+        self.assertTrue(cause.endswith("…"), cause)
+        self.assertLessEqual(len(cause), 3 + 40)
+
+    def test_an_agent_type_beside_model_undefined_passes_stage_one(self):
+        reason = self.reason(self.guard(
+            "await agent('x', {agentType:'agenting:researcher', model: undefined, effort:'medium'})"))
+        self.assertIn("STAGE 2/2", reason)
+        self.assertIn("agent:agenting:researcher", reason)
+
+
+class ShorthandKeys(GuardCase):
+    """Found in the pre-release review of 3.3.1 (2026-10-12): `{model, effort}` is `{model: model,
+    effort: effort}`, but the guard only took an identifier followed by a colon as a key, so a
+    destructured fan-out that forwards its routing was denied, and next to a spread the cause blamed
+    the spread. A shorthand key now counts on presence, like any variable value."""
+
+    def test_a_destructured_fan_out_forwarding_shorthand_keys_passes_stage_one(self):
+        self.record(SID, "--mode", "manual")
+        reason = self.reason(self.guard(
+            "const LENSES = [{prompt: 'a', model: 'haiku', effort: 'low'}];\n"
+            "await pipeline(LENSES, ({prompt, model, effort}) => agent(prompt, {label: 'l', model, effort}))"))
+        self.assertIn("STAGE 2/2", reason)
+        self.assertIn("Plan signature: ?/?x1", reason)
+
+    def test_shorthand_and_explicit_keys_mix_and_a_spread_is_not_blamed(self):
+        for script in ("await agent('x', {model, effort: 'low'})",
+                       "await agent('x', {agentType: 'agenting:scanner', effort})",
+                       "await agent('x', {model, effort, ...extra})",
+                       "await agent('x', {\n  model,\n  effort\n})"):
+            with self.subTest(script=script):
+                reason = self.reason(self.guard(script))
+                self.assertIn("STAGE 2/2", reason)
+                self.assertNotIn("cannot read", reason)
+
+    def test_a_shorthand_name_that_is_not_a_routing_key_is_still_unrouted(self):
+        self.assertIn("line    1  [no model, no effort]",
+                      self.reason(self.guard("await agent('x', {label, schema})")))
+
+
 class PassThrough(GuardCase):
     def test_non_workflow_tool_is_silent(self):
         self.assertIsNone(self.guard(UNROUTED, tool="Bash"))

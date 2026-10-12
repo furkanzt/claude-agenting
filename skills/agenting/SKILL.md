@@ -154,7 +154,11 @@ Every tier here is a Claude model. Before proposing a non-Claude one, read
 
 **What the guard denies.** `workflow-routing-guard.py` runs before every
 Workflow. Stage 1, in every mode: an `agent()` call missing `model`/`agentType`
-or `effort`, reported by line number; fix the script. Stage 2, in manual mode
+or `effort`, reported by line number; fix the script. It reads the options
+object's own keys in the source, so routing inside a spread (`...lens.route`) is
+invisible to it: for per-item routing write `agentType: lens.agentType, model:
+lens.model, effort: lens.effort`. Only presence is checked, so every item must set
+them; a literal `undefined` or `null` does not count. Stage 2, in manual mode
 or when no mode can be found for the session (a resumed chat's new id is looked
 up through the `[agenting]` line in its own transcript first): a routed plan not
 yet approved in this session; ask, apply, run its `--approve` command. Changing
