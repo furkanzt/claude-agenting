@@ -1,11 +1,11 @@
 """Tests for hooks/cache-tripwire.py: lines that are not a real tier never cause a nudge.
 
-The hook keeps its state next to the script, so every test copies the script into a
-fresh temporary directory and runs the copy; the repo's hooks/ directory is never
-written to, and nothing reads ~/.claude.
+Every test runs the hook with AGENTING_STATE_DIR set to a fresh temporary directory, so
+the state file lands there; nothing reads or writes ~/.claude.
 """
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -32,8 +32,8 @@ class TripwireCase(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.dir = Path(self._tmp.name)
-        self.script = self.dir / "cache-tripwire.py"
-        shutil.copy(HOOK, self.script)
+        self.script = HOOK
+        self.env = dict(os.environ, AGENTING_STATE_DIR=str(self.dir))
         self.state_path = self.dir / ".cache-tripwire-state.json"
         self.transcript = self.dir / "t.jsonl"
 
@@ -53,7 +53,7 @@ class TripwireCase(unittest.TestCase):
         """Run the hook copy once; return the additionalContext or None when silent."""
         payload = {"session_id": session, "transcript_path": str(self.transcript)}
         r = subprocess.run([sys.executable, str(self.script)], input=json.dumps(payload),
-                           capture_output=True, text=True, timeout=20)
+                           capture_output=True, text=True, timeout=20, env=self.env)
         self.assertEqual(r.returncode, 0, r.stderr)
         out = r.stdout.strip()
         return json.loads(out)["hookSpecificOutput"]["additionalContext"] if out else None
@@ -125,6 +125,36 @@ class LegacyBaselineTest(TripwireCase):
         self.write_transcript([line(SONNET, "high"), line(OPUS, "max")])
         self.assertTrue(self.prompt().startswith("[cache tripwire] model changed sonnet-5-5/high -> opus-5-5/max"))
         self.assertIsNone(self.prompt())
+
+
+class StateFileTest(TripwireCase):
+    """The 3.3.2 pre-release review: the state sat next to the script, so each plugin version kept its
+    own (an update announced old switches again and never saw the legacy baselines), and a damaged state
+    file or entry silenced the tripwire."""
+
+    def test_the_state_lives_in_the_state_dir_not_beside_the_script(self):
+        copy_dir = self.dir / "plugin-3.3.2" / "hooks"
+        copy_dir.mkdir(parents=True)
+        self.script = copy_dir / "cache-tripwire.py"
+        shutil.copy(HOOK, self.script)
+        self.write_transcript([line(SONNET, "high"), line(OPUS, "max", 66975)])
+        self.write_state({"s1": f"{OPUS}|max"})   # already announced under an earlier plugin version
+        self.assertIsNone(self.prompt())
+        self.assertFalse((copy_dir / ".cache-tripwire-state.json").exists())
+
+    def test_a_state_file_that_is_not_an_object_is_read_as_empty(self):
+        self.state_path.write_text("[]", encoding="utf-8")
+        self.write_transcript([line(SONNET, "high"), line(OPUS, "max", 66975)])
+        self.assertTrue(self.prompt().startswith("[cache tripwire] model changed sonnet-5-5/high -> opus-5-5/max"))
+        self.assertEqual(self.state(), {"s1": f"{OPUS}|max"})
+
+    def test_a_baseline_that_is_not_a_model_effort_string_is_reseeded(self):
+        for baseline in (5, "nopipe", None):
+            with self.subTest(baseline=baseline):
+                self.write_state({"s1": baseline, "s2": f"{SONNET}|high"})
+                self.write_transcript([line(SONNET, "high")])
+                self.assertIsNone(self.prompt())
+                self.assertEqual(self.state(), {"s1": f"{SONNET}|high", "s2": f"{SONNET}|high"})
 
 
 if __name__ == "__main__":

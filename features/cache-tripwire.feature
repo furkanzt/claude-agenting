@@ -5,9 +5,9 @@ Feature: The tripwire nudges once per mid-session model or effort switch with th
   additionalContext nudge when they differ. Prices are list input $/MTok times a flat 1.25
   cache-write multiplier. Every path exits 0.
 
-  # NOTE on testing: the state file is hooks/.cache-tripwire-state.json (STATE_PATH, next to the
-  # script) and there is no environment override. A test must therefore run a copy of the hook in a
-  # temp directory, or import it with STATE_PATH patched, or it writes into the repo and the plugin dir.
+  # NOTE on testing: the state file is <state dir>/.cache-tripwire-state.json, where the state dir is
+  # $AGENTING_STATE_DIR if set, else ~/.claude (as for the plugin's other hooks). Tests set
+  # AGENTING_STATE_DIR to a temporary directory. Until 3.3.2 the file sat next to the script.
 
   # ---- When it stays silent ---------------------------------------------------
 
@@ -274,25 +274,30 @@ Feature: The tripwire nudges once per mid-session model or effort switch with th
     And the additionalContext starts with "[cache tripwire] model changed sonnet-5-5/high -> opus-5-5/max"
     And the state file maps "s1" to "claude-opus-5-5|max"
 
-  @gap @wip
-  # Backed by: @gap
-  Scenario: A state file that is valid JSON but not an object leaves the hook silent and the state unchanged
+  # Backed by: tests/test_cache_tripwire.py::test_a_state_file_that_is_not_an_object_is_read_as_empty
+  Scenario: A state file that is valid JSON but not an object is read as empty, so a drift fires
     Given the state file contains "[]"
     And session "s1" drifted from claude-sonnet-5-5 at effort high to claude-opus-5-5 at effort max
     When the tripwire runs
-    Then the exit code is 0
-    And stdout is empty
-    And the state file still contains "[]"
+    Then the additionalContext starts with "[cache tripwire] model changed sonnet-5-5/high -> opus-5-5/max"
+    And the state file maps "s1" to "claude-opus-5-5|max"
+    # Until 3.3.2 the hook failed on it silently, so the tripwire stayed off for every session.
 
-  @gap @wip
-  # Backed by: @gap
-  Scenario: A baseline value with no pipe leaves the hook silent and the state unchanged
-    Given the state file maps "s1" to "nopipe"
+  # Backed by: tests/test_cache_tripwire.py::test_a_baseline_that_is_not_a_model_effort_string_is_reseeded
+  Scenario: A baseline that is not a "model|effort" string is reseeded, and other sessions are kept
+    Given the state file maps "s1" to 5, "nopipe" or null, and "s2" to "claude-sonnet-5-5|high"
+    And every main-thread line of "s1" is claude-sonnet-5-5 at effort high
+    When the tripwire runs for "s1"
+    Then stdout is empty
+    And the state file maps "s1" and "s2" to "claude-sonnet-5-5|high"
+
+  # Backed by: tests/test_cache_tripwire.py::test_the_state_lives_in_the_state_dir_not_beside_the_script
+  Scenario: The state lives in the state dir, so a new plugin version does not announce an old switch again
+    Given the state dir maps "s1" to "claude-opus-5-5|max", reported under an earlier plugin version
     And session "s1" drifted from claude-sonnet-5-5 at effort high to claude-opus-5-5 at effort max
-    When the tripwire runs
-    Then the exit code is 0
-    And stdout is empty
-    And the state file still maps "s1" to "nopipe"
+    When a copy of the hook in another plugin version's directory runs
+    Then stdout is empty
+    And no state file is written beside that copy
 
   @gap @wip
   # Backed by: @gap

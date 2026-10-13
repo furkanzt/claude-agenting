@@ -184,8 +184,7 @@ Feature: The plugin health check runs the hooks end to end and reports PASS, WAR
     And the later sections still run and the summary line is printed
     And the exit code is 1
 
-  # Backed by: tests/test_check_setup.py::test_should_not_crash_and_fall_back_to_the_plugin_hooks_json_when_hooks_is_a_list
-  # Backed by: tests/test_check_setup.py::test_should_not_crash_and_fall_back_to_the_plugin_hooks_json_when_a_group_is_a_string
+  # Backed by: tests/test_check_setup.py::test_should_count_a_hooks_list_as_not_registered_without_crashing
   # Backed by: tests/test_check_setup.py::test_should_count_none_as_registered_when_every_entry_has_the_wrong_shape
   # Backed by: tests/test_check_setup.py::test_should_register_the_guard_when_a_valid_entry_sits_beside_bad_ones
   Scenario: Wrong-shaped hooks entries in settings.json are ignored instead of crashing the registration lookup
@@ -195,6 +194,14 @@ Feature: The plugin health check runs the hooks end to end and reports PASS, WAR
     Then no traceback is printed and the summary line is printed
     And such an entry does not count as registered, so "guard registered on PreToolUse" is FAIL with the detail "not registered anywhere"
     And a well-formed workflow-routing-guard command next to the bad entries still registers the guard
+
+  # Backed by: tests/test_check_setup.py::test_should_not_crash_and_fall_back_to_the_plugin_hooks_json_when_a_group_is_a_string
+  Scenario: A wrong-shaped settings.json entry does not hide the plugin's own hooks.json
+    Given ~/.claude/settings.json has a PreToolUse group that is the string "workflow-routing-guard"
+    And CLAUDE_PLUGIN_ROOT has hooks/hooks.json
+    When "python3 scripts/check-setup.py" runs
+    Then "guard registered on PreToolUse" is PASS
+    And the summary line is printed
 
   @gap @wip
   # Backed by: @gap

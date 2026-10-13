@@ -2,11 +2,11 @@
 
 Index to `features/*.feature`, this project's executable behaviour catalogue, governed by [TDD.md](TDD.md) and [BDD.md](BDD.md).
 
-**678 scenarios** across 13 domains — **426 ARMED**, **252 GAP**. Full breakdown: [docs/scenarios/coverage-matrix.md](docs/scenarios/coverage-matrix.md).
+**680 scenarios** across 13 domains — **430 ARMED**, **250 GAP**. Full breakdown: [docs/scenarios/coverage-matrix.md](docs/scenarios/coverage-matrix.md).
 
 | Feature | Scenarios | ARMED | GAP | What it pins |
 |---|--:|--:|--:|---|
-| [`cache-tripwire.feature`](features/cache-tripwire.feature) | 45 | 11 | 34 |  |
+| [`cache-tripwire.feature`](features/cache-tripwire.feature) | 46 | 14 | 32 |  |
 | [`cleanrun.feature`](features/cleanrun.feature) | 64 | 44 | 20 |  |
 | [`e1-analysis.feature`](features/e1-analysis.feature) | 11 | 11 | 0 |  |
 | [`e1b-analysis.feature`](features/e1b-analysis.feature) | 25 | 25 | 0 |  |
@@ -17,7 +17,7 @@ Index to `features/*.feature`, this project's executable behaviour catalogue, go
 | [`plugin-docs.feature`](features/plugin-docs.feature) | 39 | 9 | 30 |  |
 | [`routing-guard.feature`](features/routing-guard.feature) | 119 | 91 | 28 |  |
 | [`session-continuity.feature`](features/session-continuity.feature) | 46 | 20 | 26 |  |
-| [`setup-check.feature`](features/setup-check.feature) | 51 | 5 | 46 |  |
+| [`setup-check.feature`](features/setup-check.feature) | 52 | 6 | 46 |  |
 | [`tokenomics.feature`](features/tokenomics.feature) | 66 | 54 | 12 |  |
 
 ## Conventions

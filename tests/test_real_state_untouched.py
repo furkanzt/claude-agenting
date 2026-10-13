@@ -2,13 +2,15 @@
 ~/.claude state files did not change -- proof the override is honoured."""
 
 import hashlib
+import json
 import unittest
 from pathlib import Path
 
-from _util import CONTINUITY, GUARD, HookTestCase
+from _util import CONTINUITY, GUARD, HOOKS, HookTestCase
 
 REAL = [Path.home() / ".claude" / ".agenting-session-state.json",
-        Path.home() / ".claude" / ".routing-approvals.json"]
+        Path.home() / ".claude" / ".routing-approvals.json",
+        Path.home() / ".claude" / ".cache-tripwire-state.json"]
 
 
 def fingerprint(p):
@@ -27,9 +29,14 @@ class RealStateUntouched(HookTestCase):
         self.run_script(GUARD, "--approve", "abc123", "--session", sid)
         self.run_hook(GUARD, {"session_id": sid, "tool_name": "Workflow",
                               "tool_input": {"script": "await agent('x', {model:'haiku', effort:'low'})"}})
+        transcript = self.state_dir / "t.jsonl"
+        transcript.write_text(json.dumps({"type": "assistant", "effort": "high",
+                                          "message": {"model": "claude-sonnet-5-5"}}) + "\n", encoding="utf-8")
+        self.run_hook(HOOKS / "cache-tripwire.py", {"session_id": sid, "transcript_path": str(transcript)})
         self.assertEqual([fingerprint(p) for p in REAL], before)
         self.assertTrue((self.state_dir / ".agenting-session-state.json").exists())
         self.assertTrue((self.state_dir / ".routing-approvals.json").exists())
+        self.assertTrue((self.state_dir / ".cache-tripwire-state.json").exists())
 
 
 if __name__ == "__main__":

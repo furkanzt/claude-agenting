@@ -8,8 +8,11 @@ reading it from cache. Measured case (this project, 2026-08-10): sonnet/high
 
 This hook compares the session's FIRST main-thread assistant model+effort to
 its LATEST, and if they differ, reports the token cost paid at the transition
-point. It fires once per distinct switch (tracked in a small per-session
-state file next to this script) rather than on every subsequent prompt.
+point. It fires once per distinct switch (tracked per session in
+<state dir>/.cache-tripwire-state.json) rather than on every subsequent prompt.
+The state dir is $AGENTING_STATE_DIR if set (tests use it), else ~/.claude, as for
+the plugin's other hooks. Until 3.3.2 the file sat next to this script, so every
+plugin update started with no baselines and announced old switches again.
 
 Cost estimates are approximate list-price input-token cost of the NEW model,
 at a flat 1.25x cache-write multiplier (5-min default TTL) -- a nudge, not a
@@ -20,7 +23,8 @@ A main-thread line counts only when message.model is a real model id. The
 harness writes lines with no model or with the placeholder "<synthetic>" (seen
 after a machine sleep and around compaction); treating one as a tier announced
 a switch to "<synthetic>/?" and then a second, equally spurious switch back.
-Baselines of that kind saved by earlier versions are reseeded, not compared.
+Baselines of that kind saved by earlier versions, or any other baseline that is
+not a "model|effort" string, are reseeded, not compared.
 
 Never blocks: any parse failure or missing data exits silently (exit 0).
 """
@@ -30,7 +34,8 @@ import sys
 
 MAX_TAIL_BYTES = 2_000_000
 MAX_SCAN_LINES = 200_000
-STATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cache-tripwire-state.json")
+STATE_DIR = os.path.expanduser(os.environ.get("AGENTING_STATE_DIR") or "~/.claude")
+STATE_PATH = os.path.join(STATE_DIR, ".cache-tripwire-state.json")
 
 # Approximate list-price input $/MTok, matched by substring against message.model.
 # Verified 2026-10-05 for Haiku 4.5, Sonnet 5.5, Opus 5.5, Fable 5.1; Haiku 5.5 on 2026-10-09.
@@ -147,15 +152,21 @@ def price_for_model(model_id: str):
 def load_state():
     try:
         with open(STATE_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
+            state = json.load(f)
+            return state if isinstance(state, dict) else {}
     except Exception:
         return {}
 
 
 def save_state(state):
+    """Write through a temporary file, so a reader never sees a half-written file (a truncated one
+    read as empty would drop every other session's baseline)."""
     try:
-        with open(STATE_PATH, "w", encoding="utf-8") as f:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        tmp = STATE_PATH + f".{os.getpid()}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(state, f)
+        os.replace(tmp, STATE_PATH)
     except Exception:
         pass
 
@@ -202,9 +213,10 @@ def main():
 
     state = load_state()
     baseline_key = state.get(session_id)
-    if isinstance(baseline_key, str) and baseline_key.split("|", 1)[0] in ("None", SYNTHETIC_MODEL):
-        # Legacy baseline saved when a model-less or "<synthetic>" line counted as a tier:
-        # it can never match a real tier, so treat the session as unseen and reseed.
+    if not isinstance(baseline_key, str) or "|" not in baseline_key or \
+            baseline_key.split("|", 1)[0] in ("None", SYNTHETIC_MODEL):
+        # Unseen, or a baseline no real tier can match: one saved when a model-less or
+        # "<synthetic>" line counted as a tier, or a damaged entry. Treat the session as unseen.
         baseline_key = None
     if baseline_key is None:
         # First time this session is seen: seed the baseline at the session's

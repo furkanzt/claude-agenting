@@ -105,15 +105,21 @@ class TestSettingsIsMissing(CheckSetupCase):
 
 
 class TestHooksKeyIsAList(CheckSetupCase):
-    SETTINGS = json.dumps({"hooks": []})
+    """No hooks.json in the plugin root, so only settings.json could register the guard."""
 
-    def test_should_not_crash_and_fall_back_to_the_plugin_hooks_json_when_hooks_is_a_list(self):
+    EMPTY_PLUGIN_ROOT = True
+    SETTINGS = json.dumps({"hooks": ["workflow-routing-guard"]})
+
+    def test_should_count_a_hooks_list_as_not_registered_without_crashing(self):
         self.assertCheck("settings.json parses", "PASS")
-        self.assertCheck("guard registered on PreToolUse", "PASS")
+        self.assertIn("not registered anywhere", self.line("guard registered on PreToolUse"))
+        self.assertCheck("guard registered on PreToolUse", "FAIL")
         self.assertRanToTheEnd()
 
 
 class TestPreToolUseGroupIsAString(CheckSetupCase):
+    """With the plugin's own hooks.json present, a bad settings.json entry does not hide it."""
+
     SETTINGS = json.dumps({"hooks": {"PreToolUse": ["workflow-routing-guard"]}})
 
     def test_should_not_crash_and_fall_back_to_the_plugin_hooks_json_when_a_group_is_a_string(self):
