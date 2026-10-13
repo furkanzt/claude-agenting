@@ -161,29 +161,40 @@ Feature: The plugin health check runs the hooks end to end and reports PASS, WAR
 
   # --- Hook wiring ---------------------------------------------------------
 
-  @gap @wip
-  # Backed by: @gap
+  # Backed by: tests/test_check_setup.py::test_should_pass_the_parse_check_when_there_is_no_settings_file
   Scenario: A missing user settings.json is not a failure
     Given HOME is an empty directory with no .claude/settings.json
     When "python3 scripts/check-setup.py" runs
     Then the check "settings.json parses" is PASS
 
-  @gap @wip
-  # Backed by: @gap
+  # Backed by: tests/test_check_setup.py::test_should_fail_the_parse_check_and_exit_1_when_settings_is_not_json
   Scenario: A settings.json that is not valid JSON fails "settings.json parses"
     Given ~/.claude/settings.json contains "{not json"
     When "python3 scripts/check-setup.py" runs
     Then the check "settings.json parses" is FAIL
     And the exit code is 1
 
-  @gap @wip
-  # Backed by: @gap
-  Scenario: A settings.json holding valid JSON that is not an object crashes the health check
-    Given ~/.claude/settings.json contains "[]"
+  # Backed by: tests/test_check_setup.py::test_should_fail_the_parse_check_and_still_print_a_summary_when_settings_is_not_an_object
+  # Backed by: tests/test_check_setup.py::test_should_keep_running_the_later_sections_when_settings_is_not_an_object
+  Scenario: A settings.json holding valid JSON that is not an object fails "settings.json parses" and the run continues
+    Given ~/.claude/settings.json contains "[]", "null" or "1"
     When "python3 scripts/check-setup.py" runs
-    Then the check "settings.json parses" is printed as PASS
-    And the script exits 1 with an AttributeError traceback on stderr
-    And no summary line is printed
+    Then the check "settings.json parses" is FAIL with the detail "not a JSON object (list)", "(NoneType)" or "(int)"
+    And no traceback is printed on stderr
+    And the later sections still run and the summary line is printed
+    And the exit code is 1
+
+  # Backed by: tests/test_check_setup.py::test_should_not_crash_and_fall_back_to_the_plugin_hooks_json_when_hooks_is_a_list
+  # Backed by: tests/test_check_setup.py::test_should_not_crash_and_fall_back_to_the_plugin_hooks_json_when_a_group_is_a_string
+  # Backed by: tests/test_check_setup.py::test_should_count_none_as_registered_when_every_entry_has_the_wrong_shape
+  # Backed by: tests/test_check_setup.py::test_should_register_the_guard_when_a_valid_entry_sits_beside_bad_ones
+  Scenario: Wrong-shaped hooks entries in settings.json are ignored instead of crashing the registration lookup
+    Given ~/.claude/settings.json has "hooks" as a list, or a PreToolUse group that is a string, or a group whose "hooks" is not a list, or a hook entry that is not an object, or a "command" that is not a string
+    And CLAUDE_PLUGIN_ROOT has no hooks/hooks.json
+    When "python3 scripts/check-setup.py" runs
+    Then no traceback is printed and the summary line is printed
+    And such an entry does not count as registered, so "guard registered on PreToolUse" is FAIL with the detail "not registered anywhere"
+    And a well-formed workflow-routing-guard command next to the bad entries still registers the guard
 
   @gap @wip
   # Backed by: @gap

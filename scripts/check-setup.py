@@ -129,16 +129,26 @@ settings_path = USER_CLAUDE / "settings.json"
 settings = {}
 try:
     settings = json.loads(settings_path.read_text(encoding="utf-8"))
-    check("settings.json parses", True)
+    if isinstance(settings, dict):
+        check("settings.json parses", True)
+    else:
+        check("settings.json parses", False, f"not a JSON object ({type(settings).__name__})")
+        settings = {}
 except FileNotFoundError:
     check("settings.json parses", True, "no user settings.json (fine if the plugin provides the hook)", warn=True)
 except Exception as e:
     check("settings.json parses", False, str(e)[:60])
 
+
+def as_type(value, kind):
+    """`value` when it has the expected JSON shape, else an empty one (a wrong shape counts as nothing)."""
+    return value if isinstance(value, kind) else kind()
+
+
 registered = any(
-    "workflow-routing-guard" in h.get("command", "")
-    for groups in settings.get("hooks", {}).get("PreToolUse", [])
-    for h in groups.get("hooks", [])
+    isinstance(h, dict) and "workflow-routing-guard" in as_type(h.get("command"), str)
+    for group in as_type(as_type(settings.get("hooks"), dict).get("PreToolUse"), list)
+    for h in as_type(as_type(group, dict).get("hooks"), list)
 )
 plugin_declared = (PLUGIN_ROOT / "hooks" / "hooks.json").exists()
 check(
