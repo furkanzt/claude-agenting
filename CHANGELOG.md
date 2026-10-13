@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.3.3 — 2026-10-13 (routing guard: a per-item false deny from 3.3.2)
+
+### Fixed
+- **3.3.2's per-item check denied scripts whose callbacks reach the list or the item a second way.**
+  `L.forEach((l, i, arr) => { arr[i].effort = 'low' })` (map's third parameter is the list) and `pipeline(L, (x,
+  orig) => { orig.effort ??= 'low'; ... })` (pipeline hands its first stage the item twice) set the key at run
+  time, yet the guard read the literal and denied `[no effort in L[0]]`. A recognised loop now takes `(item)`
+  or, for `map`, `forEach` and `flatMap`, `(item, index)`; `pipeline`'s first stage `(item)` only. Any other
+  callback leaves the call presence-only.
+
 ## 3.3.2 — 2026-10-13 (routing guard reads templates, regex and per-item routing; tripwire and check-setup fixes)
 
 ### Fixed

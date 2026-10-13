@@ -93,6 +93,8 @@ in Workflow scans.
   it cannot read to the end, and checks per-item routing where the list provably does not change; the tripwire
   skips `<synthetic>` lines and keeps its state in `~/.claude`; `check-setup.py` no longer crashes on a
   non-object `settings.json`. Reviewed by a 6-agent workflow before release (section 5, item 9).
+- **3.3.3 (2026-10-13):** a per-item false deny shipped in 3.3.2 (a callback parameter that reaches the list or the
+  item again, `(l, i, arr)` or pipeline's `(x, orig)`), found by a final check of the installed copy and fixed.
 - **Effort probe tool:** `evals/probes/read_effort.py` (reads the effort a subagent really ran with) and
   `evals/probes/effort_application.workflow.js` (the Workflow that launches the probe agents), with
   `tests/test_effort_probe.py` and `features/effort-probe.feature`.
@@ -252,7 +254,7 @@ verification (a bounded null), the classify narrowing, the clean-run usage-windo
 
 ## 4. Decisions waiting for the owner
 
-1. **Release.** 3.3.2 (2026-10-13) is released and pushed; nothing is unreleased. A release is its own commit:
+1. **Release.** 3.3.3 (2026-10-13) is released and pushed; nothing is unreleased. A release is its own commit:
    bump `version` in `.claude-plugin/plugin.json` **and** `marketplace.json` together (`plugin.json` wins), move
    the CHANGELOG "Unreleased" entry under the new number, push, then on the owner's machine
    `claude plugin marketplace update agenting` and `claude plugin update agenting@agenting`, and
@@ -294,7 +296,11 @@ verification (a bounded null), the classify narrowing, the clean-run usage-windo
    the review ran in node (a chained `[...].map`, `??=` defaults, a reassigned or shadowed variable, a spread in
    the options, getters, holes, ...); the shipped check is structural and falls back to presence-only. Over the
    182 persisted real scripts it resolves 3 fan-outs and denies none; `model-alias-smoke` stays `?` because
-   its item escapes into another object (`requested: c`).
+   its item escapes into another object (`requested: c`). 3.3.3 closed one more false deny the review missed:
+   a callback parameter that reaches the list or the item again (`(l, i, arr)`, pipeline's `(x, orig)`); a
+   recognised loop now takes `(item)` or `(item, index)` only. The second round of fixes (the structural
+   rewrite, the scanner fixes, the tripwire move) had mutation tests and the corpus diff but no independent
+   re-review.
 4. **Fixed 2026-10-13 (3.3.2):** `scripts/check-setup.py` printed `settings.json parses` as PASS for valid JSON
    that is not an object and then crashed on `settings.get`. Now a FAIL with a detail, and the run continues.
 5. **Fixed 2026-10-10:** the guard denied a routed `agent()` call whose options held a nested object (a `schema:`),
@@ -329,8 +335,8 @@ verification (a bounded null), the classify narrowing, the clean-run usage-windo
    the first fix; all were fixed before the release (76 guard mutations each caught).
 
 The 250 `@gap @wip` scenarios are the wider backlog, concentrated where few tests exist: `check-setup.py`
-(46 of 52 scenarios), the cache tripwire (32 of 46), plugin-docs pins (30 of 39), the routing guard (28 of 119),
-session continuity (26 of 46). The 430 ARMED scenarios' cited tests have **not** been audited for sufficiency or red-proofed
+(46 of 52 scenarios), the cache tripwire (32 of 46), plugin-docs pins (30 of 39), the routing guard (28 of 120),
+session continuity (26 of 46). The 431 ARMED scenarios' cited tests have **not** been audited for sufficiency or red-proofed
 (bootstrap Phases 4 to 6; `audit.md` in the tdd-bdd-harness skill).
 
 ## 6. How measurement works here: rules and traps (read before running anything)
@@ -449,7 +455,7 @@ override; the classify rule written after nine-run data; dont-guess `balanced` h
 
 ## 9. Push plan (when the owner says push)
 
-Nothing is unpushed as of 3.3.2 (2026-10-13). For the next push: group the unpushed commits into bites
+Nothing is unpushed as of 3.3.3 (2026-10-13). For the next push: group the unpushed commits into bites
 (consecutive runs belonging to one piece of work, one commit each, members folded into numbered paragraphs,
 never reordered), keep the version bump a separate commit after the bites, then
 `CLAUDE_SKIP_SQUASH_GUARD=1 git push`. Before pushing, check the net diff for `evals/private`, absolute local
