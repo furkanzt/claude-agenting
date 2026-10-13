@@ -254,6 +254,286 @@ Feature: The Workflow routing gate denies unrouted agent() calls and asks for pl
     When the routing guard runs
     Then the reason contains "line    1  [no model, no effort]"
 
+  # Backed by: tests/test_routing_guard.py::test_quoted_routing_keys_count
+  Scenario: Quoted routing keys count as routing
+    Given the session record for "guard-test-session" has mode manual
+    And a Workflow script "await agent('x', {'model': 'haiku', \"effort\": \"low\", schema: S})"
+    When the routing guard runs
+    Then the reason contains "Plan signature: haiku/lowx1"
+
+  # Backed by: tests/test_routing_guard.py::test_a_quoted_key_inside_a_nested_object_is_not_routing
+  Scenario: A quoted key inside a nested object is not routing
+    Given a Workflow script "await agent('x', {schema: {'model': 'x', 'effort': 'y'}})"
+    When the routing guard runs
+    Then the reason contains "line    1  [no model, no effort]"
+
+  # ---------------------------------------------------------------- per-item routing (lens.effort)
+  # A value read from an item is checked item by item when the item visibly comes from a const array
+  # literal the call iterates; anything the guard cannot see through stays presence-only.
+
+  # Backed by: tests/test_routing_guard.py::test_the_peers_workaround_is_denied_because_its_lens_keeps_the_routing_one_level_down
+  Scenario: Per-item routing whose items keep the tiers one level down is denied, naming the items
+    Given a Workflow script whose const LENSES holds one item with its agentType and effort inside "route: {...}"
+    And a pipeline(LENSES, (lens) => agent(...)) call with options {..., agentType: lens.agentType, model: lens.model, effort: lens.effort}
+    When the routing guard runs
+    Then the reason contains "line    2  [no model in LENSES[0], no effort in LENSES[0]]"
+    # Seen for real on 2026-10-12: lens.agentType and lens.effort are undefined at run time, so the
+    # call would have run on the session's tier. 3.3.1 passed it on key presence.
+
+  # Backed by: tests/test_routing_guard.py::test_items_that_set_their_tiers_show_them_in_the_plan_for_each_iteration_form
+  Scenario Outline: Items that set their tiers show them in the plan, for each iteration form
+    Given the session record for "guard-test-session" has mode manual
+    And a Workflow script with "const L = [{p: 'a', model: 'haiku', effort: 'low'}, {p: 'b', model: 'opus', effort: 'xhigh'}]"
+    And an agent() call with options {schema: S, model: l.model, effort: l.effort} inside <loop>
+    When the routing guard runs
+    Then the reason contains "Plan signature: haiku|opus/low|xhighx1"
+
+    Examples:
+      | loop                                      |
+      | await pipeline(L, (l) => ...)             |
+      | await parallel(L.map(l => () => ...))     |
+      | L.forEach(async (l, i) => { ... })        |
+      | for (const l of L) { ... }                |
+
+  # Backed by: tests/test_routing_guard.py::test_a_literal_key_beside_an_item_value_and_an_agent_type_item
+  Scenario: A literal key beside an item value, and an agentType item, show in the plan with a constant side once
+    Given the session record for "guard-test-session" has mode manual
+    And Workflow scripts "const C = [{effort: 'medium'}, {effort: 'high'}, {effort: 'medium'}]" iterated by C.map(c => () => agent('x', {model: 'sonnet', effort: c.effort})), and "const A = [{agentType: 'agenting:scanner', effort: 'medium'}, {model: 'opus', effort: 'high'}]" iterated by pipeline(A, a => agent('x', {agentType: a.agentType, model: a.model, effort: a.effort}))
+    When the routing guard runs on each
+    Then the first plan signature is "sonnet/medium|highx1"
+    And the second plan signature is "agent:agenting:scanner|opus/medium|highx1"
+
+  # Backed by: tests/test_routing_guard.py::test_an_item_with_no_effort_or_an_undefined_one_is_named
+  Scenario: An item with no effort, or with effort undefined, is named in the Stage 1 cause
+    Given a Workflow script whose const L holds {model: 'haiku', effort: 'low'}, {model: 'opus'} and {model: 'sonnet', effort: undefined}
+    And on line 6 "await pipeline(L, l => agent('x', {model: l.model, effort: l.effort}))"
+    When the routing guard runs
+    Then the reason contains "line    6  [no effort in L[1], L[2]]"
+
+  # Backed by: tests/test_routing_guard.py::test_more_than_four_items_are_counted_not_listed
+  Scenario: More than four items without a key are counted, not listed
+    Given a Workflow script whose const L holds six items {model: 'haiku'} iterated with l.model and l.effort
+    When the routing guard runs
+    Then the reason contains "[no effort in L[0], L[1], L[2], L[3] and 2 more]"
+
+  # Backed by: tests/test_routing_guard.py::test_items_the_guard_cannot_see_through_stay_presence_only
+  Scenario: Items the guard cannot see through stay presence-only and are never denied
+    Given the session record for "guard-test-session" has mode manual
+    And Workflow scripts whose list is declared with let, changed with push, derived with filter, or whose items get a property set at run time; whose loop variable is rebound inside the callback (by a const or by a nested "(l) =>") or used in Object.assign; whose call sits in a later pipeline stage or after the loop; or whose item holds a spread or a variable value, or is not an object literal
+    When the routing guard runs on each
+    Then each reason contains "STAGE 2/2"
+    And each plan shows "?" for every value the guard could not read, e.g. "?/?x1", "haiku/?x1" or "haiku|?/low|?x1"
+
+  # The 3.3.2 pre-release review ran each of the next scripts in node with a stub agent() that throws on
+  # missing routing: every call is routed at run time. A looser per-item check denied them all.
+
+  # Backed by: tests/test_routing_guard.py::test_a_list_built_from_the_literal_is_not_read_as_the_literal
+  Scenario: A list built from the literal by a chained .map or .filter is not read as the literal
+    Given the session record for "guard-test-session" has mode manual
+    And Workflow scripts "const LENSES = [...].map(l => ({ model: 'sonnet', effort: 'medium', ...l }))" and "const LENSES = [...].filter(l => !l.skip)" whose literal items lack a model or effort
+    And a call reading lens.model and lens.effort in LENSES.map(lens => ...)
+    When the routing guard runs on each
+    Then each reason contains "Plan signature: ?/?x1"
+
+  # Backed by: tests/test_routing_guard.py::test_a_spread_in_the_options_turns_the_item_check_off
+  Scenario: A spread in the call's options, before or after the item keys, turns the item check off
+    Given the session record for "guard-test-session" has mode manual
+    And Workflow scripts whose options are "{model: lens.model, effort: lens.effort, ...lens.route}" and "{...lens.route, model: lens.model, effort: lens.effort}"
+    When the routing guard runs on each
+    Then each reason contains "Plan signature: ?/?x1"
+
+  # Backed by: tests/test_routing_guard.py::test_a_loop_variable_that_is_written_or_passed_on_turns_the_item_check_off
+  Scenario: A loop variable over the list that is written, deleted from or passed on turns the item check off
+    Given the session record for "guard-test-session" has mode manual
+    And Workflow scripts where a loop variable over LENSES is reassigned, gets "l.effort ??= 'low'", "l['effort'] = 'low'", "l.model ||= 'haiku'" or "delete l.model", is passed to applyDefaults(l), or is rebound by a catch clause
+    When the routing guard runs on each
+    Then each reason contains "Plan signature: ?/?x1"
+
+  # Backed by: tests/test_routing_guard.py::test_a_list_name_used_any_other_way_turns_the_item_check_off
+  Scenario: A list or loop-variable name used any other way turns the item check off
+    Given the session record for "guard-test-session" has mode manual
+    And Workflow scripts where the list is passed to withDefaults(LENSES), gets "LENSES[0].effort = 'low'", is shadowed by a function parameter, is declared twice, where the loop variable's name is also a const outside the loop, or where Object.prototype is written
+    When the routing guard runs on each
+    Then each reason contains "Plan signature: ?/?x1"
+
+  # Backed by: tests/test_routing_guard.py::test_an_item_with_a_getter_a_computed_key_or_a_prototype_is_not_called_unset
+  Scenario: An item with a getter, a computed key or a __proto__ is not said to lack a key
+    Given the session record for "guard-test-session" has mode manual
+    And Workflow scripts whose item is "{ name: 'a', model: 'opus', get effort() { return 'high' } }", "{ name: 'a', model: 'opus', [EFFORT]: 'high' }" and "{ __proto__: BASE, name: 'a' }"
+    When the routing guard runs on each
+    Then the plan signatures are "opus/?x1", "opus/?x1" and "?/?x1"
+
+  # Backed by: tests/test_routing_guard.py::test_a_spread_element_or_a_hole_turns_the_item_check_off_but_a_trailing_comma_does_not
+  Scenario: A spread element or a hole in the list turns the item check off, a trailing comma does not
+    Given the session record for "guard-test-session" has mode manual
+    And Workflow scripts whose list is "[...BASE, {...}]", "[{...}, , {...}]" and "[{ name: 'a', model: 'haiku', effort: 'low' },]"
+    When the routing guard runs on each
+    Then the plan signatures are "?/?x1", "?/?x1" and "haiku/lowx1"
+    # With a spread or a hole the source position is not the run-time index, so a denial would name the wrong item.
+
+  # Backed by: tests/test_routing_guard.py::test_reading_the_list_length_and_its_items_in_other_loops_keeps_the_check
+  Scenario: Reading the list's length, or its items in another loop, keeps the item check
+    Given the session record for "guard-test-session" has mode manual
+    And a Workflow script that logs "${L.length}" and reads x.p and x.effort in "for (const x of L)" before "pipeline(L, l => agent(l.p, {model: l.model, effort: l.effort}))"
+    When the routing guard runs
+    Then the reason contains "Plan signature: haiku|opus/low|xhighx1"
+
+  # Backed by: tests/test_routing_guard.py::test_harmless_mentions_keep_the_check_as_in_real_fan_outs
+  Scenario: Harmless mentions of the list or the item keep the item check, as in real fan-outs
+    Given the session record for "guard-test-session" has mode manual
+    And a Workflow script that also reads "C[i].label" after the fan-out over C
+    And a Workflow script whose first pipeline stage prompts with "${JSON.stringify(lens)}" and whose later stage "(report, lens) => ..." builds "{ lens: lens.key, v }"
+    When the routing guard runs on each
+    Then the plan signatures are "sonnet/medium|highx1" and "agent:agenting:researcher/mediumx1|sonnet/highx1"
+    # An indexed property read, an object key and JSON.stringify change nothing; a same-named parameter of
+    # another arrow function outside the loop cannot shadow the item. Inside the loop it turns the check off.
+
+  # Backed by: tests/test_routing_guard.py::test_the_innermost_loop_binding_the_name_is_the_one_read
+  Scenario: The innermost loop binding the name is the one read, and a braceless loop ends at its line
+    Given the session record for "guard-test-session" has mode manual
+    And a Workflow script with "for (const l of OUTER) {", a braceless "for (const l of INNER) log(l.p)" on its own line, then a call reading l.model and l.effort
+    And a Workflow script with "for (const l of OUTER) {" around "pipeline(INNER, l => agent('x', {model: l.model, effort: l.effort}))"
+    When the routing guard runs on each
+    Then the first plan signature is OUTER's "haiku/lowx1"
+    And the second plan signature is INNER's "opus/highx1"
+
+  # Backed by: tests/test_routing_guard.py::test_a_large_per_item_fan_out_is_checked_well_inside_the_hook_timeout
+  Scenario: A large per-item fan-out is checked well inside the hook's 10-second timeout
+    Given the session record for "guard-test-session" has mode manual
+    And a Workflow script with a 50-item const list and 600 agent() calls reading x.model and x.effort in "for (const x of L) { ... }"
+    When the routing guard runs
+    Then it answers in under 5 seconds
+    And the reason contains "Plan signature: haiku/lowx600"
+
+  # ---------------------------------------------------------------- templates, regex literals, unreadable scripts
+
+  # Backed by: tests/test_routing_guard.py::test_a_nested_template_with_an_apostrophe_no_longer_hides_later_calls
+  Scenario: A nested template literal with an apostrophe no longer hides the calls after it
+    Given a Workflow script "const t = `Deck: ${x ? `The instructor's deck` : ''}`" followed on line 2 by "await agent('x', {schema:S})"
+    When the routing guard runs
+    Then the reason contains "line    2  [no model, no effort]"
+    # 3.3.1 read the template as one flat string: the inner backtick ended it, the apostrophe opened a
+    # fake string, and the rest of the script was blanked, so the gate saw no call (2 of 177 real scripts).
+
+  # Backed by: tests/test_routing_guard.py::test_calls_around_nested_templates_are_all_in_the_plan
+  Scenario: Calls around and inside nested templates are all in the plan
+    Given the session record for "guard-test-session" has mode manual
+    And a Workflow script with a routed call whose prompt holds a nested template with "(", a routed call inside a "${...}", and a routed call whose prompt nests templates two deep
+    When the routing guard runs
+    Then the reason contains "Plan signature: haiku/lowx2|opus/xhighx1"
+
+  # Backed by: tests/test_routing_guard.py::test_an_agent_call_inside_an_interpolation_is_checked
+  Scenario: An agent() call inside a template's ${...} is checked, and an object inside it does not end it
+    Given Workflow scripts "const r = `${await agent('x', {schema: S})}`" and "const r = `${pick({a: 1}) ? await agent('x', {schema: S}) : ''}`"
+    When the routing guard runs on each
+    Then each reason contains "line    1  [no model, no effort]"
+
+  # Backed by: tests/test_routing_guard.py::test_interpolation_braces_are_not_taken_for_the_options
+  Scenario: The braces of a ${...} are not taken for the options object
+    Given a Workflow script "await agent(`Use ${model} at ${effort}`)"
+    When the routing guard runs
+    Then the reason contains "line    1  [no model, no effort]"
+
+  # Backed by: tests/test_routing_guard.py::test_a_quote_or_slash_inside_a_regex_does_not_hide_later_calls
+  Scenario Outline: A quote, backtick or slash inside a regex literal does not hide the calls after it
+    Given a Workflow script "const r = <regex>" followed on line 2 by "await agent('x', {schema:S})"
+    When the routing guard runs
+    Then the reason contains "line    2  [no model, no effort]"
+
+    Examples:
+      | regex                              |
+      | s.replace(/'/g, '')                |
+      | s => /"/.test(s)                   |
+      | s => { return /`/.test(s) }        |
+      | /[/']/g                            |
+
+  # Backed by: tests/test_routing_guard.py::test_a_brace_inside_a_regex_in_the_options_does_not_close_them
+  Scenario: A brace inside a regex literal in the options does not close them
+    Given a Workflow script "await agent('x', {check: /[,}]/, model:'haiku', effort:'low'})"
+    When the routing guard runs
+    Then the reason contains "STAGE 2/2"
+
+  # Backed by: tests/test_routing_guard.py::test_division_is_not_taken_for_a_regex
+  Scenario: Division is not taken for a regex literal
+    Given Workflow scripts with a routed call between two divisions: "total / 2" and "h / 3", "o.in / 2" and "a / 3", and, on lines of their own, "i++ / 2" and "n / 4", and "{} / 2" and "r / 3"
+    When the routing guard runs on each
+    Then each reason contains "STAGE 2/2"
+    # A slash after a name, a number, ")" or "]" is division, as in JavaScript; after punctuation or a
+    # keyword it starts a regex only if one closes on the same line.
+
+  # Backed by: tests/test_routing_guard.py::test_a_division_after_a_postfix_increment_is_division
+  Scenario: A division after a postfix ++ or -- is division
+    Given Workflow scripts "const pct = i++ / total + ' done/' + n" and "log(`${i-- / total} of ${a}/${b}`)" before a routed call on the next line
+    And a Workflow script "let i = 0; const s = i++ / 2; await agent('y', {schema: S}); const t = s / 3"
+    When the routing guard runs on each
+    Then the first two reasons contain "STAGE 2/2"
+    And the third contains "line    1  [no model, no effort]"
+    # The 3.3.2 review: read as a regex, the first was denied as unreadable and the third hid its call.
+
+  # Backed by: tests/test_routing_guard.py::test_a_regex_after_an_if_header_is_a_regex_and_after_a_paren_it_is_division
+  Scenario: A slash after the ) of an if, while, for or with header starts a regex; after any other ) it is division
+    Given Workflow scripts "if (ok) /\/*/.test(s)" and "if (a) /`/.test(s)" before an unrouted call on line 2 and a later line that would close the comment or template
+    And a Workflow script "const h = (a + b) / 2; await agent('x', {model:'haiku', effort:'low'}); const t = h / 3"
+    When the routing guard runs on each
+    Then the first two reasons contain "line    2  [no model, no effort]"
+    And the third contains "STAGE 2/2"
+
+  # Backed by: tests/test_routing_guard.py::test_line_ends_are_javascripts_crlf_continuations_and_unicode_separators
+  Scenario: Line ends are JavaScript's: a CRLF line continuation, and U+2028 ending a // comment
+    Given a CRLF Workflow script whose string continues over a backslash and CRLF, before a routed call
+    And a Workflow script "// note" then U+2028 then "await agent('y', {schema: S})" on one physical line
+    When the routing guard runs on each
+    Then the first reason contains "STAGE 2/2"
+    And the second contains "line    1  [no model, no effort]"
+
+  # Backed by: tests/test_routing_guard.py::test_an_optional_call_is_an_agent_call
+  Scenario: An optional call agent?.(...) is an agent call
+    Given a Workflow script "await agent?.('x', {schema: S})"
+    When the routing guard runs
+    Then the reason contains "line    1  [no model, no effort]"
+
+  # Backed by: tests/test_routing_guard.py::test_an_unreadable_script_is_denied_when_its_call_is_spelled_with_a_comment
+  Scenario: An unreadable script is denied when its only call is written "agent /* why */ (...)"
+    Given a Workflow script with a template literal that never closes, before "await agent /* why */ ('y', {schema: S})"
+    When the routing guard runs
+    Then the reason contains "UNREADABLE SCRIPT"
+    # The gate looks for the word agent, so a comment between the name and its parenthesis does not hide the call.
+
+  # Backed by: tests/test_routing_guard.py::test_a_construct_that_never_closes_is_denied_naming_its_line
+  Scenario Outline: A script the guard cannot read to the end is denied at Stage 1, naming the line
+    Given a Workflow script that holds an agent() call and <construct>
+    When the routing guard runs
+    Then the reason contains "STAGE 1/2 — UNREADABLE SCRIPT"
+    And the reason names line <line>, its number right-aligned in four columns as in Stage 1, followed by "  [<what>]"
+
+    Examples:
+      | construct                                      | line | what                                            |
+      | a template literal on line 2 that never closes |    2 | a template literal opened here never closes     |
+      | a block comment on line 1 that never closes    |    1 | a comment opened here never closes              |
+      | a quoted string on line 1 that runs past it    |    1 | a string opened here does not close on its line |
+      | a ${ on line 1 that never closes               |    1 | a template's ${ opened here never closes        |
+      | an agent( call whose parentheses never close   |    1 | this agent( call's parentheses never close      |
+
+  # Backed by: tests/test_routing_guard.py::test_an_unreadable_script_is_denied_even_in_auto_mode
+  Scenario: An unreadable script is denied even in mode auto
+    Given the session record for "guard-test-session" has mode auto
+    And a Workflow script with a template literal that never closes, before a routed agent() call
+    When the routing guard runs
+    Then the permissionDecision is "deny"
+
+  # Backed by: tests/test_routing_guard.py::test_escape_hatch_words_in_a_string_do_not_count
+  Scenario: The words "routing: inherit" in a string or prompt are not the escape hatch
+    Given a Workflow script "const p = `Explain why routing: inherit is risky`" followed on line 2 by "await agent(p, {schema: S})"
+    When the routing guard runs
+    Then the reason contains "line    2  [no model, no effort]"
+    # Only a comment on the call's line or the line above marks deliberate inheritance.
+
+  # Backed by: tests/test_routing_guard.py::test_a_broken_script_with_no_agent_call_is_not_blocked
+  Scenario: A broken script with no agent() call is not blocked
+    Given a Workflow script "const t = `never closed"
+    When the routing guard runs
+    Then stdout is empty
+
   # Backed by: tests/test_routing_guard.py::test_unrouted_is_denied_even_in_auto_mode
   Scenario: Stage 1 is denied even when the session is in mode auto
     Given the session record for "guard-test-session" has mode auto
@@ -605,23 +885,24 @@ Feature: The Workflow routing gate denies unrouted agent() calls and asks for pl
 
   # ---------------------------------------------------------------- gaps found in review
 
-  @gap @wip
-  # Backed by: @gap
+  # Backed by: tests/test_routing_guard.py::test_valid_json_that_is_not_an_object_is_silent
   Scenario: Valid JSON that is not an object is silent and exits 0
-    Given stdin "[]"
+    Given stdin "[]", "null", "1" or "\"Workflow\"", or a Workflow payload whose tool_input is a string or a list
     When the routing guard runs
     Then the exit code is 0
-    And stdout is empty
+    And stdout and stderr are empty
+    # 3.3.1 exited 1 with an AttributeError on payload.get (HANDOFF section 5 item 1).
 
   # Backed by: tests/test_routing_guard.py::test_variable_routing_values_pass_on_presence_and_show_question_marks
   Scenario: A call whose model and effort are variables passes Stage 1 and shows "?" in the plan
     Given the session record for "guard-test-session" has mode manual
-    And Workflow scripts "await agent('x', {model:M, effort:E})" and a pipeline() call whose options are {..., agentType: lens.agentType, model: lens.model, effort: lens.effort}
+    And Workflow scripts "await agent('x', {model:M, effort:E})" and "await pipeline(args.lenses, (lens) => agent(lens.prompt, {schema: CLAIMS, agentType: lens.agentType, model: lens.model, effort: lens.effort}))"
     When the routing guard runs on each
     Then each reason contains "STAGE 2/2"
     And each reason contains "Plan signature: ?/?x1"
-    # Presence only: the guard cannot know what a variable holds at run time, so an item whose
-    # effort is undefined still inherits the session tier. The Stage 1 text says so.
+    # Presence only: the guard cannot know what M holds, nor what a lens holds when it cannot see the
+    # list, so an item whose effort is undefined still inherits the session tier. The Stage 1 text
+    # says so. A list it can see is checked item by item (the per-item routing scenarios).
 
   # Backed by: tests/test_routing_guard.py::test_options_passed_as_a_variable_are_reported_by_line_and_cause
   Scenario: A call whose options are a variable is denied at Stage 1

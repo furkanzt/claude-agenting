@@ -20,12 +20,18 @@ TWO-STAGE GATE
   1. ROUTING: if any agent() call lacks model/agentType or lacks effort, DENY.
      Never bypassable -- mode has no say here. `agentType: 'agenting:<name>'`
      (this plugin's agents/, addressed with the plugin prefix) counts as routed.
-     The check is static: it reads the keys of the options object in the source.
-     A key whose value is the literal undefined or null is no routing; a key whose
-     value is a variable (`effort: lens.effort`, or shorthand `{model, effort}`)
-     counts on presence alone, since its run-time value is unknowable here; routing
-     inside a spread (`...lens.route`) is invisible, and the denial names the
-     spread (2026-10-12, a peer's fan-out).
+     The check is static: it reads the keys of the options object in the source
+     (quoted keys too). A key whose value is the literal undefined or null is no
+     routing. A value read from an item (`effort: lens.effort`) is checked item by
+     item when the items are a const array literal nothing in the script can
+     change (see "per-item routing" below); otherwise a variable value (shorthand
+     `{model, effort}` included) counts on presence alone, since its run-time value
+     is unknowable here. Routing inside a spread (`...lens.route`) is invisible, and
+     the denial names the spread (2026-10-12, a peer's fan-out). A script that
+     mentions `agent` and that the guard cannot read to the end (a string running
+     past its line; a template literal, `${` or comment that never closes; an
+     agent( whose parentheses never close) is denied too: what follows would go
+     unchecked. The escape hatch counts only in a comment.
   2. APPROVAL: even when every call is routed, DENY until the user has approved
      this particular routing plan in this session. Claude presents the plan
      (as proposed / cheaper / higher quality), applies the answer, records the
@@ -83,6 +89,7 @@ PreToolUse -> hookSpecificOutput.permissionDecision ("deny" only -- this
 """
 
 import argparse
+import functools
 import hashlib
 import json
 import os
@@ -106,68 +113,177 @@ SESSION_LINE_RE = re.compile(r"\[agenting\] mode=([\w-]+)\b.*?\(session ([\w-]+)
 # --------------------------------------------------------------- script parsing
 
 
-def strip_comments_and_strings(src: str) -> str:
-    """Blank out comments and string bodies, preserving length.
+# A `/` after one of these characters or words, or at the very start, begins a regex literal; after
+# anything else (a name, a number, `)` or `]`) it is division. JavaScript decides the same way, by what
+# came before it. A `)` that closes an `if`, `while`, `for` or `with` header is the exception: what
+# follows starts a statement, so a `/` there begins a regex.
+REGEX_AFTER = set("([{}<>,;:=!&|?+-*%~^")
+REGEX_AFTER_WORDS = {"return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw",
+                     "case", "do", "else", "yield", "await"}
+HEADER_WORDS = {"if", "while", "for", "with"}
+HEADER_END = ")if"   # `prev` after the `)` of one of those headers
+LINE_ENDS = "\n\r\u2028\u2029"   # JavaScript's line terminators
+WORD = re.compile(r"[\w$]+")
+AGENT_CALL = re.compile(r"(?<![\w.$])agent\s*(?:\?\.\s*)?\(")   # `agent(` and `agent?.(`
+AGENT_WORD = re.compile(r"(?<![\w.$])agent\b")
+LINE_END = re.compile(f"[{LINE_ENDS}]")
 
-    Length is preserved because indices computed here (line numbers, the
-    position of an agent( call) are used against the original text too.
+
+def regex_end(src: str, i: int) -> int:
+    """Index just past the regex literal that starts with the `/` at src[i], flags included, or 0
+    when no regex closes on this line (a regex cannot span lines), so the slash is division."""
+    j, in_class, n = i + 1, False, len(src)
+    while j < n and src[j] not in LINE_ENDS:
+        ch = src[j]
+        if ch == "\\":
+            if j + 1 < n and src[j + 1] in LINE_ENDS:
+                return 0
+            j += 2
+            continue
+        if ch == "[":
+            in_class = True
+        elif ch == "]":
+            in_class = False
+        elif ch == "/" and not in_class:
+            flags = WORD.match(src, j + 1)
+            return flags.end() if flags else j + 1
+        j += 1
+    return 0
+
+
+def is_operand(prev: str) -> bool:
+    """Whether the last code token ends an operand (a name, a number, a literal, `)` or `]`)."""
+    return prev in ("x", ")", "]") or bool(prev) and (prev[0].isalnum() or prev[0] in "_$") and prev not in REGEX_AFTER_WORDS
+
+
+def scan_source(src: str):
+    """(clean, problem, comments): `src` with comments and the bodies of strings, template text and
+    regex literals blanked out, length preserved; (index, what) of the first construct that never
+    closes, or None; and the (start, end) span of every comment.
+
+    Length is preserved because indices computed here (line numbers, the position of an agent(
+    call) are used against the original text too. An opening quote stays visible, the closing one
+    is blanked. The code inside a template's `${...}` is scanned as code, with its delimiters turned
+    into `(` and `)`: an agent() call written there is checked, and its braces are not taken for an
+    options object. Scanning a template as one flat string let a nested template end the outer one,
+    and an apostrophe in its text (``${x ? `The instructor's deck` : ''}``) then blanked the rest of
+    the script, hiding every later call (2026-10-12 review, 2 of 177 real scripts). A quoted string
+    ends at its line's end, as in JavaScript, so a stray quote cannot blank more than one line.
     """
-    out = list(src)
-    i, n = 0, len(src)
+    out, n, i = list(src), len(src), 0
+    holes = []    # per open `${`: [index of the template's backtick, index of the `$`, braces open inside it]
+    parens = []   # per open `(`: whether it opens an if/while/for/with header
+    comments = []
+    prev = ""     # the last code token: a punctuation character, a word, "x" for an operand, or HEADER_END
+    problem = None
+
+    def blank(a, b):
+        for k in range(a, min(b, n)):
+            if src[k] != "\n":
+                out[k] = " "
+
+    def fail(at, what):
+        nonlocal problem
+        problem = problem or (at, what)
+
+    def template_text(i, opened_at):
+        """Blank template text from i up to the closing backtick or the next `${`.
+        Returns (index after it, whether a `${` opened)."""
+        while i < n:
+            ch = src[i]
+            if ch == "\\":
+                blank(i, i + 2)
+                i += 2
+            elif ch == "`":
+                out[i] = " "
+                return i + 1, False
+            elif ch == "$" and src.startswith("{", i + 1):
+                out[i], out[i + 1] = " ", "("
+                return i + 2, True
+            else:
+                blank(i, i + 1)
+                i += 1
+        fail(opened_at, "a template literal opened here never closes")
+        return n, False
+
     while i < n:
         c = src[i]
-        if c == "/" and i + 1 < n and src[i + 1] == "/":
-            while i < n and src[i] != "\n":
-                out[i] = " "
-                i += 1
-        elif c == "/" and i + 1 < n and src[i + 1] == "*":
-            out[i] = out[i + 1] = " "
-            i += 2
-            while i < n and not (src[i] == "*" and i + 1 < n and src[i + 1] == "/"):
-                if src[i] != "\n":
-                    out[i] = " "
-                i += 1
-            if i + 1 < n:
-                out[i] = out[i + 1] = " "
-                i += 2
-        elif c in "'\"`":
-            quote = c
-            i += 1
-            while i < n:
-                if src[i] == "\\":
-                    out[i] = " "
-                    if i + 1 < n and src[i + 1] != "\n":
-                        out[i + 1] = " "
-                    i += 2
-                    continue
-                if src[i] == quote:
-                    out[i] = " "
-                    i += 1
-                    break
-                if src[i] != "\n":
-                    out[i] = " "
-                i += 1
+        if src.startswith("//", i):
+            m = LINE_END.search(src, i)
+            j = m.start() if m else n
+            comments.append((i, j))
+            blank(i, j)
+            i = j
+        elif src.startswith("/*", i):
+            j = src.find("*/", i + 2)
+            if j < 0:
+                fail(i, "a comment opened here never closes")
+            j = n if j < 0 else j + 2
+            comments.append((i, j))
+            blank(i, j)
+            i = j
+        elif c == "/" and (not prev or prev in REGEX_AFTER or prev in REGEX_AFTER_WORDS or prev == HEADER_END) \
+                and (j := regex_end(src, i)):
+            blank(i + 1, j)
+            prev, i = "x", j
+        elif c in "'\"":
+            j = i + 1
+            while j < n and src[j] not in (c, "\n", "\r"):
+                if src[j] == "\\":   # an escaped line end, CRLF included, continues the string
+                    j += 3 if src.startswith("\r\n", j + 1) else 2
+                else:
+                    j += 1
+            if j < n and src[j] == c:
+                j += 1
+            else:
+                fail(i, "a string opened here does not close on its line")
+            blank(i + 1, j)
+            prev, i = "x", min(j, n)
+        elif c == "`" or (c == "}" and holes and holes[-1][2] == 0):
+            if c == "`":
+                opened_at = i
+            else:   # this `}` closes a `${`: back to the template's text
+                opened_at = holes.pop()[0]
+                out[i] = ")"
+            i, interpolates = template_text(i + 1, opened_at)
+            if interpolates:
+                holes.append([opened_at, i - 2, 0])
+                prev = "("
+            else:
+                prev = "x"
+        elif m := WORD.match(src, i):
+            word = m.group()
+            prev = "x" if prev == "." or word[0].isdigit() else word   # `x.return` is a property name
+            i = m.end()
+        elif c in "+-" and src.startswith(c, i + 1) and is_operand(prev):
+            i += 2   # postfix `i++`: still an operand, so a `/` after it is division
         else:
+            if holes and c in "{}":
+                holes[-1][2] += 1 if c == "{" else -1
+            if c == "(":
+                parens.append(prev in HEADER_WORDS)
+            if not c.isspace():
+                prev = HEADER_END if c == ")" and parens and parens.pop() else c
             i += 1
-    return "".join(out)
+    if holes:
+        fail(holes[-1][1], "a template's ${ opened here never closes")
+    return "".join(out), problem, comments
 
 
-def find_agent_calls(src: str):
-    """Yield (start, clean_call, raw_call), scanning with balanced parens."""
-    clean = strip_comments_and_strings(src)
-    for m in re.finditer(r"(?<![\w.$])agent\s*\(", clean):
-        start = m.start()
-        i = m.end() - 1
-        depth = 0
-        while i < len(clean):
+def find_agent_calls(src: str, clean: str):
+    """Yield (start, end) of each agent(...) call, scanning with balanced parens; end is None
+    for a call whose parentheses never close."""
+    for m in AGENT_CALL.finditer(clean):
+        depth, end = 0, None
+        for i in range(m.end() - 1, len(clean)):
             if clean[i] == "(":
                 depth += 1
             elif clean[i] == ")":
                 depth -= 1
                 if depth == 0:
-                    yield start, clean[start : i + 1], src[start : i + 1]
+                    end = i + 1
                     break
-            i += 1
+        yield m.start(), end
 
 
 def opts_span(clean_call: str):
@@ -197,28 +313,33 @@ def opts_span(clean_call: str):
 
 
 IDENT = re.compile(r"[A-Za-z_$][\w$]*")
+QUOTED_KEY = re.compile(r"(['\"])([A-Za-z_$][\w$]*)\1")   # `{'model': 'haiku'}`, read from the raw text
 COLON = re.compile(r"\s*:")
 SHORTHAND_END = re.compile(r"\s*(?:[,}]|$)")   # `{model, effort}` is `{model: model, effort: effort}`
 SPREAD_NAME_MAX = 40
 QUOTED = re.compile(r"\s*['\"]([^'\"]+)['\"]")
 # A value that is nothing but `undefined` or `null`: JavaScript passes no routing for it.
 NULLISH = re.compile(r"\s*(undefined|null)\s*(?=[,}]|$)")
+ROUTING_KEYS = ("model", "agentType", "effort")
 
 
-def top_level_entries(clean_opts: str):
-    """({key: index just after its colon}, [(start, end) of each spread expression]) for the
-    options object itself.
+def top_level_entries(clean_opts: str, raw_opts: str):
+    """({key: index just after its colon}, [(start, end) of each spread expression], opaque) for
+    the options object itself; `opaque` is True when some entry is not a plain key (a getter or a
+    method, a computed `[key]`, `__proto__`), so a key it lacks may still exist at run time.
 
     Only identifiers that start a property (right after the opening brace or a comma at the
     options' own depth) count, so keys inside a nested object, and names inside a value
-    expression such as a ternary, are not mistaken for options. A spread (`...lens.route`) is
+    expression such as a ternary, are not mistaken for options. A quoted key (`'model':`) is read
+    from the raw text, since its name is blanked in the stripped one. A spread (`...lens.route`) is
     recorded, not resolved: what it holds is only known at run time.
     """
     keys, spreads, depth, expect_key, i, n = {}, [], 0, False, 0, len(clean_opts)
-    spread_at = None
+    spread_at, opaque = None, False
     while i < n:
         ch = clean_opts[i]
         if ch in "([{":
+            opaque = opaque or expect_key   # `[key]: value`
             depth += 1
             expect_key = depth == 1 and ch == "{"
             i += 1
@@ -243,24 +364,34 @@ def top_level_entries(clean_opts: str):
                 keys[m.group()] = colon.end()   # a repeated key: the last one wins, as in JavaScript
             elif SHORTHAND_END.match(clean_opts, m.end()):
                 keys[m.group()] = m.start()     # shorthand: its value is the variable of the same name
+            else:
+                opaque = True                   # `get effort() {...}`, `async run() {...}`
+            expect_key = False
+            i = m.end()
+        elif expect_key and ch in "'\"" and (m := QUOTED_KEY.match(raw_opts, i)):
+            if colon := COLON.match(clean_opts, m.end()):
+                keys[m.group(2)] = colon.end()
+            else:
+                opaque = True
             expect_key = False
             i = m.end()
         else:
             if depth == 1 and not ch.isspace():
+                opaque = opaque or expect_key   # `[key]: value`, a numeric key, a generator method
                 expect_key = False
             i += 1
     if spread_at is not None:   # options left unclosed (opts_span ran to the end of the call)
         spreads.append((spread_at, n))
-    return keys, spreads
+    return keys, spreads, opaque or "__proto__" in keys
 
 
-def top_level_keys(clean_opts: str) -> dict:
-    return top_level_entries(clean_opts)[0]
+def top_level_keys(clean_opts: str, raw_opts: str) -> dict:
+    return top_level_entries(clean_opts, raw_opts)[0]
 
 
-def nullish(clean_opts: str, key: str) -> str:
+def nullish(clean_opts: str, raw_opts: str, key: str) -> str:
     """'undefined' or 'null' when a top-level key's whole value is that literal, else ''."""
-    at = top_level_keys(clean_opts).get(key)
+    at = top_level_keys(clean_opts, raw_opts).get(key)
     m = NULLISH.match(clean_opts, at) if at is not None else None
     return m.group(1) if m else ""
 
@@ -270,16 +401,16 @@ def missing_routing(clean_opts: str, raw_opts: str) -> str:
     effort. A key whose value is the literal undefined or null is no routing. When something is
     missing and the options spread another object in, the spread is named: the guard reads the
     source, so whatever routing the spread carries at run time is invisible to it."""
-    keys, spreads = top_level_entries(clean_opts)
-    routed = [k for k in ("model", "agentType") if k in keys and not nullish(clean_opts, k)]
+    keys, spreads, _ = top_level_entries(clean_opts, raw_opts)
+    routed = [k for k in ("model", "agentType") if k in keys and not nullish(clean_opts, raw_opts, k)]
     causes = []
     if not routed:
         empty = next((k for k in ("model", "agentType") if k in keys), None)
-        causes.append(f"{empty} is {nullish(clean_opts, empty)}" if empty else "no model")
+        causes.append(f"{empty} is {nullish(clean_opts, raw_opts, empty)}" if empty else "no model")
     if "effort" not in keys:
         causes.append("no effort")
-    elif nullish(clean_opts, "effort"):
-        causes.append(f"effort is {nullish(clean_opts, 'effort')}")
+    elif nullish(clean_opts, raw_opts, "effort"):
+        causes.append(f"effort is {nullish(clean_opts, raw_opts, 'effort')}")
     why = ", ".join(causes)
     if why and spreads:
         why += "; the guard cannot read " + ", ".join(spread_name(clean_opts, raw_opts, s) for s in spreads)
@@ -299,20 +430,261 @@ def spread_name(clean_opts: str, raw_opts: str, span) -> str:
 def kv(raw_opts: str, clean_opts: str, key: str) -> str:
     """The quoted value of a top-level key, read from the raw opts text; empty string if the
     key is absent or its value is not a quoted literal."""
-    at = top_level_keys(clean_opts).get(key)
+    at = top_level_keys(clean_opts, raw_opts).get(key)
     m = QUOTED.match(raw_opts, at) if at is not None else None
     return m.group(1) if m else ""
 
 
-def has_escape_hatch(src: str, start: int) -> bool:
-    """True if `routing: inherit` appears on this line or the one above it."""
+# ------------------------------------------------------- per-item routing (`effort: lens.effort`)
+#
+# A fan-out keeps each item's tier as data and reads it in the options. Presence alone let an item with
+# no effort run on the session's tier (2026-10-12, a peer's LENSES), and the plan showed "?". When the
+# items visibly come from a `const` array literal and nothing in the script can change them, each item
+# is read: one that provably sets no model or effort is a Stage 1 cause, and the plan shows the tiers.
+#
+# "Nothing can change them" is checked by shape, not by following the code: the list's name appears only
+# in its declaration and as the list a recognised loop iterates (or `.length`); every use of a loop
+# variable over it is a property read that assigns nothing; the literal ends at its `]`; its items hold
+# only plain keys; the call's options spread nothing. Anything else (a chained `.map`, `??=` defaults,
+# a reassigned or shadowed name, a helper the list is passed to) stays presence-only, so this denies only
+# an item that really lacks the key (the 3.3.2 pre-release review found eleven ways a looser check was
+# wrong).
+
+MEMBER = re.compile(r"\s*([A-Za-z_$][\w$]*)\s*\.\s*([A-Za-z_$][\w$]*)\s*(?=[,}]|$)")
+WHOLE_QUOTED = re.compile(r"\s*['\"]([^'\"\n]+)['\"]\s*(?=[,}]|$)")
+NAME = r"[A-Za-z_$][\w$]*"
+ARROW_PARAM = rf"(?:async\s+)?(?:\(\s*(?P<p1>{NAME})\s*(?:,[^()]*)?\)|(?P<p2>{NAME}))\s*=>"
+LOOP_FORMS = (
+    re.compile(rf"(?<![\w.$])(?P<list>{NAME})\s*\.\s*(?:map|forEach|flatMap)\s*\(\s*{ARROW_PARAM}"),
+    re.compile(rf"(?<![\w.$])pipeline\s*\(\s*(?P<list>{NAME})\s*,\s*{ARROW_PARAM}"),
+    re.compile(rf"(?<![\w.$])for\s*\(\s*(?:const|let|var)\s+(?P<p1>{NAME})\s+of\s+(?P<list>{NAME})\s*\)"),
+)
+MEMBER_READ = re.compile(rf"\s*\??\.\s*{NAME}")
+ASSIGNS = re.compile(r"\s*(?:(?:\*\*|<<|>>>?|&&|\|\||\?\?|[-+*/%&|^])?=(?![=>])|\+\+|--)")
+UPDATES_BEFORE = re.compile(r"(?:\+\+|--|\bdelete)\s*$")
+SPACE = re.compile(r"\s*")
+LENGTH_READ = re.compile(r"\s*\.\s*length\b")
+ITEM_READ = re.compile(rf"\s*\[[^\[\]]*\]\s*\??\.\s*{NAME}")    # `CLUSTERS[i].label`
+KEY_BEFORE = re.compile(r"[{,]\s*$")
+KEY_AFTER = re.compile(r"\s*:(?!:)")
+STRINGIFY_BEFORE = re.compile(r"JSON\s*\.\s*stringify\s*\(\s*$")
+ARROW_PARAMS_BEFORE = re.compile(r"\(\s*(?:[\w$]+\s*,\s*)*$")       # `(report, ` before the name
+ARROW_PARAM_AT = re.compile(r"\s*(?:,\s*[\w$]+\s*)*\)\s*=>")
+CONST_BEFORE = re.compile(r"(?<![\w.$])const\s+$")
+MAX_ITEMS_NAMED = 4
+
+
+def close_of(clean: str, i: int):
+    """Index just past the bracket that closes the one at clean[i], or None."""
+    depth = 0
+    for j in range(i, len(clean)):
+        if clean[j] in "([{":
+            depth += 1
+        elif clean[j] in ")]}":
+            depth -= 1
+            if depth == 0:
+                return j + 1
+    return None
+
+
+def body_span(clean: str, i: int, statement: bool):
+    """(start, end) of the arrow body or loop statement from clean[i]: a `{...}` block, or an
+    expression ending at the first `,` `;` or unmatched closing bracket at its own depth; a braceless
+    loop statement also ends at its line's end, or in a script without semicolons it would run on
+    over the lines after the loop."""
+    while i < len(clean) and clean[i].isspace():
+        i += 1
+    if clean.startswith("{", i):
+        return i, close_of(clean, i) or len(clean)
+    depth = 0
+    for j in range(i, len(clean)):
+        ch = clean[j]
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            if depth == 0:
+                return i, j
+            depth -= 1
+        elif depth == 0 and (ch in ",;" or statement and ch == "\n"):
+            return i, j
+    return i, len(clean)
+
+
+@functools.lru_cache(maxsize=4)
+def loops(clean: str):
+    """(list, param, header start, header end, body start, body end) for every recognised loop:
+    `list.map(param => ...)` (or forEach, flatMap), the first stage of `pipeline(list, param =>
+    ...)`, and `for (const param of list)`."""
+    found = []
+    for form in LOOP_FORMS:
+        for m in form.finditer(clean):
+            param = m.group("p1") or m.groupdict().get("p2")
+            start, end = body_span(clean, m.end(), statement=form is LOOP_FORMS[2])
+            found.append((m.group("list"), param, m.start(), m.end(), start, end))
+    return tuple(found)
+
+
+def uses(clean: str, name: str):
+    return re.finditer(rf"(?<![\w.$]){re.escape(name)}(?![\w$])", clean)
+
+
+def mentions_only(clean: str, m) -> bool:
+    """Whether this mention of a name is no use of the variable at all: an object key
+    (`{ lens: lens.key }`), or the argument of JSON.stringify, which only reads."""
+    return bool(KEY_BEFORE.search(clean, max(0, m.start() - 4), m.start()) and KEY_AFTER.match(clean, m.end())
+                or STRINGIFY_BEFORE.search(clean, max(0, m.start() - 24), m.start()))
+
+
+@functools.lru_cache(maxsize=64)
+def only_read(clean: str, param: str) -> bool:
+    """Whether every use of `param` is a recognised loop's binding or a property read that assigns
+    nothing (`lens.effort`, not `lens = ...`, `lens.effort ??= ...`, `lens[k] = ...` or `f(lens)`).
+    Another arrow function may name a parameter the same (a later pipeline stage's `(report, lens)`)
+    as long as it sits outside every recognised loop over `param`, where it cannot shadow the item."""
+    found = [lp for lp in loops(clean) if lp[1] == param]
+    for m in uses(clean, param):
+        if any(h0 <= m.start() < h1 for _, _, h0, h1, _, _ in found) or mentions_only(clean, m):
+            continue
+        if ARROW_PARAM_AT.match(clean, m.end()) and ARROW_PARAMS_BEFORE.search(clean, max(0, m.start() - 80), m.start()) \
+                and not any(b0 <= m.start() < b1 for *_, b0, b1 in found):
+            continue
+        read = MEMBER_READ.match(clean, m.end())
+        if not read or ASSIGNS.match(clean, read.end()) or UPDATES_BEFORE.search(clean, max(0, m.start() - 10), m.start()):
+            return False
+    return True
+
+
+@functools.lru_cache(maxsize=64)
+def only_iterated(clean: str, name: str) -> bool:
+    """Whether `name` appears only in one `const` declaration, as the list a recognised loop
+    iterates, as `name.length`, or in a property read of one item (`name[i].label`)."""
+    sources = [(h0, h1) for n, _, h0, h1, _, _ in loops(clean) if n == name]
+    declared = 0
+    for m in uses(clean, name):
+        if any(h0 <= m.start() < h1 for h0, h1 in sources) or mentions_only(clean, m):
+            continue
+        read = LENGTH_READ.match(clean, m.end()) or ITEM_READ.match(clean, m.end())
+        if read and not ASSIGNS.match(clean, read.end()):
+            continue
+        if CONST_BEFORE.search(clean, max(0, m.start() - 12), m.start()):
+            declared += 1
+            continue
+        return False
+    return declared == 1
+
+
+@functools.lru_cache(maxsize=64)
+def const_array_items(clean: str, raw: str, name: str):
+    """((clean_item, raw_item), ...) of `const NAME = [...]` when the initializer is that literal
+    alone (not `[...].map(...)`) and holds no spread element or hole; None otherwise."""
+    decl = re.search(rf"(?<![\w.$])const\s+{re.escape(name)}\s*=\s*", clean)
+    if not decl or not clean.startswith("[", decl.end()):
+        return None
+    a = decl.end()
+    b = close_of(clean, a)
+    if b is None:
+        return None
+    after = SPACE.match(clean, b).end()
+    if not (after == len(clean) or clean[after] in ";}" or "\n" in clean[b:after] and IDENT.match(clean, after)):
+        return None   # `[...].map(...)`, `[...] + x`, `[...]\n(...)`: the list is not the literal itself
+    items, depth, start = [], 0, a + 1
+    for j in range(a + 1, b):
+        ch = clean[j]
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}" and j < b - 1:
+            depth -= 1
+        if (ch == "," and depth == 0) or j == b - 1:
+            chunk = clean[start:j].strip()
+            if chunk.startswith("...") or not chunk and ch == ",":
+                return None   # a spread element or a hole: the indexes would not be the run-time ones
+            if chunk:
+                items.append((clean[start:j], raw[start:j]))
+            start = j + 1
+    return tuple(items)
+
+
+def item_value(clean_item: str, raw_item: str, prop: str):
+    """("set", value) when the item is an object literal whose `prop` is a quoted literal; ("unset", "")
+    when it provably has none (absent from plain keys only, or undefined or null); ("?", "") otherwise."""
+    lead = len(clean_item) - len(clean_item.lstrip())
+    if not clean_item.startswith("{", lead) or close_of(clean_item, lead) != len(clean_item.rstrip()):
+        return "?", ""
+    c, r = clean_item[lead:], raw_item[lead:]
+    keys, spreads, opaque = top_level_entries(c, r)
+    if prop not in keys:
+        return ("?", "") if spreads or opaque else ("unset", "")
+    if NULLISH.match(c, keys[prop]):
+        return "unset", ""
+    m = WHOLE_QUOTED.match(r, keys[prop])
+    return ("set", m.group(1)) if m else ("?", "")
+
+
+def per_item(clean: str, raw: str, start: int, clean_opts: str, raw_opts: str):
+    """(list name, one {routing key: (state, value)} per item) when the call's routing values read
+    one item of a const array literal nothing can change (see above); None when the guard cannot tell."""
+    keys, spreads, _ = top_level_entries(clean_opts, raw_opts)
+    members = {k: m.groups() for k in ROUTING_KEYS
+               if k in keys and (m := MEMBER.match(clean_opts, keys[k]))}
+    params = {param for param, _ in members.values()}
+    if spreads or len(params) != 1 or re.search(r"\bprototype\b", clean):   # `Object.prototype.effort = ...`
+        return None
+    param = params.pop()
+    enclosing = [(b0, name) for name, p, _, _, b0, b1 in loops(clean) if p == param and b0 <= start < b1]
+    name = max(enclosing)[1] if enclosing else None
+    if not name or not only_iterated(clean, name) or \
+            not all(only_read(clean, p) for n, p, *_ in loops(clean) if n == name):
+        return None
+    items = const_array_items(clean, raw, name)
+    if not items:
+        return None
+    rows = []
+    for clean_item, raw_item in items:
+        row = {}
+        for k in ROUTING_KEYS:
+            if k in members:
+                row[k] = item_value(clean_item, raw_item, members[k][1])
+            elif k not in keys or nullish(clean_opts, raw_opts, k):
+                row[k] = ("unset", "")
+            else:
+                value = kv(raw_opts, clean_opts, k)
+                row[k] = ("set", value) if value else ("?", "")
+        rows.append(row)
+    return name, rows
+
+
+def per_item_gaps(name: str, rows) -> str:
+    """The Stage 1 cause for the items that provably set no model (nor agentType) or no effort, or ''."""
+    def which(idx):
+        named = ", ".join(f"{name}[{i}]" for i in idx[:MAX_ITEMS_NAMED])
+        return named + (f" and {len(idx) - MAX_ITEMS_NAMED} more" if len(idx) > MAX_ITEMS_NAMED else "")
+    no_model = [i for i, r in enumerate(rows) if r["model"][0] == r["agentType"][0] == "unset"]
+    no_effort = [i for i, r in enumerate(rows) if r["effort"][0] == "unset"]
+    causes = [f"no model in {which(no_model)}"] if no_model else []
+    causes += [f"no effort in {which(no_effort)}"] if no_effort else []
+    return ", ".join(causes)
+
+
+def per_item_tier(rows):
+    """(model, effort) for the plan: the distinct item tiers in item order, each side joined by "|"
+    in step with the other (`haiku|opus` / `low|xhigh`), or one value when it is the same for all."""
+    pairs = []
+    for r in rows:
+        model = r["model"][1] or (f"agent:{r['agentType'][1]}" if r["agentType"][1] else "?")
+        pair = (model, r["effort"][1] or "?")
+        if pair not in pairs:
+            pairs.append(pair)
+    return tuple(side[0] if len(set(side)) == 1 else "|".join(side) for side in zip(*pairs))
+
+
+def has_escape_hatch(src: str, start: int, comments) -> bool:
+    """True if a comment on this line or the one above it says `routing: inherit`. The words in a
+    string or a prompt do not count (`Explain why routing: inherit is risky`)."""
     line_start = src.rfind("\n", 0, start) + 1
     line_end = src.find("\n", start)
     line_end = len(src) if line_end == -1 else line_end
-    this_line = src[line_start:line_end]
     prev_start = src.rfind("\n", 0, line_start - 1) + 1 if line_start > 0 else 0
-    prev_line = src[prev_start : max(line_start - 1, 0)]
-    return ESCAPE_HATCH in this_line or ESCAPE_HATCH in prev_line
+    return any(src.find(ESCAPE_HATCH, max(a, prev_start), min(b, line_end)) >= 0 for a, b in comments)
 
 
 def load_script(tool_input: dict):
@@ -493,20 +865,25 @@ def run_hook() -> int:
         payload = json.load(sys.stdin)
     except Exception:
         return 0  # malformed input must not break the hook
-
-    if payload.get("tool_name") != "Workflow":
-        return 0
+    if not isinstance(payload, dict) or payload.get("tool_name") != "Workflow":
+        return 0  # valid JSON that is not an object ([], null) is malformed input too
 
     session = payload.get("session_id") or "unknown"
-    src, label = load_script(payload.get("tool_input") or {})
+    tool_input = payload.get("tool_input")
+    src, label = load_script(tool_input if isinstance(tool_input, dict) else {})
     if src is None:
         return 0  # cannot inspect it, so do not block it
 
+    clean, problem, comments = scan_source(src)
     unrouted, tiers = [], []
-    for start, clean_call, raw_call in find_agent_calls(src):
-        if has_escape_hatch(src, start):
+    for start, end in find_agent_calls(src, clean):
+        if end is None:
+            problem = problem or (start, "this agent( call's parentheses never close")
+            continue
+        if has_escape_hatch(src, start, comments):
             tiers.append(("inherit", "inherit"))
             continue
+        clean_call, raw_call = clean[start:end], src[start:end]
         span = opts_span(clean_call)
         clean_opts = clean_call[span[0] : span[1]] if span else ""
         raw_opts = raw_call[span[0] : span[1]] if span else ""
@@ -515,13 +892,38 @@ def run_hook() -> int:
 
         # PRESENCE from the stripped text, VALUE from the raw text.
         why = missing_routing(clean_opts, raw_opts)
+        items = None if why else per_item(clean, src, start, clean_opts, raw_opts)
+        if items:
+            why = per_item_gaps(*items)
         if why:
             unrouted.append((line, why, snippet))
+        elif items:
+            tiers.append(per_item_tier(items[1]))
         else:
             model = kv(raw_opts, clean_opts, "model")
             atype = kv(raw_opts, clean_opts, "agentType")
             effort = kv(raw_opts, clean_opts, "effort") or "?"
             tiers.append((model or (f"agent:{atype}" if atype else "?"), effort))
+
+    # --- STAGE 1, before anything else: a script the guard cannot read to the end ------
+    # Whatever follows an unclosed string, template or comment is blanked, so the calls there go
+    # unchecked: fail closed rather than pass a script whose routing was never read. Valid
+    # JavaScript never ends inside one, so this denies only a broken script or a guard misread.
+    if problem and AGENT_WORD.search(src):
+        at, what = problem
+        line = src.count("\n", 0, at) + 1
+        text = " ".join(src[src.rfind("\n", 0, at) + 1 :].split("\n", 1)[0].split())[:70]
+        return deny(
+            f"""STAGE 1/2 — UNREADABLE SCRIPT: the routing guard could not read this script to the end ({label}),
+so it cannot tell whether every agent() call is routed.
+
+    line {line:>4}  [{what}]  {text}…
+
+Close it and run again. If the script is valid JavaScript, the guard misread it; the
+likely cause is a regex literal it took for division (one right after `)` or `]`):
+move the regex into a const of its own, or write it as new RegExp(...).""",
+            "Workflow stopped (1/2): the routing guard could not read the script.",
+        )
 
     if not tiers and not unrouted:
         return 0  # no agent() calls at all
@@ -553,8 +955,11 @@ Write the keys into the options object itself: the guard reads the source, so it
 cannot see routing inside a spread (`...lens.route`) or an options variable. For
 per-item routing, spell the keys out:
   {{agentType: lens.agentType, model: lens.model, effort: lens.effort}}
-Only a key's presence is checked, not what a variable holds at run time, so every
-item must set it; a literal undefined or null does not count.
+When `lens` is an item of a const array literal the call iterates (NAME.map(lens =>
+...), forEach, flatMap, the first stage of pipeline(NAME, lens => ...), or for (const
+lens of NAME)) and the script only reads the list and its items, every item is read
+and one with no model or effort is named here. Otherwise only the key's presence is
+checked, so every item must set it. A literal undefined or null does not count.
 
 For deliberate inheritance, put `// {ESCAPE_HATCH}` on that line or the one above it.""",
             f"Workflow stopped (1/2): {len(unrouted)} agent() call(s) have no routing.",

@@ -2,7 +2,7 @@
 
 Index to `features/*.feature`, this project's executable behaviour catalogue, governed by [TDD.md](TDD.md) and [BDD.md](BDD.md).
 
-**644 scenarios** across 13 domains — **391 ARMED**, **253 GAP**. Full breakdown: [docs/scenarios/coverage-matrix.md](docs/scenarios/coverage-matrix.md).
+**678 scenarios** across 13 domains — **426 ARMED**, **252 GAP**. Full breakdown: [docs/scenarios/coverage-matrix.md](docs/scenarios/coverage-matrix.md).
 
 | Feature | Scenarios | ARMED | GAP | What it pins |
 |---|--:|--:|--:|---|
@@ -15,7 +15,7 @@ Index to `features/*.feature`, this project's executable behaviour catalogue, go
 | [`eval-runs.feature`](features/eval-runs.feature) | 68 | 51 | 17 |  |
 | [`finish-check.feature`](features/finish-check.feature) | 30 | 14 | 16 |  |
 | [`plugin-docs.feature`](features/plugin-docs.feature) | 39 | 9 | 30 |  |
-| [`routing-guard.feature`](features/routing-guard.feature) | 85 | 56 | 29 |  |
+| [`routing-guard.feature`](features/routing-guard.feature) | 119 | 91 | 28 |  |
 | [`session-continuity.feature`](features/session-continuity.feature) | 46 | 20 | 26 |  |
 | [`setup-check.feature`](features/setup-check.feature) | 51 | 5 | 46 |  |
 | [`tokenomics.feature`](features/tokenomics.feature) | 66 | 54 | 12 |  |

@@ -157,8 +157,13 @@ Workflow. Stage 1, in every mode: an `agent()` call missing `model`/`agentType`
 or `effort`, reported by line number; fix the script. It reads the options
 object's own keys in the source, so routing inside a spread (`...lens.route`) is
 invisible to it: for per-item routing write `agentType: lens.agentType, model:
-lens.model, effort: lens.effort`. Only presence is checked, so every item must set
-them; a literal `undefined` or `null` does not count. Stage 2, in manual mode
+lens.model, effort: lens.effort`. When the items are a `const` array literal the
+call iterates (`map`, `forEach`, `flatMap`, `pipeline`'s first stage, `for...of`)
+and nothing can change them (the list and the loop variable are only read), each
+item is read and one without a model or effort is named; otherwise only presence
+is checked, so every item must set them. A literal `undefined` or `null` does not
+count. A script with an `agent` call that it cannot read to the end (a string,
+template, `${` or comment that never closes) is denied as unreadable. Stage 2, in manual mode
 or when no mode can be found for the session (a resumed chat's new id is looked
 up through the `[agenting]` line in its own transcript first): a routed plan not
 yet approved in this session; ask, apply, run its `--approve` command. Changing
