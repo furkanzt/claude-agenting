@@ -89,6 +89,10 @@ in Workflow scans.
   `evals/probes/e1b_analysis.py` (28 mutations caught), tasks installed before the runs, 96 runs ($18.57, none
   invalid, CLI 2.1.296), `REPORT-2026-10-11-E1b.md`. Built by 4 builders and reviewed three times (about 4.4M subagent tokens).
 - **Routing guard fix (2026-10-10):** a nested `schema:` object no longer hides `model`/`effort` (section 5, item 5).
+- **3.3.2 (2026-10-13):** every section 5 bug fixed. The guard reads template and regex literals, denies a script
+  it cannot read to the end, and checks per-item routing where the list provably does not change; the tripwire
+  skips `<synthetic>` lines and keeps its state in `~/.claude`; `check-setup.py` no longer crashes on a
+  non-object `settings.json`. Reviewed by a 6-agent workflow before release (section 5, item 9).
 - **Effort probe tool:** `evals/probes/read_effort.py` (reads the effort a subagent really ran with) and
   `evals/probes/effort_application.workflow.js` (the Workflow that launches the probe agents), with
   `tests/test_effort_probe.py` and `features/effort-probe.feature`.
@@ -248,7 +252,7 @@ verification (a bounded null), the classify narrowing, the clean-run usage-windo
 
 ## 4. Decisions waiting for the owner
 
-1. **Release.** 3.3.1 (2026-10-12) is released and pushed; nothing is unreleased. A release is its own commit:
+1. **Release.** 3.3.2 (2026-10-13) is released and pushed; nothing is unreleased. A release is its own commit:
    bump `version` in `.claude-plugin/plugin.json` **and** `marketplace.json` together (`plugin.json` wins), move
    the CHANGELOG "Unreleased" entry under the new number, push, then on the owner's machine
    `claude plugin marketplace update agenting` and `claude plugin update agenting@agenting`, and
@@ -264,38 +268,40 @@ verification (a bounded null), the classify narrowing, the clean-run usage-windo
 4. **Sonnet 5.5 cache-read price.** The plugin's tables say $0.20 per MTok; the pricing page on 2026-10-09
    says 0.05x input, $0.10. Verify on the page, then fix `scripts/measure-tokenomics.py` and
    `tests/test_tokenomics.py` (they cross-check each other, so change both).
-5. **Whether to fix the four bugs** (section 5) now or leave them in the backlog.
+5. **Section 5's bugs are all fixed (3.3.2).** What stays open by design is item 9 there.
 6. **`lean-worker.md`** (user-level experimental agent from the launch-cost work): stay, move into the plugin,
    or go (section 8).
 7. **Global `~/.claude/CLAUDE.md`** still says any model or effort switch rewrites the prompt cache; Claude
    Code's docs say an effort change no longer does on Opus 5.5, Sonnet 5.5, Fable 5.1 and Haiku 5.5 (not on
    Bedrock, Google Cloud, HIPAA, or with experimental betas off). That file is the owner's.
 
-## 5. Bugs found while cataloguing (1 to 4, 7 and 8 not fixed; each needs a regression test and a scenario first; 5 and 6 fixed)
+## 5. Bugs found while cataloguing (all eight fixed by 3.3.2; item 9 lists what stays open by design)
 
-1. `echo '[]' | python3 hooks/workflow-routing-guard.py` exits 1 with `AttributeError` (also `null`, `1`);
-   reproduced. Non-JSON input is handled. Fix: `isinstance(payload, dict)` before `payload.get`.
-2. `hooks/cache-tripwire.py` (lines about 189 to 196): the baseline is stored as `"None|<effort>"`; on read only
-   the effort is converted back, so `prev_model == last_model` is never true when the first transcript line has
-   no `message.model`, and the hook nudges on every prompt. Read from the code; not run end to end. A real
-   instance of the same family was seen on 2026-10-10: after a machine sleep the harness wrote an assistant message
-   whose model is `<synthetic>`, and the tripwire announced "model changed sonnet-5-5/xhigh -> <synthetic>/?
-   mid-session" and then "<synthetic>/? -> sonnet-5-5/xhigh: re-wrote 32k tokens, ~$0.08". A fix should skip
-   records whose model is `<synthetic>` or missing.
-3. The routing guard accepts a variable for `model` or `effort` (`{model: M, effort: E}`): only key presence is
-   checked, the manual plan shows `?`, so a user can approve a plan that hides the tiers. Seen for real on
-   2026-10-12 (item 6): `effort: lens.effort` passes even when `lens.effort` is undefined at run time. Kept open
-   by decision: denying variables would deny the only per-item routing form left. Options not tried: resolve
-   `lens.x` through a const array the call iterates (`pipeline(LENSES, lens => ...)`), or a run-time check
-   inside the script, which would mean the hook rewriting the Workflow input (it never emits `allow` today).
-4. `scripts/check-setup.py` crashes on a `settings.json` that is valid JSON but not an object (`settings.get`,
-   about line 140) after printing `settings.json parses` as PASS. From the code; not re-run.
+1. **Fixed 2026-10-13 (3.3.2):** `echo '[]' | python3 hooks/workflow-routing-guard.py` exited 1 with
+   `AttributeError` (also `null`, `1`, and a `tool_input` that is not an object). Now silent, exit 0.
+2. **Fixed 2026-10-13 (3.3.2):** the cache tripwire took a main-thread line with no `message.model`, or the
+   harness's `<synthetic>` placeholder (written after a machine sleep or around compaction), for a tier: it
+   announced "sonnet-5-5/xhigh -> <synthetic>/?" and a spurious switch back with a cost, and a `"None|..."`
+   baseline nudged on every prompt. Such lines are skipped and such baselines reseeded. The pre-release review
+   found the state file sat next to the script, in the versioned plugin cache, so each update started empty
+   and re-announced old switches; it now lives in `~/.claude` (or `$AGENTING_STATE_DIR`), is written
+   atomically, and a non-object file or a damaged baseline no longer silences the hook.
+3. **Fixed 2026-10-13 (3.3.2), bounded:** `effort: lens.effort` passed on key presence even when the lens had
+   none (the 2026-10-12 peer workaround was such a case), and the plan showed `?`. The guard now reads each item
+   when the items are a `const` array literal the call iterates and nothing in the script can change them
+   (rules in the guard's "per-item routing" comment and the README's Parsing paragraph): an item with no model
+   or effort is named, and the plan shows the items' tiers. A looser first version denied eleven valid shapes
+   the review ran in node (a chained `[...].map`, `??=` defaults, a reassigned or shadowed variable, a spread in
+   the options, getters, holes, ...); the shipped check is structural and falls back to presence-only. Over the
+   182 persisted real scripts it resolves 3 fan-outs and denies none; `model-alias-smoke` stays `?` because
+   its item escapes into another object (`requested: c`).
+4. **Fixed 2026-10-13 (3.3.2):** `scripts/check-setup.py` printed `settings.json parses` as PASS for valid JSON
+   that is not an object and then crashed on `settings.get`. Now a FAIL with a detail, and the run continues.
 5. **Fixed 2026-10-10:** the guard denied a routed `agent()` call whose options held a nested object (a `schema:`),
    on one line or several, and counted `model`/`effort` keys inside a nested object as routing. A peer session
    reported it as "multi-line options"; the cause was `opts_span` taking the innermost last `{`. Now the last
-   top-level object of the call, and only its own keys (`top_level_keys`); 11 tests, 11 scenarios. Still open
-   from the same area: item 3 (variable values), and `{'model': 'x'}` with a quoted key is not recognised
-   (shorthand `{model, effort}` is, since 3.3.1).
+   top-level object of the call, and only its own keys (`top_level_keys`); 11 tests, 11 scenarios. Quoted keys
+   (`{'model': 'x'}`) count since 3.3.2, shorthand (`{model, effort}`) since 3.3.1.
 6. **Fixed 2026-10-12:** a peer's fan-out spread per-lens routing into the options (`...lens.route`) and was
    denied as "no model, no effort" with no hint that the spread was the cause. The guard still cannot read a
    spread (source only), but the cause now names it and the denial gives the explicit-keys form; a literal
@@ -304,24 +310,27 @@ verification (a bounded null), the classify narrowing, the clean-run usage-windo
    to a spread the cause blamed the spread), each spread is named without a trailing comment and capped at 40
    characters. 14 tests, 11 new scenarios and 3 armed; 18 mutations each caught. Old and new guard agree on all
    178 Workflow scripts persisted on the owner's machine. The peer's workaround exposed item 3 for real.
-7. **Open, found in the same review: a template literal nested inside `${...}` can hide every later `agent()`
-   call, so the gate does not run at all.** `strip_comments_and_strings` treats a template as one flat string, so
-   the inner backtick ends the outer template; the inner text is then scanned as code, and an apostrophe in it
-   (``${x ? `The instructor's deck` : ''}``) opens a fake string that blanks the rest of the script. Seen in 2 of
-   177 persisted real scripts (both routed, so nothing slipped through there); a crafted script with an unrouted
-   call after the nested template passes silently, and an unbalanced paren inside one drops a call from the
-   Stage 2 plan. Same in 3.3.0. Fix: a `${`-depth stack in the stripper so interpolation code is scanned as code
-   (keep it visible, so an `agent()` inside an interpolation is still checked); then consider failing closed on
-   an unterminated string, which alone would wrongly deny those two routed scripts. Rerun the corpus diff
-   (old vs new guard over `~/.claude/projects/*/*/workflows/scripts/*.js`) before shipping it.
-8. **Open, same review, not independently verified: regex literals are not stripped.** A quote in a regex
-   (`s.replace(/'/g, '')`) opens a fake string that hides later calls; a brace in one (`/[,}]/`) closes the
-   options early and denies a routed call. Same in 3.3.0. Fix with item 7: treat `/` in operand position as a
-   regex literal.
+7. **Fixed 2026-10-13 (3.3.2):** a template literal nested inside `${...}` with an apostrophe in its text hid
+   every later `agent()` call (2 of 177 persisted real scripts, both routed). `scan_source` keeps a `${` stack
+   and scans interpolation code as code (its delimiters become `(` and `)`), a quoted string ends at its line,
+   and a script that mentions `agent` and cannot be read to the end is denied as UNREADABLE SCRIPT, naming the
+   line. No persisted real script triggers it.
+8. **Fixed 2026-10-13 (3.3.2):** regex literals were not stripped, so a quote in one hid later calls and a brace
+   in one closed the options early. A `/` is a regex where JavaScript starts one (after punctuation, a keyword
+   or an `if`/`while`/`for`/`with` header; not after a name, a number, `)`, `]` or a postfix `++`) and only if it
+   closes on its line. The review also fixed CRLF line continuations, U+2028 ending a `//` comment, `agent?.(`,
+   and the escape hatch counting inside a string.
+9. **Open by design.** The scanner is a heuristic, not a JavaScript parser: a regex right after a `)` that does
+   not close an `if`/`while`/`for`/`with` header, or after an object literal's `}`, can still be misread; a
+   misread that closes later on the same line can hide that line's calls (one that never closes is denied).
+   Per-item routing stays presence-only wherever the guard cannot prove the list unchanged (item 3). A
+   run-time check inside the script would close that gap, but the hook would have to rewrite the Workflow
+   input, and it never emits `allow` today. The 3.3.2 review (6 agents, 2026-10-13) confirmed 24 findings in
+   the first fix; all were fixed before the release (76 guard mutations each caught).
 
-The 257 `@gap @wip` scenarios are the wider backlog, concentrated where no tests exist: `check-setup.py`
-(49 of 50 scenarios), the cache tripwire (35 of 37), plugin-docs pins (30 of 39), the routing guard (29 of 85),
-session continuity (26 of 46). The 378 ARMED scenarios' cited tests have **not** been audited for sufficiency or red-proofed
+The 250 `@gap @wip` scenarios are the wider backlog, concentrated where few tests exist: `check-setup.py`
+(46 of 52 scenarios), the cache tripwire (32 of 46), plugin-docs pins (30 of 39), the routing guard (28 of 119),
+session continuity (26 of 46). The 430 ARMED scenarios' cited tests have **not** been audited for sufficiency or red-proofed
 (bootstrap Phases 4 to 6; `audit.md` in the tdd-bdd-harness skill).
 
 ## 6. How measurement works here: rules and traps (read before running anything)
@@ -440,7 +449,7 @@ override; the classify rule written after nine-run data; dont-guess `balanced` h
 
 ## 9. Push plan (when the owner says push)
 
-Nothing is unpushed as of 3.3.1 (2026-10-12). For the next push: group the unpushed commits into bites
+Nothing is unpushed as of 3.3.2 (2026-10-13). For the next push: group the unpushed commits into bites
 (consecutive runs belonging to one piece of work, one commit each, members folded into numbered paragraphs,
 never reordered), keep the version bump a separate commit after the bites, then
 `CLAUDE_SKIP_SQUASH_GUARD=1 git push`. Before pushing, check the net diff for `evals/private`, absolute local

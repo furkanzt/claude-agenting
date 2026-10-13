@@ -1,5 +1,51 @@
 # Changelog
 
+## 3.3.2 — 2026-10-13 (routing guard reads templates, regex and per-item routing; tripwire and check-setup fixes)
+
+### Fixed
+- **A nested template literal or a regex literal no longer hides `agent()` calls from the routing guard.** The
+  guard read a template as one flat string and did not know regex literals, so ``${x ? `The instructor's deck`
+  : ''}`` or `s.replace(/'/g, '')` opened a fake string that blanked the rest of the script, and the calls after
+  it were never checked (2 of 177 persisted real scripts, both routed). The code inside `${...}` is now read as
+  code (a call written there is checked), a `/` is a regex where JavaScript would start one (after punctuation,
+  a keyword or an `if`/`while`/`for`/`with` header, never after a name, a number, `)`, `]` or a postfix `++`)
+  and only if it closes on its line, a quoted string ends at its line's end, and JavaScript's line ends count
+  (a backslash-CRLF continuation, U+2028 ending a `//` comment). `agent?.(` is a call. HANDOFF section 5,
+  items 7 and 8.
+- **A script that mentions `agent` and that the guard cannot read to the end is denied** at Stage 1 as
+  `UNREADABLE SCRIPT`, naming the line: a template, `${` or comment that never closes, a string that runs past
+  its line, an `agent(` whose parentheses never close. Before, whatever followed went unchecked. Valid
+  JavaScript never triggers it; none of the 182 persisted real scripts does.
+- **Per-item routing is checked item by item when nothing in the script can change the items.** `effort:
+  lens.effort` passed on key presence even when a lens had no effort, so that agent ran on the session's tier
+  (the peer workaround in 3.3.1 was such a case: its lenses keep the tiers inside `route`). When the items are
+  a `const` array literal the call iterates (`map`, `forEach`, `flatMap`, the first stage of `pipeline`,
+  `for...of`), the script only reads the list and its loop variables (no `??=` defaults, no reassignment, no
+  helper they are passed to, no chained `[...].map(...)`), and the call's options spread nothing, an item that
+  sets no model or effort is named (`[no effort in L[1], L[2]]`) and the manual plan shows the items' tiers
+  (`haiku|opus/low|xhigh`) instead of `?`. Anything else stays presence-only, as in 3.3.1: a pre-release review
+  ran eleven shapes in node where a looser check denied scripts that run fully routed. HANDOFF section 5,
+  item 3.
+- Quoted option keys count (`{'model': 'haiku', "effort": "low"}`).
+- The `// routing: inherit` escape hatch counts only in a comment; the words in a string or prompt did too.
+- The routing guard exits 0 silently on stdin that is valid JSON but not an object (`[]`, `null`), or a
+  `tool_input` that is not an object; it exited 1 with an `AttributeError`. Item 1.
+- **The cache tripwire skips `<synthetic>` and model-less transcript lines.** The harness writes them after a
+  machine sleep or around compaction; the tripwire took one for a tier, announced "sonnet-5-5/xhigh ->
+  <synthetic>/?" and then a spurious switch back with a cost, and a model-less baseline nudged on every prompt.
+  Item 2.
+- **The cache tripwire keeps its state in `~/.claude`** (or `$AGENTING_STATE_DIR`), like the other hooks. It sat
+  next to the script, in the versioned plugin cache, so every update announced already-reported switches
+  again. A state file that is not a JSON object, or a damaged baseline, no longer silences it, and the file is
+  written atomically.
+- **`check-setup.py` fails a `settings.json` that is valid JSON but not an object** (`not a JSON object (list)`)
+  and runs on to its summary; it printed PASS and then crashed. Wrong-shaped `hooks` entries count as not
+  registered instead of crashing. Item 4.
+
+### Unchanged, by decision
+- A variable value the guard cannot resolve (`model: M`, or a lens from a list it cannot prove unchanged)
+  still passes on presence, and the plan shows `?`.
+
 ## 3.3.1 — 2026-10-12 (routing guard: spreads named, shorthand keys, literal undefined)
 
 ### Fixed
