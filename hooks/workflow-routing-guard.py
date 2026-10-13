@@ -453,10 +453,16 @@ def kv(raw_opts: str, clean_opts: str, key: str) -> str:
 MEMBER = re.compile(r"\s*([A-Za-z_$][\w$]*)\s*\.\s*([A-Za-z_$][\w$]*)\s*(?=[,}]|$)")
 WHOLE_QUOTED = re.compile(r"\s*['\"]([^'\"\n]+)['\"]\s*(?=[,}]|$)")
 NAME = r"[A-Za-z_$][\w$]*"
-ARROW_PARAM = rf"(?:async\s+)?(?:\(\s*(?P<p1>{NAME})\s*(?:,[^()]*)?\)|(?P<p2>{NAME}))\s*=>"
+# The callback's parameters must not reach the items another way: map's third parameter is the list, and
+# pipeline hands its first stage the item twice, `(item, originalItem)`. So map, forEach and flatMap take
+# `(item)` or `(item, index)`, and pipeline's first stage `(item)` only; a callback with more is no
+# recognised loop, and the list's name in it is then an ordinary use (3.3.2 denied
+# `L.forEach((l, i, arr) => { arr[i].effort = 'low' })`).
+ARROW_PARAM = rf"(?:async\s+)?(?:\(\s*(?P<p1>{NAME})\s*{{extra}}\)|(?P<p2>{NAME}))\s*=>"
 LOOP_FORMS = (
-    re.compile(rf"(?<![\w.$])(?P<list>{NAME})\s*\.\s*(?:map|forEach|flatMap)\s*\(\s*{ARROW_PARAM}"),
-    re.compile(rf"(?<![\w.$])pipeline\s*\(\s*(?P<list>{NAME})\s*,\s*{ARROW_PARAM}"),
+    re.compile(rf"(?<![\w.$])(?P<list>{NAME})\s*\.\s*(?:map|forEach|flatMap)\s*\(\s*"
+               + ARROW_PARAM.format(extra=rf"(?:,\s*{NAME}\s*)?")),
+    re.compile(rf"(?<![\w.$])pipeline\s*\(\s*(?P<list>{NAME})\s*,\s*" + ARROW_PARAM.format(extra="")),
     re.compile(rf"(?<![\w.$])for\s*\(\s*(?:const|let|var)\s+(?P<p1>{NAME})\s+of\s+(?P<list>{NAME})\s*\)"),
 )
 MEMBER_READ = re.compile(rf"\s*\??\.\s*{NAME}")

@@ -349,6 +349,16 @@ Feature: The Workflow routing gate denies unrouted agent() calls and asks for pl
     When the routing guard runs on each
     Then each reason contains "Plan signature: ?/?x1"
 
+  # Backed by: tests/test_routing_guard.py::test_a_callback_parameter_that_reaches_the_list_or_the_item_again_turns_the_item_check_off
+  Scenario: A callback parameter that reaches the list or the item again turns the item check off
+    Given the session record for "guard-test-session" has mode manual
+    And Workflow scripts with "L.forEach((l, i, arr) => { arr[i].effort = 'low' })", "pipeline(L, (x, orig) => { orig.effort ??= 'low'; ... })" and "L.map((l, i, all) => ...)" that writes all[i].effort
+    When the routing guard runs on each
+    Then each reason contains "Plan signature: ?/?x1"
+    # map's third parameter is the list, and pipeline's first stage gets the item twice: 3.3.2 read these
+    # lists as unchanged and denied the scripts, which run routed. A recognised loop now takes (item) or,
+    # for map, forEach and flatMap, (item, index).
+
   # Backed by: tests/test_routing_guard.py::test_a_list_name_used_any_other_way_turns_the_item_check_off
   Scenario: A list or loop-variable name used any other way turns the item check off
     Given the session record for "guard-test-session" has mode manual

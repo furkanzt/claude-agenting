@@ -579,6 +579,19 @@ class PerItemRoutingNeverDeniesWhatRunsRouted(GuardCase):
             with self.subTest(loop=loop):
                 self.assertEqual(self.plan(lenses + loop), "?/?x1")
 
+    def test_a_callback_parameter_that_reaches_the_list_or_the_item_again_turns_the_item_check_off(self):
+        # 3.3.2 denied these: map's third parameter is the list, and pipeline's first stage gets the item twice
+        for script in (
+            "const L = [{model: 'haiku'}]\nL.forEach((l, i, arr) => { arr[i].effort = 'low' })\n"
+            "await pipeline(L, lens => agent('x', {model: lens.model, effort: lens.effort}))",
+            "const L = [{model: 'haiku'}]\n"
+            "await pipeline(L, (x, orig) => { orig.effort ??= 'low'; return agent('x', {model: x.model, effort: x.effort}) })",
+            "const L = [{model: 'haiku'}]\n"
+            "await parallel(L.map((l, i, all) => () => { all[i].effort = 'low'; return agent('x', {model: l.model, effort: l.effort}) }))",
+        ):
+            with self.subTest(script=script[28:80]):
+                self.assertEqual(self.plan(script), "?/?x1")
+
     def test_a_list_name_used_any_other_way_turns_the_item_check_off(self):
         for script in (
             "const LENSES = [{ name: 'a' }]\nwithDefaults(LENSES)\n"
