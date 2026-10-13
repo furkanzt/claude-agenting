@@ -304,16 +304,77 @@ Feature: The tripwire nudges once per mid-session model or effort switch with th
     Then both runs exit 0
     And both runs print the same additionalContext nudge
 
-  @gap @wip
-  # Backed by: @gap
-  Scenario: Main-thread lines with no model make the tripwire nudge on every prompt
-    # NOTE: probable bug. The stored baseline is the string "None", which never equals the real None
-    # of an absent message.model (effort "None" is mapped back to None; the model is not).
-    Given session "s1" has baseline "None|None" in the state file
-    And every main-thread assistant line has no message.model and no effort field
+  # Backed by: tests/test_cache_tripwire.py::test_lines_with_no_model_are_skipped_like_synthetic_ones
+  Scenario: Main-thread lines with no model are skipped, so they never cause a nudge
+    # A line counts as a tier only when message.model is a non-empty string other than "<synthetic>".
+    Given a session "s1" whose main-thread assistant lines are claude-sonnet-5-5 at effort high with model-less lines between them
     When the tripwire runs on two successive prompts
-    Then both runs print the additionalContext "[cache tripwire] model changed None/? -> ?/? mid-session."
-    And the state file maps "s1" to "None|None" after each run
+    Then stdout is empty both times
+    And the state file maps "s1" to "claude-sonnet-5-5|high"
+
+  # Backed by: tests/test_cache_tripwire.py::test_a_transcript_of_only_synthetic_lines_exits_silently_without_state
+  Scenario: A transcript whose main-thread lines all lack a real model exits 0, prints nothing and writes no state
+    Given a transcript whose main-thread assistant lines have a "<synthetic>" model or no model
+    When the tripwire runs
+    Then the exit code is 0
+    And stdout is empty
+    And no state file is written
+
+  # Backed by: tests/test_cache_tripwire.py::test_a_message_that_is_not_an_object_is_skipped
+  Scenario: A main-thread line whose message is not an object is skipped
+    Given a transcript with an assistant line whose message is the text "oops", then a claude-sonnet-5-5 line at effort high
+    When the tripwire runs
+    Then stdout is empty
+    And the state file maps "s1" to "claude-sonnet-5-5|high"
+
+  # Backed by: tests/test_cache_tripwire.py::test_a_synthetic_latest_line_between_same_tier_lines_stays_silent_on_two_prompts
+  Scenario: A synthetic line as the latest main-thread line never causes a nudge
+    Given a session "s1" whose first main-thread line is claude-sonnet-5-5 at effort xhigh
+    And its latest main-thread line has the model "<synthetic>"
+    When the tripwire runs on two successive prompts
+    Then stdout is empty both times
+    And the state file maps "s1" to "claude-sonnet-5-5|xhigh" after each run
+
+  # Backed by: tests/test_cache_tripwire.py::test_a_synthetic_first_line_seeds_the_baseline_at_the_first_real_tier
+  Scenario: A synthetic first main-thread line seeds the baseline at the first real tier
+    Given a session "s1" never seen before whose first main-thread line has the model "<synthetic>"
+    And the real main-thread lines after it are all claude-sonnet-5-5 at effort xhigh
+    When the tripwire runs
+    Then stdout is empty
+    And the state file maps "s1" to "claude-sonnet-5-5|xhigh"
+
+  # Backed by: tests/test_cache_tripwire.py::test_a_real_switch_after_a_synthetic_line_still_fires_with_the_real_tags
+  Scenario: A real switch around synthetic lines still fires with the real tiers named
+    Given session "s1" has baseline "claude-sonnet-5-5|high"
+    And the main-thread lines are claude-sonnet-5-5 at effort high, a "<synthetic>" line, claude-opus-5-5 at effort max with cache_creation_input_tokens 66975, a "<synthetic>" line
+    When the tripwire runs
+    Then the additionalContext is "[cache tripwire] model changed sonnet-5-5/high -> opus-5-5/max: re-wrote 67k tokens, ~$0.33 of window."
+    And the state file maps "s1" to "claude-opus-5-5|max"
+
+  # Backed by: tests/test_cache_tripwire.py::test_a_legacy_none_baseline_is_reseeded_silently_when_the_real_tier_never_changed
+  Scenario: A legacy "None|None" baseline is reseeded at the real tier and stays silent
+    Given session "s1" has baseline "None|None" in the state file
+    And every real main-thread assistant line is claude-sonnet-5-5 at effort high
+    When the tripwire runs
+    Then stdout is empty
+    And the state file maps "s1" to "claude-sonnet-5-5|high"
+
+  # Backed by: tests/test_cache_tripwire.py::test_a_legacy_synthetic_baseline_is_reseeded_silently_when_the_real_tier_never_changed
+  Scenario: A legacy "<synthetic>|None" baseline is reseeded at the real tier and stays silent
+    Given session "s1" has baseline "<synthetic>|None" in the state file
+    And every real main-thread assistant line is claude-sonnet-5-5 at effort high
+    When the tripwire runs
+    Then stdout is empty
+    And the state file maps "s1" to "claude-sonnet-5-5|high"
+
+  # Backed by: tests/test_cache_tripwire.py::test_a_legacy_baseline_with_a_real_drift_fires_once_then_stays_silent
+  Scenario: A legacy baseline on a session that really drifted fires once, then stays silent
+    Given session "s1" has baseline "None|None" in the state file
+    And its first real main-thread line is claude-sonnet-5-5 at effort high and its latest is claude-opus-5-5 at effort max
+    When the tripwire runs on two successive prompts
+    Then the first additionalContext starts with "[cache tripwire] model changed sonnet-5-5/high -> opus-5-5/max"
+    And the second run prints nothing
+    And the state file maps "s1" to "claude-opus-5-5|max"
 
   # ---- Prices ----------------------------------------------------------------
 

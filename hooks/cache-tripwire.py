@@ -16,6 +16,12 @@ at a flat 1.25x cache-write multiplier (5-min default TTL) -- a nudge, not a
 bill. Subagent ("sidechain") messages are intentionally excluded: agents are
 expected to use a different tier than the main session by design.
 
+A main-thread line counts only when message.model is a real model id. The
+harness writes lines with no model or with the placeholder "<synthetic>" (seen
+after a machine sleep and around compaction); treating one as a tier announced
+a switch to "<synthetic>/?" and then a second, equally spurious switch back.
+Baselines of that kind saved by earlier versions are reseeded, not compared.
+
 Never blocks: any parse failure or missing data exits silently (exit 0).
 """
 import json
@@ -40,6 +46,8 @@ PRICES_PER_MTOK = {
 # 5-min ephemeral write; a 1h write is 2x. Local transcripts show almost every cache write is a 1h write
 # (scripts/measure-tokenomics.py prints the share), so this under-states the switch cost; it is a nudge, not a bill.
 CACHE_WRITE_MULTIPLIER = 1.25
+# The harness's placeholder model id for lines it writes itself (no real model call behind them).
+SYNTHETIC_MODEL = "<synthetic>"
 
 
 def read_hook_input() -> dict:
@@ -48,6 +56,18 @@ def read_hook_input() -> dict:
         return json.loads(raw) if raw.strip() else {}
     except Exception:
         return {}
+
+
+def is_real_main_assistant(d):
+    """A main-thread assistant line that names a real model. Sidechain lines, and lines
+    whose model is missing or the "<synthetic>" placeholder, are not a tier."""
+    if not isinstance(d, dict) or d.get("type") != "assistant" or d.get("isSidechain"):
+        return False
+    message = d.get("message")
+    if not isinstance(message, dict):
+        return False
+    model = message.get("model")
+    return isinstance(model, str) and model != "" and model != SYNTHETIC_MODEL
 
 
 def find_first_main_assistant(path):
@@ -60,7 +80,7 @@ def find_first_main_assistant(path):
                 d = json.loads(line)
             except Exception:
                 continue
-            if d.get("type") != "assistant" or d.get("isSidechain"):
+            if not is_real_main_assistant(d):
                 continue
             return d
     return None
@@ -83,7 +103,7 @@ def find_last_main_assistant(path):
                 d = json.loads(line)
             except Exception:
                 continue
-            if d.get("type") != "assistant" or d.get("isSidechain"):
+            if not is_real_main_assistant(d):
                 continue
             return d
         if seek_to == 0 or tail_bytes >= cap:
@@ -107,9 +127,9 @@ def find_entry_to_tier(path, target_model, target_effort):
                 d = json.loads(line)
             except Exception:
                 continue
-            if d.get("type") != "assistant" or d.get("isSidechain"):
+            if not is_real_main_assistant(d):
                 continue
-            model = d.get("message", {}).get("model")
+            model = d["message"]["model"]
             effort = d.get("effort")
             if model == target_model and effort == target_effort:
                 return d
@@ -182,6 +202,10 @@ def main():
 
     state = load_state()
     baseline_key = state.get(session_id)
+    if isinstance(baseline_key, str) and baseline_key.split("|", 1)[0] in ("None", SYNTHETIC_MODEL):
+        # Legacy baseline saved when a model-less or "<synthetic>" line counted as a tier:
+        # it can never match a real tier, so treat the session as unseen and reseed.
+        baseline_key = None
     if baseline_key is None:
         # First time this session is seen: seed the baseline at the session's
         # starting tier, nothing to report yet even if it already drifted
