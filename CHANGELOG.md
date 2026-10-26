@@ -1,5 +1,24 @@
 # Changelog
 
+## 3.3.4 — 2026-10-26 (routing guard: a stray backtick in a template literal)
+
+### Fixed
+- **A prompt written as a template literal with a backtick inside its text is now denied at Stage 1, naming the
+  line and the fix.** Markdown around a word (``use the `field` name``) ends the template at the first inner
+  backtick; the word after it is code, so the Workflow tool refuses the script with a bare "Unexpected token
+  (70:122)". The guard counted backticks, which balance in that shape, so it went on and asked for approval of a
+  plan for a script that could not launch (reported by a peer session, 2026-10-26). A template literal that
+  closes with a name, number or quote right after it on the same line, or with an adjacent backtick after a
+  template that is no tag's, is now denied as `STRAY BACKTICK`: the reason shows the text around the backtick, says
+  to write a backslash before it or use double quotes, and counts the line in the script file's own text. A line
+  end, a comment, `in` and `instanceof` after the template are valid and not flagged; a curried tag
+  (``tag`a``b` ``) is fine. Checked against Node: all 264 persisted real Workflow scripts parse and none is
+  flagged, and a pre-release review (about 275,000 shapes, 2,726 real `.js` files) found no false positive on a
+  plausible real script.
+- **Known limit, by decision.** A stray pair whose text starts with an operator, `.`, `/` or `-` (``Split on `|`
+  characters``, ``Rewrite every `.md` file``) still parses, so the guard does not catch it; those run with a wrong
+  prompt or throw when the line runs. A rule for them would deny valid code such as ``` `a` + `b` ```.
+
 ## 3.3.3 — 2026-10-13 (routing guard: a per-item false deny from 3.3.2)
 
 ### Fixed
