@@ -163,7 +163,11 @@ and nothing can change them (the list and the loop variable are only read), each
 item is read and one without a model or effort is named; otherwise only presence
 is checked, so every item must set them. A literal `undefined` or `null` does not
 count. A script with an `agent` call that it cannot read to the end (a string,
-template, `${` or comment that never closes) is denied as unreadable. Stage 2, in manual mode
+template, `${` or comment that never closes) is denied as unreadable. A script where a
+template literal closes and a name, number, quote or backtick follows on the same line
+is denied too, as a stray backtick: a backtick inside the template text (Markdown around
+a word) ended it early. Put a backslash before that backtick, or use double quotes. A
+pair whose text starts with an operator, `.` or `-` still parses and is not caught. Stage 2, in manual mode
 or when no mode can be found for the session (a resumed chat's new id is looked
 up through the `[agenting]` line in its own transcript first): a routed plan not
 yet approved in this session; ask, apply, run its `--approve` command. Changing

@@ -31,7 +31,10 @@ TWO-STAGE GATE
      mentions `agent` and that the guard cannot read to the end (a string running
      past its line; a template literal, `${` or comment that never closes; an
      agent( whose parentheses never close) is denied too: what follows would go
-     unchecked. The escape hatch counts only in a comment.
+     unchecked. So is a template literal that closes with a name, number, quote or
+     backtick right after it on the same line: a backtick inside its text ended it
+     early (Markdown around a word), and the Workflow tool would refuse the script.
+     The escape hatch counts only in a comment.
   2. APPROVAL: even when every call is routed, DENY until the user has approved
      this particular routing plan in this session. Claude presents the plan
      (as proposed / cheaper / higher quality), applies the answer, records the
@@ -127,6 +130,16 @@ WORD = re.compile(r"[\w$]+")
 AGENT_CALL = re.compile(r"(?<![\w.$])agent\s*(?:\?\.\s*)?\(")   # `agent(` and `agent?.(`
 AGENT_WORD = re.compile(r"(?<![\w.$])agent\b")
 LINE_END = re.compile(f"[{LINE_ENDS}]")
+# What may not follow a template literal's closing backtick on the same line: a name, a number, a
+# quote, or an adjacent backtick after a template that is no tag's (an untagged string is not
+# callable; `tag`a``b`` is a curried tag and is fine). `in` and `instanceof` are the only words that
+# may. Only spaces and tabs are skipped, so a line end (automatic semicolon insertion) or a comment
+# in the gap makes the guard read no further. The usual cause is a backtick inside the template
+# text: markdown around a word ends the template early. Narrow on purpose: a stray pair whose
+# inner text starts with an operator, `.`, `/` or `-` (`|`, `>=`, `.md`, `-v`) still parses, so it is
+# not caught, and a rule for it would deny valid code such as `a` + `b`.
+AFTER_TEMPLATE = re.compile(r"[ \t]*(?:(?!(?:in|instanceof)(?![\w$]))[\w$'\"]|(?<=`)`)")
+STRAY_BACKTICK = "a template literal closes here and more code follows on the line"
 
 
 def regex_end(src: str, i: int) -> int:
@@ -241,16 +254,19 @@ def scan_source(src: str):
             prev, i = "x", min(j, n)
         elif c == "`" or (c == "}" and holes and holes[-1][2] == 0):
             if c == "`":
-                opened_at = i
+                opened_at, tagged = i, is_operand(prev)   # right after a name, `)` or `]` it is a tag's template
             else:   # this `}` closes a `${`: back to the template's text
-                opened_at = holes.pop()[0]
+                opened_at, _, _, tagged = holes.pop()
                 out[i] = ")"
             i, interpolates = template_text(i + 1, opened_at)
             if interpolates:
-                holes.append([opened_at, i - 2, 0])
+                holes.append([opened_at, i - 2, 0, tagged])
                 prev = "("
             else:
                 prev = "x"
+                # `tag`a``b`` is a curried tag; only an untagged string is not callable
+                if AFTER_TEMPLATE.match(src, i) and not (tagged and src.startswith("`", i)):
+                    fail(i - 1, STRAY_BACKTICK)
         elif m := WORD.match(src, i):
             word = m.group()
             prev = "x" if prev == "." or word[0].isdigit() else word   # `x.return` is a property name
@@ -918,6 +934,24 @@ def run_hook() -> int:
     if problem and AGENT_WORD.search(src):
         at, what = problem
         line = src.count("\n", 0, at) + 1
+        if what == STRAY_BACKTICK:
+            # The cause sits mid-line, so show the text around the backtick, not the line's start.
+            line_start = src.rfind("\n", 0, at) + 1
+            text = " ".join(src[max(line_start, at - 40) : at + 30].split("\n", 1)[0].split())
+            return deny(
+                f"""STAGE 1/2 — STRAY BACKTICK: this script cannot run as written ({label}).
+A template literal ends here and more code follows right after it on the same line.
+
+    line {line:>4}  [{what}]  …{text}…
+
+The usual cause is a backtick inside the template's text, e.g. markdown around a word
+(`field`): an unescaped backtick ends the template early. Inside a template literal write
+\\` for a backtick, or use double quotes. The line number counts the script text as the guard
+read it, so for a scriptPath it is the line in that file. If the script is valid JavaScript, the
+guard misread it; the likely cause is a regex literal holding a backtick that follows `)` or
+`]`: write it as new RegExp(...).""",
+                "Workflow stopped (1/2): a backtick ends a template literal early.",
+            )
         text = " ".join(src[src.rfind("\n", 0, at) + 1 :].split("\n", 1)[0].split())[:70]
         return deny(
             f"""STAGE 1/2 — UNREADABLE SCRIPT: the routing guard could not read this script to the end ({label}),

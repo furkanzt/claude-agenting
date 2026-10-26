@@ -745,6 +745,61 @@ class UnreadableScripts(GuardCase):
     def test_a_broken_script_with_no_agent_call_is_not_blocked(self):
         self.assertIsNone(self.guard("const t = `never closed"))
 
+    def test_a_backtick_that_ends_a_template_early_is_denied_naming_its_line_and_the_fix(self):
+        what = "a template literal closes here and more code follows on the line"
+        for script, line, shown in (
+            # markdown around a word: the first backtick of the pair closes the template (2026-10-26, a peer)
+            (f"const n = 1\nconst p = `is it marked as `field-name` explicitly?`\n{ROUTED}", 2, "marked as `field-name`"),
+            (f"const p = `a ${{b}} c `d` e`\n{ROUTED}", 1, "c `d` e`"),   # the template had a ${...} hole
+            (f"const a = `x` 5\n{ROUTED}", 1, "`x` 5"),
+            (f"const a = `x` 'y'\n{ROUTED}", 1, "`x` 'y'"),
+            (f"const a = `x``y`\n{ROUTED}", 1, "`x``y`"),   # runs, but an untagged string is not callable
+            (f"const a = `x` index\n{ROUTED}", 1, "`x` index"),   # a name that only starts with `in`
+            (f"const a = `x`\tfoo\n{ROUTED}", 1, "`x` foo"),   # a tab is skipped like a space
+            # the agent( between the stray backticks is prompt text, not an unrouted call
+            (f"const p = `see `agent(x)` here`\n{ROUTED}", 1, "`see `agent(x)` here`"),
+        ):
+            with self.subTest(script=script):
+                out = self.guard(script)
+                reason = self.reason(out)
+                self.assertIn("STAGE 1/2 — STRAY BACKTICK", reason)
+                self.assertIn(f"line {line:>4}  [{what}]", reason)
+                self.assertIn(shown, reason)
+                self.assertNotIn("MISSING ROUTING", reason)
+                self.assertIn("\` for a backtick, or use double quotes", reason)   # the fix names the backslash
+                self.assertIn("a backtick ends a template literal early", out["systemMessage"])
+        # a long line shows the text around the stray backtick, not its first 70 characters
+        long_line = "const p = `" + "word " * 30 + "check `field-name` explicitly?`"
+        self.assertIn("check `field-name`", self.reason(self.guard(f"{long_line}\n{ROUTED}")))
+
+    def test_a_stray_backtick_is_denied_even_in_auto_mode(self):
+        self.record(SID, "--mode", "auto")
+        out = self.guard(f"const p = `see `field` here`\n{ROUTED}")
+        self.assertEqual(self.decision(out), "deny")
+        self.assertIn("STRAY BACKTICK", self.reason(out))
+
+    def test_a_stray_backtick_in_a_script_with_no_agent_call_is_not_blocked(self):
+        self.assertIsNone(self.guard("const p = `see `field` here`\nawait Promise.resolve(p)"))
+
+    def test_code_that_may_follow_a_template_does_not_count_as_a_stray_backtick(self):
+        for script in ("const p = `a` in o", "const p = `a` instanceof X", "const p = `a`.trim()", "foo(`a`, 1)",
+                       "foo(`a`)", "const p = `a` + 'b'", "const p = x ? `a` : `b`",
+                       "const p = `a`\nfoo()", "const p = `a`\r\nfoo()", "const p = `a`\u2028foo()",   # line ends: ASI
+                       "const p = `a` /* c */ + 'b'", "const p = `a` // note index",
+                       "const p = tag`a ${1} b`", "const p = `a ${b} c`\nfoo()",
+                       "const p = tag`a``b`", "const p = x.tag`a ${1}``b``c`"):   # a curried tag takes a template
+            with self.subTest(script=script):
+                self.assertIn("STAGE 2/2", self.reason(self.guard(f"{script}\n{ROUTED}")))
+
+    def test_a_stray_backtick_in_a_script_file_is_named_by_the_line_in_that_file(self):
+        path = self.state_dir / "stray.js"
+        path.write_text(f"export const meta = {{}}\n\nconst p = `is it `field-name` here?`\n{ROUTED}\n", encoding="utf-8")
+        reason = self.reason(self.run_hook(GUARD, {"session_id": SID, "tool_name": "Workflow",
+                                                   "tool_input": {"scriptPath": str(path)}}))
+        self.assertIn("STRAY BACKTICK", reason)
+        self.assertIn(f"scriptPath {path}", reason)
+        self.assertIn("line    3  [", reason)
+
 
 class QuotedKeys(GuardCase):
     def test_quoted_routing_keys_count(self):

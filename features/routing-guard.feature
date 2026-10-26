@@ -531,6 +531,79 @@ Feature: The Workflow routing gate denies unrouted agent() calls and asks for pl
     When the routing guard runs
     Then the permissionDecision is "deny"
 
+  # Backed by: tests/test_routing_guard.py::test_a_backtick_that_ends_a_template_early_is_denied_naming_its_line_and_the_fix
+  Scenario Outline: A backtick that ends a template literal early is denied at Stage 1, naming the line and the fix
+    Given a Workflow script that holds a routed agent() call and <construct>
+    When the routing guard runs
+    Then the reason contains "STAGE 1/2 — STRAY BACKTICK"
+    And the reason names line <line>, its number right-aligned in four columns, followed by "  [a template literal closes here and more code follows on the line]"
+    And the reason shows the text around the stray backtick, and says to write a backslash before it or use double quotes
+    And the system message says that a backtick ends a template literal early
+    And the reason does not contain "MISSING ROUTING"
+    # A model copies the Markdown habit of `field` into a prompt written as a template literal; the first
+    # inner backtick ends the template, the name after it is code, and the Workflow tool then refuses the
+    # script with a bare "Unexpected token (70:122)" (2026-10-26, a peer). The guard counts backticks, which
+    # balance in that shape, so it used to go on to ask the user to approve a plan for a script that cannot launch.
+    # On a long line the text shown is the stretch around the backtick, not the line's first 70 characters.
+    # Narrow on purpose: a pair whose inner text starts with an operator, ".", "/" or "-" (`|`, `>=`, `.md`,
+    # `-v`) still parses and is not caught, since a rule for it would deny valid code such as: `a` + `b`.
+    # 2026-10-26 review: about 275,000 shapes against Node found no false positive on a plausible real script.
+
+    Examples:
+      | construct                                                        | line |
+      | a prompt on line 2 with `field-name` in backticks inside it      |    2 |
+      | a template with a ${...} hole and `d` in backticks after it      |    1 |
+      | a number right after a template's closing backtick               |    1 |
+      | a quoted string right after a template's closing backtick        |    1 |
+      | a second template starting right after the first one's backtick  |    1 |
+      | a name that only starts with "in" after a closing backtick       |    1 |
+      | a tab, then a name, after a closing backtick                     |    1 |
+      | an agent( call written between the two stray backticks           |    1 |
+
+  # Backed by: tests/test_routing_guard.py::test_a_stray_backtick_is_denied_even_in_auto_mode
+  Scenario: A stray backtick is denied even in mode auto
+    Given the session record for "guard-test-session" has mode auto
+    And a Workflow script with a prompt that holds `field` in backticks, before a routed agent() call
+    When the routing guard runs
+    Then the permissionDecision is "deny"
+    And the reason contains "STRAY BACKTICK"
+
+  # Backed by: tests/test_routing_guard.py::test_a_stray_backtick_in_a_script_with_no_agent_call_is_not_blocked
+  Scenario: A stray backtick in a script with no agent() call is not blocked
+    Given a Workflow script "const p = `see `field` here`" followed on line 2 by "await Promise.resolve(p)"
+    When the routing guard runs
+    Then stdout is empty
+    # The same gate as for every unreadable construct: the guard is about agent() routing, and the Workflow
+    # tool refuses a script that does not parse by itself.
+
+  # Backed by: tests/test_routing_guard.py::test_code_that_may_follow_a_template_does_not_count_as_a_stray_backtick
+  Scenario Outline: Code that may follow a template literal is not a stray backtick
+    Given a Workflow script that holds a routed agent() call and a template literal followed by <follows>
+    When the routing guard runs
+    Then the reason contains "STAGE 2/2"
+    # Only a name, a number, a quote or a backtick on the same line, after nothing but spaces and tabs, is
+    # read as a stray backtick. `in` and `instanceof` may follow; so may an operator, `.`, `,`, `)`, a line
+    # end (automatic semicolon insertion) or a comment; and a template may follow a tag or hold a ${...}.
+    # Checked against 264 persisted real scripts on 2026-10-26: Node accepted all of them, the rule flagged none.
+
+    Examples:
+      | follows                                      |
+      | the word in or instanceof                    |
+      | a method call, a comma or a closing paren    |
+      | an operator or a ternary colon               |
+      | a line end (LF, CRLF or U+2028) and a call   |
+      | a block comment or a line comment            |
+      | a tag name before it, or a ${...} hole in it |
+      | a tag's template followed by another one     |
+
+  # Backed by: tests/test_routing_guard.py::test_a_stray_backtick_in_a_script_file_is_named_by_the_line_in_that_file
+  Scenario: A stray backtick in a script file is named by the line in that file
+    Given a Workflow script file whose line 3 holds a prompt with `field-name` in backticks, before a routed agent() call
+    When the routing guard runs with that file as scriptPath
+    Then the reason contains "STRAY BACKTICK"
+    And the reason names the scriptPath
+    And the reason names line 3
+
   # Backed by: tests/test_routing_guard.py::test_escape_hatch_words_in_a_string_do_not_count
   Scenario: The words "routing: inherit" in a string or prompt are not the escape hatch
     Given a Workflow script "const p = `Explain why routing: inherit is risky`" followed on line 2 by "await agent(p, {schema: S})"
