@@ -126,9 +126,24 @@ Every tier here is a Claude model. Before proposing a non-Claude one, read
 
 1. **Project rules.** If the project root has `agenting/AGENTING.md`, follow
    [reference/project-rules.md](reference/project-rules.md) before drafting.
-2. **Draft** the script. Done when every `agent()` call has `model` or
+2. **Clean run or Workflow?** Settle it before drafting, for any script that
+   fans out over many items (an `agent()` call inside `map`, `pipeline` or a
+   loop). A task belongs in a clean run (`scripts/cleanrun.py`, see
+   [reference/fan-outs.md](reference/fan-outs.md)) when all four hold:
+   - it is self-contained: its files plus one prompt, no session context;
+   - it needs no tool beyond Read (no web, no Bash, no other agent);
+   - the tasks do not coordinate: none reads another's result within one
+     batch. A later stage that takes earlier outputs as its files is the next
+     batch, not coordination;
+   - its output can be checked in code (a validator).
+
+   All four hold: default to `cleanrun.py plan`, then `run`, and say so in one
+   line. One fails (web stages, a refuter launched per flagged item, a stage
+   that needs the session): write the Workflow, and name the condition that
+   failed.
+3. **Draft** the script. Done when every `agent()` call has `model` or
    `agentType`, and `effort`, or is marked `// routing: inherit` (below).
-3. **Resolve by mode.** The session's `[agenting]` line from SessionStart names
+4. **Resolve by mode.** The session's `[agenting]` line from SessionStart names
    the mode; `--status` on the recorder it names gives ground truth.
    - **auto** (default): decide the plan yourself, without asking. Start from
      the table, apply the session's disposition (under `balanced` the table
@@ -149,8 +164,9 @@ Every tier here is a Claude model. Before proposing a non-Claude one, read
      Apply the answer, run the `--approve` command the guard printed, and
      re-run. When the user already stated this workflow's routing earlier in
      the conversation, apply that instead of asking.
-4. Done when the Workflow is running with every call routed, and in manual
-   mode with the plan the user chose.
+5. Done when a fan-out's form (clean run or Workflow) is chosen with its reason
+   stated, and a Workflow is running with every call routed, in manual mode
+   with the plan the user chose.
 
 **What the guard denies.** `workflow-routing-guard.py` runs before every
 Workflow. Stage 1, in every mode: an `agent()` call missing `model`/`agentType`

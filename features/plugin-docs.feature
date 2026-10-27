@@ -115,6 +115,20 @@ Feature: Plugin packaging, agent pins and doc invariants stay consistent, becaus
     When its length is measured
     Then the length is below 420, because it sits in the skill listing every generic agent carries
 
+  # ---- the Procedure ----------------------------------------------------------
+
+  # Backed by: tests/test_skill_docs.py::test_a_clean_run_step_comes_before_drafting
+  Scenario: The Procedure asks whether a clean run applies before it asks for a draft
+    Given the "Procedure: before calling Workflow" section of skills/agenting/SKILL.md
+    When its numbered, bold-titled steps are read in order
+    Then a step whose title contains "clean run" comes before the step whose title starts with "Draft", and the step numbers run from 1 without a gap
+
+  # Backed by: tests/test_skill_docs.py::test_the_clean_run_step_carries_the_four_conditions_and_the_default
+  Scenario: The clean-run step names the four conditions and the cleanrun.py default
+    Given the "Clean run or Workflow?" step of the Procedure
+    When it is searched for "self-contained", "no tool beyond Read", "do not coordinate", "checked in code" and "cleanrun.py plan"
+    Then all five phrases are present
+
   # ---- list-price caveats and evidence discipline -----------------------------
 
   # Backed by: tests/test_skill_docs.py::test_every_saving_is_a_list_price_and_the_window_caveat_travels_with_it

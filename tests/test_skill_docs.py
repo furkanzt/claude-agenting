@@ -38,6 +38,29 @@ class SkillTriggers(unittest.TestCase):
         self.assertLess(len(description()), 420)
 
 
+class ProcedureCleanRunStep(unittest.TestCase):
+    def setUp(self):
+        text = SKILL.read_text(encoding="utf-8")
+        self.procedure = text.split("## Procedure: before calling Workflow", 1)[1].split("\n## ", 1)[0]
+        self.steps = re.findall(r"^(\d+)\.\s+\*\*(.+?)\*\*", self.procedure, re.M)
+
+    def test_a_clean_run_step_comes_before_drafting(self):
+        # 2026-10-27: a 19-agent fan-out ran as generic Workflow agents because nothing the
+        # numbered checklist asked led to the clean-run test, which sat in a later section
+        titles = [title for _, title in self.steps]
+        clean = next(i for i, t in enumerate(titles) if "clean run" in t.lower())
+        draft = next(i for i, t in enumerate(titles) if t.startswith("Draft"))
+        self.assertLess(clean, draft)
+        self.assertEqual([int(n) for n, _ in self.steps], list(range(1, len(self.steps) + 1)))
+
+    def test_the_clean_run_step_carries_the_four_conditions_and_the_default(self):
+        step = self.procedure.split("**Clean run or Workflow?**", 1)[1].split("\n3. ", 1)[0]
+        for phrase in ("self-contained", "no tool beyond Read", "do not coordinate",
+                       "checked in code", "cleanrun.py plan"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, step)
+
+
 class FanOutGuidance(unittest.TestCase):
     def setUp(self):
         self.text = FAN_OUTS.read_text(encoding="utf-8")
