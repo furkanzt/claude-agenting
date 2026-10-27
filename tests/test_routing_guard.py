@@ -166,7 +166,8 @@ class StageTwoAuto(GuardCase):
                          "await agent('y', {model:'haiku', effort:'low'})")
         self.assertIn("2 agent() call sites", out["systemMessage"])
         self.assertNotIn("2 agents", out["systemMessage"])
-        self.assertNotIn("hookSpecificOutput", out)   # still no allow, still no ask
+        self.assertIsNone(self.decision(out))   # still no allow, still no ask
+        self.assertNotIn("permissionDecision", str(out))
 
     def test_seeded_session_is_auto(self):
         self.run_hook(__import__("_util").CONTINUITY,
@@ -177,6 +178,226 @@ class StageTwoAuto(GuardCase):
     def test_auto_for_another_session_does_not_leak(self):
         self.record("other-session", "--mode", "auto")
         self.assertEqual(self.decision(self.guard(ROUTED)), "deny")
+
+
+class CleanRunWarning(GuardCase):
+    """On 2026-10-27 a 19-agent fan-out ran as generic Workflow agents although every task was
+    self-contained and Read-only, and the guard, which checked routing only, said nothing. An untyped
+    call site that runs once per item now gets a factual warning that never changes a decision."""
+
+    WARNING = "Clean-run check: "
+    FANOUT = "await parallel(args.items.map(x => () => agent(x, {model:'haiku', effort:'low'})))"
+
+    def context(self, script):
+        """The additionalContext of the auto note for `script`, or None when there is none."""
+        self.record(SID, "--mode", "auto")
+        out = self.guard(script)
+        self.assertIsNone(self.decision(out))
+        return ((out or {}).get("hookSpecificOutput") or {}).get("additionalContext")
+
+    def assertUnwarned(self, script):
+        """The auto note for `script` has no hookSpecificOutput at all, not merely no additionalContext."""
+        self.record(SID, "--mode", "auto")
+        out = self.guard(script)
+        self.assertIn("auto-approved", out["systemMessage"])
+        self.assertNotIn("hookSpecificOutput", out)
+
+    def test_an_untyped_call_in_a_map_callback_is_warned(self):
+        # a member receiver and a thunk handed to parallel(): the shape a fan-out usually takes
+        self.assertIn(self.WARNING + "1 agent() call site in this script has no agentType",
+                      self.context(self.FANOUT) or "")
+        self.assertIn("2 agent() call sites in this script have no agentType",
+                      self.context("const L = [1, 2]\nL.forEach(i => agent(`a ${i}`, {model:'haiku', effort:'low'}))\n"
+                                   "await Promise.all(xs?.flatMap(x => [agent(x, {model:'opus', effort:'high'})]))") or "")
+        # the escape hatch is about routing, not about the form of the fan-out: the call still counts
+        self.assertIn(self.WARNING + "1 agent() call site",
+                      self.context("await parallel(xs.map(x => () => {\n  // routing: inherit\n"
+                                   "  return agent(x, {schema: S})\n}))") or "")
+
+    def test_an_untyped_call_in_a_later_pipeline_stage_is_warned(self):
+        # the first stage is typed and stays silent; the agent() that builds the items runs once
+        script = ("await pipeline(await agent('list them', {model:'haiku', effort:'low'}),\n"
+                  "  g => agent(g, {agentType:'general-purpose', model:'sonnet', effort:'high'}),\n"
+                  "  (r, g) => agent(r, {model:'sonnet', effort:'medium'}))")
+        self.assertIn(self.WARNING + "1 agent() call site", self.context(script) or "")
+
+    def test_an_untyped_call_in_a_for_of_loop_is_warned(self):
+        for script in ("for (const x of args.items) {\n  await agent(x, {model:'haiku', effort:'low'})\n}",
+                       "for (let i = 0; i < n; i++) await agent(`t ${i}`, {model:'haiku', effort:'low'})",
+                       "while (todo.length) {\n  await agent(todo.pop(), {model:'haiku', effort:'low'})\n}",
+                       "await Promise.all(Array.from({length: n}, (_, i) => agent(`t ${i}`, {model:'haiku', effort:'low'})))"):
+            with self.subTest(script=script.split("(", 1)[0]):
+                self.assertIn(self.WARNING + "1 agent() call site", self.context(script) or "")
+
+    def test_a_literal_list_of_separate_calls_is_not_warned(self):
+        # one call per line, a parallel() of literal thunks, the header of a loop and a loop in a prompt run once
+        script = ("const a = await agent('a', {model:'haiku', effort:'low'})\n"
+                  "await parallel([() => agent('b', {model:'haiku', effort:'low'}),\n"
+                  "                () => agent('c', {model:'sonnet', effort:'high'})])\n"
+                  "for (const x of await agent('list', {model:'haiku', effort:'low'})) log(x)\n"
+                  "await agent(`for (const x of xs) items.map(y => y)`, {model:'haiku', effort:'low'}) // xs.map(\n")
+        self.assertUnwarned(script)
+
+    def test_an_opener_in_a_comment_or_template_does_not_make_the_next_call_iterated(self):
+        # the words only matter when they sit between the opener and the call; here the opener is
+        # in text and its closer comes after the call, so reading the raw source would span the call
+        for name, script in (
+                ("comment", "/* items.map( */\nawait agent('a', {model:'haiku', effort:'low'})\n/* ) */"),
+                ("template map", "const p = `see xs.forEach(`\nawait agent(p, {model:'haiku', effort:'low'})\nconst q = `)`"),
+                ("template for", "const p = `for (const x of xs) {`\nawait agent(p, {model:'haiku', effort:'low'})\nconst q = `}`")):
+            with self.subTest(opener=name):
+                self.assertUnwarned(script)
+
+    def test_a_call_with_an_agent_type_is_not_warned(self):
+        # web stages run as general-purpose; any agentType key counts, a variable or a quoted one too
+        for opts in ("{agentType:'general-purpose', model:'sonnet', effort:'high'}",
+                     "{agentType: lens.agentType, model: lens.model, effort: lens.effort}",
+                     "{'agentType': 'agenting:scanner', effort: 'medium'}"):
+            with self.subTest(opts=opts):
+                self.assertUnwarned(f"await parallel(args.lenses.map(lens => () => agent(lens.p, {opts})))")
+
+    def test_the_auto_note_carries_the_warning_in_both_fields_and_no_permission_decision(self):
+        self.record(SID, "--mode", "auto")
+        calls = "\n".join(f"  await agent(`s{i} ${{x}}`, {{model:'haiku', effort:'low'}})" for i in range(12))
+        out = self.guard(f"for (const x of args.items) {{\n{calls}\n}}")
+        warning = out["hookSpecificOutput"]["additionalContext"]
+        self.assertEqual(out["hookSpecificOutput"], {"hookEventName": "PreToolUse", "additionalContext": warning})
+        self.assertTrue(out["systemMessage"].startswith("Workflow routing auto-approved (12 agent() call sites"))
+        self.assertTrue(out["systemMessage"].endswith("\n\n" + warning))
+        self.assertNotIn("permissionDecision", json.dumps(out))
+        self.assertTrue(warning.startswith(self.WARNING + "12 agent() call sites"))
+        self.assertLessEqual(len(warning), 900)
+        for phrase in ('"Clean run or Workflow?"', "scripts/cleanrun.py plan", "skills/agenting/reference/fan-outs.md",
+                       "self-contained", "Read-only", "coordinate", "checkable in code", "Web stages"):
+            self.assertIn(phrase, warning)
+        for banned in ("<", ">", "/Users/", "~/"):
+            self.assertNotIn(banned, warning)
+
+    def test_an_unwarned_auto_run_prints_the_bare_note_byte_for_byte(self):
+        self.record(SID, "--mode", "auto")
+        r = self.run_script(GUARD, stdin=json.dumps(
+            {"session_id": SID, "tool_name": "Workflow", "tool_input": {"script": ROUTED}}))
+        plan = __import__("hashlib").sha256(b"haiku/lowx1").hexdigest()[:12]
+        self.assertEqual(r.stdout, json.dumps({"systemMessage": (
+            f"Workflow routing auto-approved (1 agent() call site, auto mode, plan {plan}) — no --approve "
+            "round-trip needed. Your own Claude Code permission settings, if any, still apply to running "
+            "Workflow itself.")}) + "\n")
+
+    def test_the_manual_deny_carries_the_warning_and_the_same_plan_hash(self):
+        self.record(SID, "--mode", "manual")
+        for session in (SID, "never-seen"):   # mode manual, and no mode recorded at all
+            with self.subTest(session=session):
+                fanned = self.reason(self.guard("await parallel(L.map(x => () => agent(x, {model:'haiku', effort:'low'})))",
+                                                session=session))
+                single = self.reason(self.guard("await agent('x', {model:'haiku', effort:'low'})", session=session))
+                self.assertIn("STAGE 2/2", fanned)
+                head, sep, warning = fanned.partition("\n\n" + self.WARNING)
+                self.assertTrue(sep, fanned)
+                self.assertNotIn(self.WARNING, single)
+                self.assertEqual(head, single)   # the plan signature, the hash and the --approve line are the same
+                self.assertIn("Plan signature: haiku/lowx1", single)
+
+    def test_a_stage_one_denial_carries_no_warning(self):
+        self.record(SID, "--mode", "auto")
+        for script in ("await parallel(xs.map(x => () => agent(x, {schema: S})))",
+                       "xs.map(x => agent(x, {model:'haiku', effort:'low'}))\nawait agent('y', {schema: S})",
+                       "await parallel(xs.map(x => () => agent(x, {schema: S, ...x.route})))",
+                       "xs.map(x => agent(x, {model:'haiku', effort:'low'}))\nconst s = 'oops",
+                       "for (const x of xs) await agent(`use `field` here`, {model:'haiku', effort:'low'})"):
+            with self.subTest(script=script):
+                out = self.guard(script)
+                self.assertEqual(self.decision(out), "deny")
+                self.assertIn("STAGE 1/2", self.reason(out))
+                self.assertNotIn("Clean-run", json.dumps(out))
+                self.assertNotIn("additionalContext", out["hookSpecificOutput"])
+
+    # The seam is the detector's name in the guard's own namespace, run through the real main() and stdin:
+    # 'raise' makes it raise, 'absent' makes it count nothing, 'trace' says on stderr that it ran.
+    DRIVER = ("import importlib.util, sys\n"
+              "spec = importlib.util.spec_from_file_location('guard', sys.argv[1])\n"
+              "guard = importlib.util.module_from_spec(spec)\n"
+              "spec.loader.exec_module(guard)\n"
+              "real = guard.untyped_iterated_calls\n"
+              "def boom(*args):\n"
+              "    raise RuntimeError('clean-run check failed')\n"
+              "def trace(*args):\n"
+              "    print('clean-run check ran', file=sys.stderr)\n"
+              "    return real(*args)\n"
+              "guard.untyped_iterated_calls = {'raise': boom, 'absent': lambda *args: 0, 'trace': trace}[sys.argv[2]]\n"
+              "sys.exit(guard.main())\n")
+
+    def drive(self, how, script):
+        payload = json.dumps({"session_id": SID, "tool_name": "Workflow", "tool_input": {"script": script}})
+        # -B: importing the guard must not leave a __pycache__ in the repo tree
+        return subprocess.run([sys.executable, "-B", "-c", self.DRIVER, str(GUARD), how], input=payload,
+                              capture_output=True, text=True, timeout=20, env=self.env)
+
+    def test_an_already_approved_fan_out_stays_silent(self):
+        self.record(SID, "--mode", "manual")
+        h = re.search(r"--approve (\w+)", self.reason(self.guard(self.FANOUT))).group(1)
+        self.run_script(GUARD, "--approve", h, "--session", SID)
+        r = self.run_script(GUARD, stdin=json.dumps(
+            {"session_id": SID, "tool_name": "Workflow", "tool_input": {"script": self.FANOUT}}))
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))
+        # nothing prints the warning there, so the check does not run: an approved re-run pays nothing for it
+        r = self.drive("trace", self.FANOUT)
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))
+
+    def test_a_failing_clean_run_check_leaves_the_hook_as_it_is_without_the_check(self):
+        for mode in ("auto", "manual"):
+            with self.subTest(mode=mode):
+                self.record(SID, "--mode", mode)
+                runs = {how: self.drive(how, self.FANOUT) for how in ("raise", "absent")}
+                self.assertEqual((runs["raise"].returncode, runs["raise"].stderr), (0, ""))
+                self.assertTrue(runs["raise"].stdout.strip())
+                self.assertEqual(runs["raise"].stdout, runs["absent"].stdout)
+                self.assertNotIn(self.WARNING, runs["raise"].stdout)
+
+    def test_the_clean_run_check_stays_linear_on_deep_nesting_and_many_sites(self):
+        # A hook that outlives its 10 s timeout lets the Workflow launch with no Stage 2 denial. Each shape
+        # took seconds when the check walked to a closing bracket once per match (a 5000-deep map: 7 s),
+        # walked one line once per loop chained on it (4000 loops: 3 s), or tried every span for every
+        # site (16000 sites: 5.6 s), or parsed every one of 2000 nested calls whose slices overlap (3 s, and
+        # 3200 took the whole hook past 10 s). That last shape is skipped, as an oversized script is. It is
+        # timed on its own: the rest of the guard pays its own cost.
+        route = "{model:'haiku', effort:'low'}"
+        shapes = {"deep": ("a.map(() => " * 5000 + f"agent('a', {route})" + ")" * 5000, 1),
+                  "chained": ("for (a) " * 4000 + f"await agent('a', {route})", 1),
+                  "sites": ("\n".join([f"xs.map(x => agent(x, {route}))"] * 16000), 16000),
+                  "nested": ("await parallel(xs.map(x => () =>\n" + "// routing: inherit\nagent(\n" * 2000
+                             + "'p'\n" + ")\n" * 2000 + "))\n", 0)}
+        timer = ("import importlib.util, json, sys, time\n"
+                 "spec = importlib.util.spec_from_file_location('guard', sys.argv[1])\n"
+                 "guard = importlib.util.module_from_spec(spec)\n"
+                 "spec.loader.exec_module(guard)\n"
+                 "src = sys.stdin.read()\n"
+                 "clean = guard.scan_source(src)[0]\n"
+                 "sites = [(s, e) for s, e in guard.find_agent_calls(src, clean) if e is not None]\n"
+                 "t = time.perf_counter()\n"
+                 "n = guard.untyped_iterated_calls(src, clean, sites)\n"
+                 "print(json.dumps([n, time.perf_counter() - t]))\n")
+        for name, (script, count) in shapes.items():
+            with self.subTest(shape=name):
+                r = subprocess.run([sys.executable, "-B", "-c", timer, str(GUARD)], input=script,
+                                   capture_output=True, text=True, timeout=60, env=self.env)
+                n, seconds = json.loads(r.stdout)
+                self.assertEqual(n, count)   # fast and still right
+                self.assertLess(seconds, 1.0)
+        # through the hook, the deep script's denial is the one with no check plus the warning
+        self.record(SID, "--mode", "manual")
+        checked, unchecked = (json.loads(self.drive(how, shapes["deep"][0]).stdout) for how in ("trace", "absent"))
+        head, sep, warning = self.reason(checked).partition("\n\n" + self.WARNING)
+        self.assertEqual((head, bool(sep)), (self.reason(unchecked), True))
+        self.assertEqual(checked["systemMessage"], unchecked["systemMessage"])
+
+    def test_a_script_over_the_size_cap_is_not_checked(self):
+        # far past any real script (the largest seen is 50 KB): no warning rather than a slow hook
+        self.record(SID, "--mode", "auto")
+        padding = "// " + "x" * 1_000_000 + "\n"
+        out = self.guard(padding + self.FANOUT)
+        self.assertIn("auto-approved", out["systemMessage"])
+        self.assertNotIn("hookSpecificOutput", out)
+        self.assertIn(self.WARNING, json.dumps(self.guard(self.FANOUT)))   # the same fan-out under the cap
 
 
 class StageTwoResumedChat(GuardCase):

@@ -188,6 +188,13 @@ or when no mode can be found for the session (a resumed chat's new id is looked
 up through the `[agenting]` line in its own transcript first): a routed plan not
 yet approved in this session; ask, apply, run its `--approve` command. Changing
 any tier asks again. In auto mode Stage 2 steps aside with a system message.
+Once Stage 1 passes, the guard also warns, never blocks, when a call site with no
+`agentType` runs once per item (inside `map`, `forEach`, `flatMap`, a `pipeline`
+stage, `Array.from`, or a `for` or `while` body): a paragraph starting
+"Clean-run check:" names the count and the clean-run conditions of step 2. A
+typed call (web stages use `general-purpose`) and a literal list of calls are
+silent. The warning changes no decision and no plan hash; an approved plan and a
+Stage 1 denial carry none.
 
 ## Deliberate inheritance
 
@@ -231,6 +238,12 @@ observed, and the levers that exist (fewer agents with code-side validation;
 `agenting:` agents with a narrow tool list; and, for many self-contained tasks,
 clean `claude -p` runs through `scripts/cleanrun.py`, 63% cheaper per task on one
 pipeline). Every figure there is a list price; the usage-window effect was not measured.
+When a Workflow fans out untyped calls, the guard's clean-run warning says so
+without blocking: in manual mode it is part of the Stage 2 denial, read before
+the launch; in auto mode its `systemMessage` is shown to the user only, and its
+`additionalContext` reaches the model with the Workflow launch result, after
+the agents have started (checked for the main session; a Workflow launched from
+inside a subagent may not deliver it).
 
 ## Session settings
 

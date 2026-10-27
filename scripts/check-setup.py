@@ -361,7 +361,8 @@ if guard and continuity:
     # CONTRACT docstring) -- that would override the user's own Claude Code
     # permission settings for Workflow, not just this plugin's routing
     # opinion. So the auto-mode bypass is a bare {"systemMessage": ...} with
-    # no hookSpecificOutput at all, distinct from both "deny" (has
+    # no hookSpecificOutput at all (unless the clean-run check warns, which
+    # this routed script does not), distinct from both "deny" (has
     # hookSpecificOutput.permissionDecision == "deny") and the pre-existing
     # silent pass-through (empty stdout, no opinion, no message).
     def stage2_result(script, session):

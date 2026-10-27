@@ -850,7 +850,8 @@ Feature: The Workflow routing gate denies unrouted agent() calls and asks for pl
     When the routing guard runs
     Then the systemMessage contains "2 agent() call sites"
     And the systemMessage does not contain "2 agents"
-    And the output has no hookSpecificOutput
+    And the output text does not contain "permissionDecision"
+    # The loop's call has no agentType, so the note also carries the clean-run warning (below).
 
   @gap @wip
   # Backed by: @gap
@@ -872,6 +873,128 @@ Feature: The Workflow routing gate denies unrouted agent() calls and asks for pl
     And no mode is recorded for "guard-test-session"
     When the routing guard runs for "guard-test-session" on a routed script
     Then permissionDecision is "deny"
+
+  # ---------------------------------------------------------------- clean-run check (a warning, never a decision)
+  # On 2026-10-27 a 19-agent fan-out ran as generic Workflow agents although every task was
+  # self-contained and Read-only. After Stage 1 passes, an agent() call site with no agentType key that
+  # runs once per item is counted, and a paragraph starting "Clean-run check: " names the count and the
+  # conditions for scripts/cleanrun.py. It never changes a decision or the plan signature.
+
+  # Backed by: tests/test_routing_guard.py::test_an_untyped_call_in_a_map_callback_is_warned
+  Scenario: An untyped call in a map callback is warned
+    Given the session record for "guard-test-session" has mode auto
+    And a Workflow script "await parallel(args.items.map(x => () => agent(x, {model:'haiku', effort:'low'})))"
+    When the routing guard runs
+    Then the additionalContext contains "Clean-run check: 1 agent() call site in this script has no agentType"
+    And a script with one untyped call in a forEach callback and one in a flatMap callback is warned with "2 agent() call sites"
+    And a map() fan-out whose call is marked "// routing: inherit" is warned with "1 agent() call site"
+
+  # Backed by: tests/test_routing_guard.py::test_an_untyped_call_in_a_later_pipeline_stage_is_warned
+  Scenario: An untyped call in a later pipeline stage is warned and the call that builds the items is not
+    Given the session record for "guard-test-session" has mode auto
+    And a Workflow script "await pipeline(await agent('list them', ...), g => agent(g, {agentType:'general-purpose', ...}), (r, g) => agent(r, {model:'sonnet', effort:'medium'}))"
+    When the routing guard runs
+    Then the additionalContext contains "Clean-run check: 1 agent() call site"
+
+  # Backed by: tests/test_routing_guard.py::test_an_untyped_call_in_a_for_of_loop_is_warned
+  Scenario: An untyped call in a loop body is warned
+    Given the session record for "guard-test-session" has mode auto
+    And Workflow scripts with one untyped routed call in the body of "for (const x of args.items)", of "for (let i = 0; i < n; i++)", of "while (todo.length)", and in the function of "Array.from({length: n}, ...)"
+    When the routing guard runs on each
+    Then each additionalContext contains "Clean-run check: 1 agent() call site"
+
+  # Backed by: tests/test_routing_guard.py::test_a_literal_list_of_separate_calls_is_not_warned
+  Scenario: A literal list of separate calls is not warned
+    Given the session record for "guard-test-session" has mode auto
+    And a Workflow script with one call per line, a parallel() of two literal thunks, a call in a for loop's header, and the words "for (const x of xs)" and "items.map(" only in a template and a comment
+    When the routing guard runs
+    Then the systemMessage contains "auto-approved"
+    And the output has no hookSpecificOutput key at all
+
+  # Backed by: tests/test_routing_guard.py::test_an_opener_in_a_comment_or_template_does_not_make_the_next_call_iterated
+  Scenario: An opener in a comment or template does not make the next call iterated
+    Given the session record for "guard-test-session" has mode auto
+    And a Workflow script with one call between a comment or template that holds "items.map(", "xs.forEach(" or "for (const x of xs) {" and a later one that holds the matching closer
+    When the routing guard runs on each
+    Then the systemMessage contains "auto-approved"
+    And the output has no hookSpecificOutput key at all
+
+  # Backed by: tests/test_routing_guard.py::test_a_call_with_an_agent_type_is_not_warned
+  Scenario: A call with any agentType key is not warned
+    Given the session record for "guard-test-session" has mode auto
+    And a map() fan-out whose options hold "agentType:'general-purpose'", "agentType: lens.agentType" or "'agentType': 'agenting:scanner'"
+    When the routing guard runs on each
+    Then the systemMessage contains "auto-approved"
+    And the output has no hookSpecificOutput key at all
+
+  # Backed by: tests/test_routing_guard.py::test_the_auto_note_carries_the_warning_in_both_fields_and_no_permission_decision
+  Scenario: The auto note carries the warning in systemMessage and additionalContext and no permissionDecision
+    Given the session record for "guard-test-session" has mode auto
+    And a Workflow script with 12 untyped routed calls inside a for...of loop
+    When the routing guard runs
+    Then hookSpecificOutput is exactly hookEventName "PreToolUse" and additionalContext
+    And the systemMessage starts with "Workflow routing auto-approved (12 agent() call sites" and ends with a blank line and the additionalContext
+    And the output text does not contain "permissionDecision"
+    And the additionalContext starts with "Clean-run check: 12 agent() call sites" and is at most 900 characters
+    And it contains "\"Clean run or Workflow?\"", "scripts/cleanrun.py plan" and "skills/agenting/reference/fan-outs.md", and no "<", ">" or local path
+
+  # Backed by: tests/test_routing_guard.py::test_an_unwarned_auto_run_prints_the_bare_note_byte_for_byte
+  Scenario: An unwarned auto run prints the bare note byte for byte
+    Given the session record for "guard-test-session" has mode auto
+    When the routing guard runs on "await agent('x', {model:'haiku', effort:'low'})"
+    Then stdout is exactly the JSON object with only the systemMessage "Workflow routing auto-approved (1 agent() call site, auto mode, plan <first 12 hex of sha256 of haiku/lowx1>) — no --approve round-trip needed. Your own Claude Code permission settings, if any, still apply to running Workflow itself." and a newline
+
+  # Backed by: tests/test_routing_guard.py::test_the_manual_deny_carries_the_warning_and_the_same_plan_hash
+  Scenario: The manual deny reason carries the warning while the plan hash stays the same
+    Given the session record for "guard-test-session" has mode manual
+    And the scripts "await parallel(L.map(x => () => agent(x, {model:'haiku', effort:'low'})))" and "await agent('x', {model:'haiku', effort:'low'})"
+    When the routing guard runs on each, for "guard-test-session" and for a session with no recorded mode
+    Then the first reason is the second reason followed by a blank line and "Clean-run check: "
+    And the second reason contains "Plan signature: haiku/lowx1"
+
+  # Backed by: tests/test_routing_guard.py::test_a_stage_one_denial_carries_no_warning
+  Scenario: A Stage 1 denial carries no warning
+    Given the session record for "guard-test-session" has mode auto
+    And Workflow scripts with an unrouted call in a map callback, with an unrouted call next to an untyped routed one in a map callback, with routing only inside a spread in a map callback, with a string that never closes after a map() fan-out, and with a stray backtick in a loop's prompt
+    When the routing guard runs on each
+    Then permissionDecision is "deny" and the reason contains "STAGE 1/2"
+    And the output text does not contain "Clean-run"
+
+  # Backed by: tests/test_routing_guard.py::test_an_already_approved_fan_out_stays_silent
+  Scenario: An already approved fan-out plan stays silent
+    Given the session record for "guard-test-session" has mode manual
+    And the plan of "await parallel(args.items.map(x => () => agent(x, {model:'haiku', effort:'low'})))" was approved with --approve
+    When the routing guard runs on it again
+    Then the exit code is 0
+    And stdout and stderr are empty
+    And with the guard's untyped_iterated_calls replaced by one that reports on stderr that it ran, stderr is still empty
+
+  # Backed by: tests/test_routing_guard.py::test_a_failing_clean_run_check_leaves_the_hook_as_it_is_without_the_check
+  Scenario: A clean-run check that raises leaves the hook as it is without the check
+    Given the guard's untyped_iterated_calls is replaced by one that raises, through the real main() and stdin
+    And the session record for "guard-test-session" has mode auto, and then mode manual
+    When the routing guard runs on an untyped map() fan-out
+    Then the exit code is 0 and stderr is empty
+    And stdout is the same as when untyped_iterated_calls counts nothing
+
+  # Backed by: tests/test_routing_guard.py::test_the_clean_run_check_stays_linear_on_deep_nesting_and_many_sites
+  Scenario: The clean-run check stays linear on deep nesting, chained loops, many call sites and nested calls
+    # A hook that outlives its 10 s timeout lets the Workflow launch with no Stage 2 denial. Nested calls
+    # overlap, so parsing each one costs depth times length: past 1000000 characters of call slices the
+    # check is skipped, as an oversized script is.
+    Given a script with an untyped call 5000 map() callbacks deep, one with 4000 for loops chained on one line, one with 16000 untyped map() call sites, and one map() callback holding 2000 nested agent() calls each marked "// routing: inherit"
+    When the guard's untyped_iterated_calls runs on each
+    Then it counts 1, 1, 16000 and 0 call sites, each in under 1 second
+    And with mode manual, the deep script's deny reason is the one with untyped_iterated_calls counting nothing, followed by a blank line and "Clean-run check: "
+
+  # Backed by: tests/test_routing_guard.py::test_a_script_over_the_size_cap_is_not_checked
+  Scenario: A script over the clean-run size cap is not checked
+    Given the session record for "guard-test-session" has mode auto
+    And an untyped map() fan-out after a comment of 1000000 characters
+    When the routing guard runs
+    Then the systemMessage contains "auto-approved"
+    And the output has no hookSpecificOutput
+    And the same fan-out without the comment carries "Clean-run check: "
 
   # ---------------------------------------------------------------- mode lookup for a resumed or forked chat
 

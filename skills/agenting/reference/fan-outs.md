@@ -78,3 +78,6 @@ use might be about equal. Treat the saving as list-price only.
 - **Order of use:** `cleanrun.py plan` (what runs, what resumes, the cost bound), then
   `run`, then `status`. Its money rules (soft per-run cap, `--max-usd` for new
   launches only, unknown cost charged at the cap) are in its docstring.
+- **The routing guard asks the question too:** a Workflow whose untyped `agent()`
+  call runs once per item (a `map` callback, a `pipeline` stage, a loop body) gets a
+  "Clean-run check:" warning that never blocks it; a typed call is silent.

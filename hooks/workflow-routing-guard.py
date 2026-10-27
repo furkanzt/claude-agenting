@@ -64,6 +64,28 @@ TWO-STAGE GATE
 The same plan re-run in the same session passes silently. Change any tier and
 the signature changes, so it asks again (except in auto mode, which never asks).
 
+CLEAN-RUN CHECK (a warning, never a decision)
+---------------------------------------------
+On 2026-10-27 a 19-agent fan-out ran as generic Workflow agents although every
+task was self-contained and Read-only, the shape scripts/cleanrun.py runs as
+clean `claude -p` processes; the guard checked routing only, so nothing asked.
+Once Stage 1 passes, an agent() call site with no agentType key that sits in an
+iterating construct (a map/forEach/flatMap callback, a pipeline() stage, the
+second argument of Array.from, the body of a for or while loop) is counted, and
+a short factual paragraph names the count and the conditions for a clean run.
+A typed call is silent (web stages use agentType general-purpose), and so is a
+literal list of separate calls. The paragraph never changes a decision or the
+plan signature: auto mode appends it to the note (where the model gets it with
+the Workflow's result, after the launch), the Stage 2 denial appends it to its
+reason (the one channel the model reads before the launch), and the approved
+silent pass-through and every Stage 1 denial carry none, and do not run it. If
+the check raises, there is no warning. Its work is linear in the script's length
+plus the length of the agent() calls it parses, and it is skipped when either
+passes CLEAN_RUN_MAX_CHARS (nested calls overlap, so their summed length grows
+with depth times length), so its own cost stays bounded and does not push the
+hook toward its timeout: a hook that times out lets the Workflow launch, Stage 2
+denial or not.
+
 SINGLE Agent CALLS ARE OUT OF SCOPE
 -----------------------------------
 Deliberate: every agent definition in this plugin's agents/ pins both model and
@@ -81,10 +103,14 @@ OUTPUT CONTRACT
 ---------------
 PreToolUse -> hookSpecificOutput.permissionDecision ("deny" only -- this
               file never emits "allow"/"ask") + permissionDecisionReason, OR
-              a bare `{"systemMessage": ...}` with NO hookSpecificOutput at
-              all (the auto-mode bypass note() -- a visible remark with no
-              permission opinion), OR truly empty stdout (every other
-              pass-through case: "nothing to say about this call").
+              the auto-mode bypass note(): `{"systemMessage": ...}` (a remark
+              shown to the user only, with no permission opinion), plus, only
+              when the clean-run check warns, a hookSpecificOutput holding
+              nothing but hookEventName "PreToolUse" and additionalContext
+              (the warning, which reaches the model with the Workflow's
+              result; still no permissionDecision and no reason), OR truly
+              empty stdout (every other pass-through case: "nothing to say
+              about this call").
               permissionDecision:"allow" is deliberately never used, because
               it would override the user's OWN Claude Code permission
               settings for the Workflow tool, not just this plugin's routing
@@ -92,6 +118,7 @@ PreToolUse -> hookSpecificOutput.permissionDecision ("deny" only -- this
 """
 
 import argparse
+import bisect
 import functools
 import hashlib
 import json
@@ -699,6 +726,159 @@ def per_item_tier(rows):
     return tuple(side[0] if len(set(side)) == 1 else "|".join(side) for side in zip(*pairs))
 
 
+# ------------------------------------------- clean-run check (untyped agent() calls that fan out)
+#
+# Wider than loops() on purpose: loops() must stay narrow because a Stage 1 cause rests on it (a bare-name
+# list, `(item)` callbacks, the first pipeline stage only), while this only has to know that a call runs
+# once per item. So any receiver counts (`args.items.map(`, `xs?.map(`), any callback, every pipeline
+# stage. It reads the stripped text as loops() does, so a word in a prompt, a comment or a regex is not
+# a loop. A call in a helper defined outside the loop and called from it is not seen.
+
+ITERATING_METHOD = re.compile(r"\.\s*(?:map|forEach|flatMap)\s*\(")
+# pipeline(items, ...stages) and Array.from({length: n}, fn): only what follows the first argument runs
+# per item; a call that builds the items runs once.
+ITERATING_CALL = re.compile(r"(?<![\w.$])(?:pipeline|Array\s*\.\s*from)\s*\(")
+LOOP_HEAD = re.compile(r"(?<![\w.$])(?:for(?:\s+await)?|while)\s*\(")
+BRACKET = re.compile(r"[()\[\]{}]")
+ARGUMENT_STOP = re.compile(r"[(\[{,]")
+STATEMENT_STOP = re.compile(r"[()\[\]{},;\n]")
+# The check is advisory and the hook has 10 s. Every step below is linear, and past this size (20 times
+# the largest script seen), in the script or in the call slices it would parse, it is skipped rather
+# than risk the timeout, which would let the Workflow launch with no Stage 2 denial at all.
+CLEAN_RUN_MAX_CHARS = 1_000_000
+
+
+def bracket_closes(clean: str) -> dict:
+    """close_of for every bracket in one pass: opener index -> index just past its closer, or None.
+    Calling close_of once per match costs nesting depth times length, which a deeply nested script
+    turns into seconds."""
+    closes, stack = {}, []
+    for m in BRACKET.finditer(clean):
+        if m.group() in "([{":
+            closes[m.start()] = None
+            stack.append(m.start())
+        elif stack:
+            closes[stack.pop()] = m.end()
+    return closes
+
+
+def after_first_argument(clean: str, closes: dict, open_at: int, close: int):
+    """Index just past the first top-level comma in the call whose `(` is at clean[open_at], or None.
+    Every bracket inside a call that closes closes inside it, so each one is jumped, not walked."""
+    j = open_at + 1
+    while m := ARGUMENT_STOP.search(clean, j, close - 1):
+        if m.group() == ",":
+            return m.end()
+        j = closes[m.start()]
+    return None
+
+
+def loop_bodies(clean: str, closes: dict, header_ends):
+    """body_span(clean, i, statement=True) for each loop header end i, without its per-call scans. A
+    braceless body ends at the first `,` `;` newline or unmatched closer at its own depth, so loops
+    chained on one line (`for (a) for (b) ...`) would each walk the same text: the walk from a bracket
+    onwards is the same whatever the start, so where it ends is kept per bracket and reused."""
+    ends, bodies = {}, {}
+    for i in sorted(header_ends, reverse=True):
+        start = i
+        while start < len(clean) and clean[start].isspace():
+            start += 1
+        if clean.startswith("{", start):
+            bodies[i] = (start, closes[start] or len(clean))
+            continue
+        passed, j, end = [], start, len(clean)
+        while m := STATEMENT_STOP.search(clean, j):
+            if m.group() not in "([{":
+                end = m.start()
+                break
+            if m.start() in ends:
+                end = ends[m.start()]
+                break
+            passed.append(m.start())
+            if closes[m.start()] is None:
+                break   # never closes, so the body runs to the end of the script
+            j = closes[m.start()]
+        for k in passed:
+            ends[k] = end
+        bodies[i] = (start, end)
+    return [bodies[i] for i in header_ends]
+
+
+def iterating_spans(clean: str):
+    """(start, end) of every stretch of code that runs once per item: the arguments of a map, forEach
+    or flatMap call, the stages of a pipeline, Array.from's function, and a for or while loop's body
+    (not its header, which runs once)."""
+    closes = bracket_closes(clean)
+    spans = []
+    for m in ITERATING_METHOD.finditer(clean):
+        if end := closes[m.end() - 1]:
+            spans.append((m.end(), end))
+    for m in ITERATING_CALL.finditer(clean):
+        end = closes[m.end() - 1]
+        if end and (start := after_first_argument(clean, closes, m.end() - 1, end)):
+            spans.append((start, end))
+    header_ends = [end for m in LOOP_HEAD.finditer(clean) if (end := closes[m.end() - 1])]
+    spans.extend(loop_bodies(clean, closes, header_ends))
+    return spans
+
+
+def untyped_iterated_calls(src: str, clean: str, sites) -> int:
+    """How many of the call sites ((start, end) of each agent(...) call) sit in an iterating stretch
+    and have no agentType key. Any agentType key makes a site typed, whatever its value; an escape
+    hatch does not, since it is about routing, not about the form the fan-out takes."""
+    if len(clean) > CLEAN_RUN_MAX_CHARS:
+        return 0
+    # A site sits in some span when the furthest end among the spans that start at or before it lies
+    # past it: one sort and a bisect per site, not every span for every site.
+    spans = sorted(iterating_spans(clean))
+    starts, reach, furthest = [a for a, _ in spans], [], 0
+    for _, b in spans:
+        furthest = max(furthest, b)
+        reach.append(furthest)
+    inside = [(start, end) for start, end in sites
+              if (k := bisect.bisect_right(starts, start)) and reach[k - 1] > start]
+    # Nested calls overlap, so parsing each one's slice costs nesting depth times length: 3200 nested
+    # calls in a 93 KB script took the hook past 10 s. Past the same budget as the script itself, skip.
+    if sum(end - start for start, end in inside) > CLEAN_RUN_MAX_CHARS:
+        return 0
+    n = 0
+    for start, end in inside:
+        clean_call, raw_call = clean[start:end], src[start:end]
+        span = opts_span(clean_call)
+        keys = top_level_keys(clean_call[span[0] : span[1]], raw_call[span[0] : span[1]]) if span else {}
+        n += "agentType" not in keys
+    return n
+
+
+def clean_run_warning(src: str, clean: str, sites) -> str:
+    """The clean-run paragraph for this script, or '' when no untyped call site fans out. Stated as
+    facts, not orders: the model gets it as context, and an order framed as out-of-band text tends to
+    be repeated to the user rather than used."""
+    n = untyped_iterated_calls(src, clean, sites)
+    if not n:
+        return ""
+    return (
+        f"Clean-run check: {call_sites(n)} in this script {'has' if n == 1 else 'have'} no agentType and "
+        f"{'sits' if n == 1 else 'sit'} inside a loop, a map() callback or a pipeline() stage, so "
+        f"{'it runs' if n == 1 else 'each runs'} once per item as a generic Workflow subagent that writes "
+        f"a large start-up context to cache (measured figures: skills/agenting/reference/fan-outs.md). A fan-out whose tasks are "
+        f"self-contained, Read-only, do not coordinate within a batch and have output checkable in code "
+        f"can run as clean claude -p processes instead. Web stages and coordinating stages do not "
+        f"qualify; for them nothing needs to change. The choice is step 2, \"Clean run or Workflow?\", of "
+        f"the agenting skill Procedure; scripts/cleanrun.py plan shows what a clean run would launch."
+    )
+
+
+def checked_clean_run_warning(src: str, clean: str, sites) -> str:
+    """clean_run_warning, or '' if it raises. Called only on the two paths that print it (the auto
+    note and the Stage 2 denial), so an approved re-run does not pay for it. A warning, never a
+    decision: whatever goes wrong in it, the hook answers as it would without it."""
+    try:
+        return clean_run_warning(src, clean, sites)
+    except Exception:
+        return ""
+
+
 def has_escape_hatch(src: str, start: int, comments) -> bool:
     """True if a comment on this line or the one above it says `routing: inherit`. The words in a
     string or a prompt do not count (`Explain why routing: inherit is risky`)."""
@@ -859,7 +1039,7 @@ def deny(reason: str, system_msg: str) -> int:
     return 0
 
 
-def note(system_msg: str) -> int:
+def note(system_msg: str, context: str = "") -> int:
     """No permission opinion -- deliberately does NOT set permissionDecision,
     unlike deny(). This hook's job is Workflow ROUTING approval only; whether
     the Workflow tool may run at all is the user's own Claude Code permission
@@ -871,14 +1051,16 @@ def note(system_msg: str) -> int:
     settings" (which nothing in this file should ever do). Used only for the
     auto-mode Stage-2 bypass, so the auto-approval is visible via
     systemMessage instead of being a silent no-op, without touching the
-    underlying permission decision."""
-    print(
-        json.dumps(
-            {
-                "systemMessage": system_msg,
-            }
-        )
-    )
+    underlying permission decision.
+
+    systemMessage is shown to the user only. `context` (the clean-run warning)
+    goes in additionalContext as well, the field that reaches the model; with
+    no permissionDecision beside it, it arrives with the Workflow's result.
+    Without it the output is the bare systemMessage, as before the check."""
+    out = {"systemMessage": system_msg}
+    if context:
+        out["hookSpecificOutput"] = {"hookEventName": "PreToolUse", "additionalContext": context}
+    print(json.dumps(out))
     return 0
 
 
@@ -897,11 +1079,12 @@ def run_hook() -> int:
         return 0  # cannot inspect it, so do not block it
 
     clean, problem, comments = scan_source(src)
-    unrouted, tiers = [], []
+    unrouted, tiers, sites = [], [], []
     for start, end in find_agent_calls(src, clean):
         if end is None:
             problem = problem or (start, "this agent( call's parentheses never close")
             continue
+        sites.append((start, end))
         if has_escape_hatch(src, start, comments):
             tiers.append(("inherit", "inherit"))
             continue
@@ -1012,15 +1195,19 @@ For deliberate inheritance, put `// {ESCAPE_HATCH}` on that line or the one abov
     mode, origin = session_mode(session, payload.get("transcript_path"))
     if mode == "auto":
         carried = f", mode carried over from session {origin}" if origin else ""
+        warning = checked_clean_run_warning(src, clean, sites)
         return note(
             f"Workflow routing auto-approved ({call_sites(len(tiers))}, auto mode{carried}, "
             f"plan {h}) — no --approve round-trip needed. Your own Claude Code "
             f"permission settings, if any, still apply to running Workflow itself."
+            + (f"\n\n{warning}" if warning else ""),
+            warning,
         )
 
     if h in load_approvals().get(session, []):
         return 0  # this plan was already approved in this session
 
+    warning = checked_clean_run_warning(src, clean, sites)
     counts = {}
     for model, effort in tiers:
         counts[(model, effort)] = counts.get((model, effort), 0) + 1
@@ -1058,7 +1245,8 @@ DO THIS, in order:
        python3 "{SELF_PATH}" --approve {h} --session {session}
   4. Run the Workflow again.
 
-The same plan re-run in this session will not ask again.""",
+The same plan re-run in this session will not ask again."""
+        + (f"\n\n{warning}" if warning else ""),
         f"Workflow stopped (2/2): a routing plan with {call_sites(len(tiers))} is awaiting approval.",
     )
 
