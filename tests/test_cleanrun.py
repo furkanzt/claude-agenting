@@ -312,6 +312,17 @@ class Resume(Case):
         self.run_cli(self.args())
         self.assertEqual(len(self.calls()), 2)
 
+    def test_a_flat_read_only_tasks_run_key_is_pinned(self):
+        # Release 3.3.4 wrote this key for these inputs, and finished out-dirs on disk carry it. A change
+        # that moves it makes every resumable task rerun at full price, so a new input may enter the key
+        # only when a run uses it, and KEY_VERSION stays put.
+        (self.d / "page.txt").write_text("data", encoding="utf-8")
+        self.tasks(["first"], files={0: ["page.txt"]})
+        r = self.run_cli(self.args("--tools", "Read"))
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        saved = json.loads((self.out / "outputs" / "t0.json").read_text(encoding="utf-8"))
+        self.assertEqual(saved["key"], "276e916802a89618a91fb043338e79ee870da432a7fb3c737b963cb2b8ef8e71")
+
     def test_a_saved_output_that_no_longer_validates_is_rerun(self):
         self.tasks(["a"])
         self.run_cli(self.args())

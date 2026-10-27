@@ -322,6 +322,12 @@ Feature: Clean runs fan a set of self-contained tasks out as separate claude -p 
     When "page.txt" is changed to contain "v2" and I run again
     Then claude is launched a second time
 
+  # Backed by: tests/test_cleanrun.py::test_a_flat_read_only_tasks_run_key_is_pinned
+  Scenario: A flat Read-only task keeps the run key release 3.3.4 gave it
+    Given one task with the prompt "first" and the file "page.txt" containing "data", run with --tools Read, model claude-opus-5-5, effort xhigh and the test's fixed system prompt, schema and validator
+    When the run finishes and I read outputs/t0.json
+    Then "key" equals 276e916802a89618a91fb043338e79ee870da432a7fb3c737b963cb2b8ef8e71, the key release 3.3.4 produced for these inputs, so finished out-dirs keep resuming
+
   # Backed by: tests/test_cleanrun.py::test_a_tightened_validator_reruns_its_tasks
   Scenario: A changed validator source reruns the finished tasks
     Given a finished run of one task
