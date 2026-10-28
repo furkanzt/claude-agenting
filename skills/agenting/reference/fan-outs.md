@@ -67,16 +67,18 @@ usage-window effect is not measured, and it cannot be measured locally on an acc
 that other computers share; one rough, confounded reading suggested per-task window
 use might be about equal. Treat the saving as list-price only.
 
-**Read-heavy tasks: the saving is untested.** The 63% comes from short tasks, where the
-start-up is most of the cost. Tasks that each read many pages of a book over 19 to 31
-calls pay it once and then spend most of their cost on the reading, so the saving is
-smaller. A list-price model of one 19-agent fan-out of that kind (tokens counted from its
-own transcripts, a clean run assumed to drop 26k to 40k tokens of harness context per
-call) put it at about 8 to 12% for the Opus xhigh readers and 12 to 19% for the whole
-fan-out. That is an estimate: no clean run of those tasks has been compared with the
-Workflow run, and the Workflow readers also used Bash to check pages, which a Read-only
-clean run cannot do, so a measured gap would mix start-up with lost self-checking. Do not
-quote 63% for read-heavy tasks.
+**Read-heavy tasks: observed on one unit.** The 63% comes from short tasks, where the
+start-up is most of the cost. One unit of a read-heavy fan-out (readers of a 23-page range of a
+book PDF: Opus at xhigh, and Sonnet at high) was run both ways, with Read as the only tool for
+the clean runs. At list price the clean runs cost 41% and 56% less for the Opus reader and 50%
+and 51% less for the Sonnet reader than the Workflow run, and every answer passed the code
+checks and matched the Workflow result on the fields compared. Read it as about half on that
+unit, not 63%, and as observed, not measured: the Workflow readers made 30 calls and ran Bash
+32 times to check their own pages, which a Read-only run cannot do, while the clean runs took
+12 to 13 turns, so most of the saving is fewer turns and not a smaller start-up. The Workflow
+side is a single run and its cost varied by nearly a factor of two between units. An earlier
+model that put the saving at 8 to 19% was too low. Method and numbers:
+`evals/research/2026-10-28-clean-run-read-heavy-unit.md`.
 
 - **Use it when all of these hold:** each task is its files plus one prompt; it needs
   no session context and no tools beyond Read; the tasks do not coordinate; the

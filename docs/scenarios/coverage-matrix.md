@@ -482,7 +482,7 @@
 | The worked example's commands run as written against the stub | — | `tests/test_skill_docs.py::test_the_commands_run_as_written_against_the_stub` | ✅ ARMED |
 | Fan-out guidance contains both the list-price and usage-window phrases | — | `tests/test_skill_docs.py::test_every_saving_is_a_list_price_and_the_window_caveat_travels_with_it` | ✅ ARMED |
 | The clean-run guidance says its saving is list price only | — | `tests/test_skill_docs.py::test_clean_run_guidance_says_the_saving_is_list_price_only` | ✅ ARMED |
-| The clean-run guidance does not claim its measured saving for read-heavy tasks | — | `tests/test_skill_docs.py::test_the_clean_run_saving_is_not_claimed_for_read_heavy_tasks` | ✅ ARMED |
+| The clean-run guidance reports the read-heavy saving as observed on one unit, with its confound and its source | — | `tests/test_skill_docs.py::test_the_read_heavy_clean_run_saving_is_reported_with_its_confound_and_its_source` | ✅ ARMED |
 | Withdrawn and single-observation figures stay out of the docs | — | `tests/test_skill_docs.py::test_no_withdrawn_or_single_observation_figures` | ✅ ARMED |
 | Every numbered lever in the fan-out guidance carries an evidence tag | — | `tests/test_skill_docs.py::test_levers_carry_an_evidence_tag` | ✅ ARMED |
 | The advisor is stated as a fact, not offered as a proposal | — | `tests/test_skill_docs.py::test_advisor_is_stated_as_a_fact_not_a_proposal` | ✅ ARMED |

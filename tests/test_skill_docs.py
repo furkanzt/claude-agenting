@@ -165,15 +165,21 @@ class FanOutGuidance(unittest.TestCase):
         self.assertIn("window effect is not measured", section)
         self.assertIn("refuses aliases", section)
 
-    def test_the_clean_run_saving_is_not_claimed_for_read_heavy_tasks(self):
-        # 2026-10-28: the 63% was measured on short tasks; a model of one read-heavy 19-agent
-        # fan-out put the saving near a tenth, so the section must say it is untested there
+    def test_the_read_heavy_clean_run_saving_is_reported_with_its_confound_and_its_source(self):
+        # 2026-10-28: the 63% was measured on short tasks. One read-heavy unit was then run both ways at a
+        # cost of a few dollars: about half, but confounded (the Workflow readers self-checked with Bash,
+        # the clean runs took far fewer turns) and a single Workflow sample, so it must not read as 63%
+        # or as proof of a start-up saving
         section = " ".join(self.text.split("## Clean runs", 1)[1].split())
-        for phrase in ("Read-heavy tasks: the saving is untested",
-                       "no clean run of those tasks has been compared with the Workflow run",
-                       "Do not quote 63% for read-heavy tasks"):
+        for phrase in ("Read-heavy tasks: observed on one unit",
+                       "about half on that unit, not 63%",
+                       "observed, not measured",
+                       "most of the saving is fewer turns and not a smaller start-up",
+                       "The Workflow side is a single run",
+                       "evals/research/2026-10-28-clean-run-read-heavy-unit.md"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, section)
+        self.assertTrue((ROOT / "evals" / "research" / "2026-10-28-clean-run-read-heavy-unit.md").is_file())
 
     def test_advisor_is_stated_as_a_fact_not_a_proposal(self):
         self.assertIn("do not raise it", self.text)

@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- **`reference/fan-outs.md`: the saving for read-heavy tasks is now observed on one unit, no longer untested.** One
+  unit of a read-heavy fan-out (readers of a 23-page book range, Opus at xhigh and Sonnet at high) was run both ways
+  for 4.57 dollars in all. At list price the clean runs cost 41% and 56% less (Opus reader) and about 50% less (Sonnet
+  reader) than the Workflow run, and every answer passed the code checks. The section reads it as about half on that
+  unit, not 63%, and as observed rather than measured: the Workflow readers self-checked with Bash, which a Read-only
+  clean run cannot, the clean runs took 12 to 13 turns against 30 calls, and the Workflow side is one run. This
+  replaces the 3.4.0 wording that called it untested. Method and numbers:
+  `evals/research/2026-10-28-clean-run-read-heavy-unit.md`.
+
 ## 3.4.0 — 2026-10-28 (clean runs: a guard warning, three `cleanrun.py` options, chunked input hashing)
 
 Prompted by a 19-agent fan-out that ran as generic Workflow subagents on 2026-10-27 although every task was
