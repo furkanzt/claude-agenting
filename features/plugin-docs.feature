@@ -143,6 +143,14 @@ Feature: Plugin packaging, agent pins and doc invariants stay consistent, becaus
     When it is searched
     Then it contains "list-price only", "window effect is not measured" and "refuses aliases"
 
+  # Backed by: tests/test_skill_docs.py::test_the_clean_run_saving_is_not_claimed_for_read_heavy_tasks
+  Scenario: The clean-run guidance does not claim its measured saving for read-heavy tasks
+    Given the "Clean runs" section of reference/fan-outs.md
+    When it is searched
+    Then it says the saving for read-heavy tasks is untested
+    And it says no clean run of those tasks has been compared with the Workflow run
+    And it says not to quote 63% for read-heavy tasks
+
   # Backed by: tests/test_skill_docs.py::test_no_withdrawn_or_single_observation_figures
   Scenario: Withdrawn and single-observation figures stay out of the docs
     Given reference/fan-outs.md and skills/agenting/SKILL.md

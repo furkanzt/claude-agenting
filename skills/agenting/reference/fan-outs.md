@@ -67,6 +67,17 @@ usage-window effect is not measured, and it cannot be measured locally on an acc
 that other computers share; one rough, confounded reading suggested per-task window
 use might be about equal. Treat the saving as list-price only.
 
+**Read-heavy tasks: the saving is untested.** The 63% comes from short tasks, where the
+start-up is most of the cost. Tasks that each read many pages of a book over 19 to 31
+calls pay it once and then spend most of their cost on the reading, so the saving is
+smaller. A list-price model of one 19-agent fan-out of that kind (tokens counted from its
+own transcripts, a clean run assumed to drop 26k to 40k tokens of harness context per
+call) put it at about 8 to 12% for the Opus xhigh readers and 12 to 19% for the whole
+fan-out. That is an estimate: no clean run of those tasks has been compared with the
+Workflow run, and the Workflow readers also used Bash to check pages, which a Read-only
+clean run cannot do, so a measured gap would mix start-up with lost self-checking. Do not
+quote 63% for read-heavy tasks.
+
 - **Use it when all of these hold:** each task is its files plus one prompt; it needs
   no session context and no tools beyond Read; the tasks do not coordinate; the
   output can be checked in code (a validator). Otherwise use a Workflow.

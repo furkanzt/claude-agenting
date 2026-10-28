@@ -92,6 +92,16 @@ class FanOutGuidance(unittest.TestCase):
         self.assertIn("window effect is not measured", section)
         self.assertIn("refuses aliases", section)
 
+    def test_the_clean_run_saving_is_not_claimed_for_read_heavy_tasks(self):
+        # 2026-10-28: the 63% was measured on short tasks; a model of one read-heavy 19-agent
+        # fan-out put the saving near a tenth, so the section must say it is untested there
+        section = " ".join(self.text.split("## Clean runs", 1)[1].split())
+        for phrase in ("Read-heavy tasks: the saving is untested",
+                       "no clean run of those tasks has been compared with the Workflow run",
+                       "Do not quote 63% for read-heavy tasks"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, section)
+
     def test_advisor_is_stated_as_a_fact_not_a_proposal(self):
         self.assertIn("do not raise it", self.text)
 
