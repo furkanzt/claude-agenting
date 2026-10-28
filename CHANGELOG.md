@@ -1,5 +1,63 @@
 # Changelog
 
+## 3.4.0 — 2026-10-28 (clean runs: a guard warning, three `cleanrun.py` options, chunked input hashing)
+
+Prompted by a 19-agent fan-out that ran as generic Workflow subagents on 2026-10-27 although every task was
+self-contained and Read-only, the shape `scripts/cleanrun.py` runs as clean `claude -p` processes. Nothing asked
+whether a clean run applied.
+
+### Added
+- **The skill Procedure asks "Clean run or Workflow?" before it asks for a draft.** New step 2 of
+  `skills/agenting/SKILL.md`: the four conditions (self-contained, no tool beyond Read, no coordination within a
+  batch, output checked in code), `cleanrun.py plan` then `run` as the default when all four hold, and the failed
+  condition named when a Workflow is written instead.
+- **The routing guard warns when untyped `agent()` calls fan out.** Once Stage 1 passes, a call site with no
+  `agentType` key inside a `map`, `forEach` or `flatMap` callback, a `pipeline` stage after the items, the function
+  of `Array.from`, or a `for`/`while` body gets a short factual paragraph pointing at the clean-run step. It never
+  decides anything: no `permissionDecision`, the plan hash and the `--approve` flow are unchanged, a Stage 1 denial
+  and an already approved plan carry none, and a failure inside the check is swallowed. In manual mode (and with no
+  recorded mode) it is part of the Stage 2 denial, which the model reads before the launch; in auto mode it is
+  appended to the `systemMessage` (shown to you only) and sent as `additionalContext`, which reaches the model with
+  the Workflow's result, **after** the launch. Checked on Claude Code 2.1.311 for the main session; a Workflow
+  launched from inside a subagent may not deliver it. Measured on 270 saved scripts: 40 are denied at Stage 1, 112
+  of the other 230 warn (48.7%); 19 of the 20 scripts of the incident warn, the 20th has no fan-out. The check is
+  linear in the script's length plus the length of the calls it parses, and is skipped above 1,000,000
+  characters of either, so its own cost stays bounded (a hook that times out lets the Workflow launch). Known limits: an `agent()` in a helper function called from
+  the loop is not seen, a `do … while` is misread, and the detector cannot tell a Read-only task from a writer.
+- **`cleanrun.py --allowed-tools LIST`** passes claude's allowed-tools flag, so a tool in `--tools` that needs
+  permission (WebSearch, WebFetch, Bash) is no longer denied for want of a prompt. Every name must also be in
+  `--tools`; the list is split the way claude splits its own, and ambiguous shapes (a nested `(`, text after a
+  `)`) are refused so the checked list is the granted list. In the run key only when given, as a set.
+- **`cleanrun.py` task files: an object entry `{"path": …, "as": "sub/dir/name"}`** places a file at a directory
+  path inside the kit; a string entry behaves as before. `as` is checked at load time (so `plan` refuses what `run`
+  refuses and writes nothing): relative, no `.`, `..` or empty segment, no backslash, NUL, lone surrogate,
+  unassigned code point or `..namedfork`; kit paths must differ the way a macOS disk compares names. A kit that
+  still cannot be built at run time fails that one task instead of stopping the fan-out.
+- **`cleanrun.py --also-models LIST`**: an opt-in allowance for the helper model a tool calls on its own (WebFetch's
+  summariser). The default check is unchanged (`modelUsage` is exactly `--model`); with the flag the run passes
+  when `--model` is among the observed models and every other one is on the list. A weaker check, stated as such:
+  `modelUsage` cannot show which listed model wrote the answer. It is recorded in the plan and start lines,
+  `summary.json` and each saved output. **Not verified against a real WebFetch run** (the tests use a stub).
+
+### Changed
+- **`cleanrun.py` hashes input files in 1 MiB chunks** instead of reading each whole (an 80 MB file: 84 MB peak,
+  now 2 MB), and does not remember a digest between calls. A memo keyed on size, mtime and inode was built and
+  dropped after review showed a rewrite with the mtime put back, or a write through a shared mapping, goes
+  unseen. The digest and the run key are byte-identical to before.
+- **`reference/fan-outs.md`: the saving for read-heavy tasks is marked untested.** The 63% was measured on short
+  tasks; a list-price model of the incident fan-out put the saving near 8 to 19%. No clean run of those tasks has
+  been compared with the Workflow run, and 63% is not to be quoted for them.
+
+### Compatibility
+- Run keys do not change for any task that does not use a new option (pinned by a test on the key release 3.3.4
+  wrote; `KEY_VERSION` stays 2), so finished out-dirs keep resuming.
+
+### Known limits, by decision
+- A repeated `--allowed-tools` or `--also-models` flag keeps the last value, as `--tools` and `--model` do.
+- Hashing a file and copying it into the kit are still two reads: a file rewritten in the milliseconds between them
+  can be keyed by bytes the task was not given.
+- The kit-path name check uses Unicode's rules; a disk with its own name tables could still treat two names as one.
+
 ## 3.3.4 — 2026-10-26 (routing guard: a stray backtick in a template literal)
 
 ### Fixed

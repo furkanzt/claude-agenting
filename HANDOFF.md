@@ -100,6 +100,12 @@ in Workflow scans.
   for plan approval. Detection is narrow by decision (name, number, quote or adjacent backtick after the closing
   backtick); operator- or dot-led pairs still parse and are not caught. Reviewed before release by a 2-reviewer
   workflow with Node as oracle (wf_6efa3e40-e37); the findings it confirmed are fixed in the same bite.
+- **3.4.0 (2026-10-28):** clean runs get a way in. The skill Procedure asks "Clean run or Workflow?" before drafting; the
+  routing guard warns (never blocks) when untyped `agent()` calls fan out; `cleanrun.py` gains `--allowed-tools`,
+  an `{"path", "as"}` file entry and `--also-models`, and hashes inputs in chunks. The saving for read-heavy tasks is
+  marked untested (63% was measured on short tasks). The guard change (three reviewers) and each `cleanrun.py` change (one reviewer)
+  were reviewed adversarially before commit and the findings they confirmed are fixed; the Procedure step, the key-pin test and
+  the docs note were not. `--also-models` and `--allowed-tools` were not run against a real WebFetch.
 - **Effort probe tool:** `evals/probes/read_effort.py` (reads the effort a subagent really ran with) and
   `evals/probes/effort_application.workflow.js` (the Workflow that launches the probe agents), with
   `tests/test_effort_probe.py` and `features/effort-probe.feature`.
@@ -259,7 +265,7 @@ verification (a bounded null), the classify narrowing, the clean-run usage-windo
 
 ## 4. Decisions waiting for the owner
 
-1. **Release.** 3.3.4 (2026-10-26) is released and pushed; nothing is unreleased. A release is its own commit:
+1. **Release.** 3.4.0 (2026-10-28) is committed locally and **not pushed or installed**; 3.3.4 (2026-10-26) is the last pushed release. A release is its own commit:
    bump `version` in `.claude-plugin/plugin.json` **and** `marketplace.json` together (`plugin.json` wins), move
    the CHANGELOG "Unreleased" entry under the new number, push, then on the owner's machine
    `claude plugin marketplace update agenting` and `claude plugin update agenting@agenting`, and
@@ -460,7 +466,7 @@ override; the classify rule written after nine-run data; dont-guess `balanced` h
 
 ## 9. Push plan (when the owner says push)
 
-Nothing is unpushed as of 3.3.4 (2026-10-26). For the next push: group the unpushed commits into bites
+Nothing is pushed since 3.3.4 (2026-10-26): the nine commits after it (eight changes, then the 3.4.0 release commit) are local. For the next push: group the unpushed commits into bites
 (consecutive runs belonging to one piece of work, one commit each, members folded into numbered paragraphs,
 never reordered), keep the version bump a separate commit after the bites, then
 `CLAUDE_SKIP_SQUASH_GUARD=1 git push`. Before pushing, check the net diff for `evals/private`, absolute local
