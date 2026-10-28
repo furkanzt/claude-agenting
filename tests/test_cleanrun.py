@@ -4,6 +4,8 @@ Every test that can hang under a regression (process groups, timeouts, signals) 
 through its own deadline, so a regression fails the test instead of hanging the suite.
 """
 
+import hashlib
+import importlib.util
 import json
 import os
 import shlex
@@ -12,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tracemalloc
 import unittest
 from pathlib import Path
 
@@ -202,6 +205,307 @@ class Routing(Case):
         self.tasks(["a"])
         r = self.run_cli(self.args("--claude-bin", "/bin/definitely-not-claude"))
         self.assertEqual(r.returncode, 2)                  # the env var points at a working fake
+
+
+class AllowedTools(Case):
+    """--allowed-tools: permission for tools that claude -p could not ask about."""
+
+    def saved_key(self, out):
+        return json.loads((out / "outputs" / "t0.json").read_text(encoding="utf-8"))["key"]
+
+    def test_the_list_is_passed_to_claude_as_its_allowed_tools_flag(self):
+        self.tasks(["a"])
+        cases = [("WebSearch,WebFetch", "WebSearch,WebFetch", "WebSearch,WebFetch"),
+                 ("Bash,Read", "Bash(git status:*), Read", "Bash(git status:*),Read"),   # a pattern keeps its parentheses
+                 ("Bash", "Bash(git log --format=%h,%s:*)", "Bash(git log --format=%h,%s:*)"),   # and a comma or space inside them
+                 ("Read Glob", "Glob", "Glob")]     # --tools is split the way claude splits it too: a space separates
+        for n, (tools, given, sent) in enumerate(cases):
+            with self.subTest(allowed=given):
+                r = self.run_cli(self.args("--tools", tools, "--allowed-tools", given, "--out-dir", str(self.d / f"out{n}")))
+                self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+                argv = self.calls()[-1]["argv"]
+                self.assertEqual(argv[argv.index("--allowed-tools") + 1], sent)
+                self.assertEqual(argv[argv.index("--tools") + 1], tools)
+
+    def test_without_the_option_claude_gets_no_allowed_tools_flag(self):
+        self.tasks(["a", "b"])
+        self.assertEqual(self.run_cli(self.args("--tools", "Read")).returncode, 0)
+        for c in self.calls():
+            for spelling in ("--allowed-tools", "--allowedTools"):
+                self.assertNotIn(spelling, c["argv"])
+            self.assertEqual(c["argv"][c["argv"].index("--tools") + 1], "Read")
+
+    def test_a_name_that_tools_does_not_list_is_refused_by_run_and_by_plan(self):
+        self.tasks(["a"])
+        cases = {"a name tools lacks": ("Read", "WebFetch"),
+                 "no tools at all": ("", "Read"),
+                 "a pattern whose name tools lacks": ("Read", "Bash(git status:*)"),
+                 "one name of two missing": ("WebSearch", "WebSearch,WebFetch"),
+                 "an unclosed pattern": ("Bash", "Bash(git status"),
+                 "an entry with no name, even in --tools": ("(git status)", "(git status)"),
+                 # claude cuts a list with one inside/outside flag, not a depth count: these would be
+                 # several grants there (a whole-tool Bash, an unchecked WebFetch), so they are refused
+                 "a nested pattern that hides a whole-tool grant": ("Bash", "Bash(git (x),Bash,(y))"),
+                 "a nested pattern that hides a name tools lacks": ("Bash", "Bash((a),WebFetch,(b))"),
+                 "a shell substitution inside a pattern": ("Bash", "Bash(echo $(date) *)"),
+                 "text glued after the closing parenthesis": ("Bash,Read", "Bash(a)Read"),
+                 "a pattern with a parenthesis inside it": ("Bash", "Bash(a (b)"),
+                 "a tab between names": ("Read,Glob", "Read\tGlob"),
+                 "a tab that --tools has too": ("Read\tGlob", "Read\tGlob"),
+                 "a closing parenthesis with no opening one": ("Read)", "Read)"),   # --tools has it too, so only this check refuses it
+                 # claude reads these as withholding WebFetch, so the grant would do nothing
+                 "an exclusion in --tools": ("Read,WebFetch,!WebFetch", "WebFetch"),
+                 "a detached exclusion in --tools": ("Read,! WebFetch", "Read,WebFetch"),
+                 "the default tool set": ("default", "WebFetch")}
+        for name, (tools, allowed) in cases.items():
+            for cmd in ("run", "plan"):
+                with self.subTest(case=name, cmd=cmd):
+                    r = self.run_cli(self.args("--tools", tools, "--allowed-tools", allowed, cmd=cmd))
+                    self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                    self.assertIn("--allowed-tools", r.stderr)
+                    self.assertNotIn("Traceback", r.stderr)
+                    self.assertFalse(self.out.exists(), "a refused input must write nothing")
+        self.assertEqual(self.calls(), [])
+
+    def test_the_list_enters_the_run_key_only_when_it_is_given(self):
+        # the inputs of test_a_flat_read_only_tasks_run_key_is_pinned, so "unchanged" is checked against
+        # the key release 3.3.4 wrote and not against whatever the code under test computes today
+        (self.d / "page.txt").write_text("data", encoding="utf-8")
+        self.tasks(["first"], files={0: ["page.txt"]})
+        keys = {}
+        for label, extra in (("flat", []), ("allowed", ["--allowed-tools", "Read"])):
+            out = self.d / f"out_{label}"
+            r = self.run_cli(self.args("--tools", "Read", "--out-dir", str(out), *extra))
+            self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+            keys[label] = self.saved_key(out)
+        self.assertEqual(keys["flat"], "276e916802a89618a91fb043338e79ee870da432a7fb3c737b963cb2b8ef8e71")
+        self.assertNotEqual(keys["allowed"], keys["flat"])
+
+    def test_changing_the_list_reruns_a_finished_task(self):
+        self.tasks(["a"])
+        def run(*allowed):
+            self.assertEqual(self.run_cli(self.args("--tools", "Read,Glob", *allowed)).returncode, 0)
+            return len(self.calls())
+        self.assertEqual(run("--allowed-tools", "Read"), 1)
+        self.assertEqual(run("--allowed-tools", "Read"), 1)             # unchanged: resumed
+        self.assertEqual(run("--allowed-tools", "Read,Glob"), 2)        # a wider list reruns
+        self.assertEqual(run("--allowed-tools", "Glob,Read,Read"), 2)   # the same grant, reordered and repeated: resumed
+        self.assertEqual(run(), 3)                                      # dropping it reruns
+
+
+HAIKU = "claude-haiku-4-5-20251001"
+SONNET = "claude-sonnet-4-5-20250929"
+PIN = "276e916802a89618a91fb043338e79ee870da432a7fb3c737b963cb2b8ef8e71"   # test_a_flat_read_only_tasks_run_key_is_pinned
+
+
+class AlsoModels(Case):
+    """--also-models: helper models a tool calls on its own (WebFetch's summariser) beside the routed one."""
+
+    def saved_key(self, out):
+        return json.loads((out / "outputs" / "t0.json").read_text(encoding="utf-8"))["key"]
+
+    def test_without_also_models_a_helper_beside_the_routed_model_is_still_a_mismatch(self):
+        self.tasks(["@@mode:helper_model@@"])
+        r = self.run_cli(self.args())
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        s = self.summary()
+        # the literal message the exact check has always written
+        self.assertEqual(s["failed"][0]["problems"], [f"model mismatch: answered by {[HAIKU, MODEL]}, routed to {MODEL}"])
+        self.assertFalse((self.out / "outputs" / "t0.json").exists())
+
+    def test_a_helper_on_the_list_is_accepted_and_the_summary_lists_both_models(self):
+        self.tasks(["@@mode:helper_model@@"])
+        r = self.run_cli(self.args("--also-models", HAIKU))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.summary()["models_observed"], {MODEL: 1, HAIKU: 1})
+        self.assertIn(HAIKU, r.stdout)
+        self.assertEqual(self.attempts()[0]["model_observed"], [HAIKU, MODEL])
+        self.assertTrue((self.out / "outputs" / "t0.json").exists())
+        self.assertNotIn("--also-models", self.calls()[0]["argv"])     # a check on the answer, not a claude flag
+
+    def test_a_model_not_on_the_list_is_rejected_and_named(self):
+        self.tasks(["@@mode:helper_model@@"])
+        self.env["FAKE_HELPER_MODEL"] = SONNET
+        r = self.run_cli(self.args("--also-models", HAIKU))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        (problem,) = self.summary()["failed"][0]["problems"]
+        self.assertTrue(problem.startswith(f"model mismatch: answered by {[MODEL, SONNET]}, routed to {MODEL}"), problem)
+        self.assertIn(f"not on --also-models: {SONNET}", problem)
+        self.assertFalse((self.out / "outputs" / "t0.json").exists())
+
+    def test_the_routed_model_missing_is_rejected_even_when_a_listed_helper_answered(self):
+        self.tasks(["@@mode:helper_only@@"])
+        r = self.run_cli(self.args("--also-models", HAIKU))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        (problem,) = self.summary()["failed"][0]["problems"]
+        self.assertTrue(problem.startswith(f"model mismatch: answered by {[HAIKU]}, routed to {MODEL}"), problem)
+        self.assertIn(f"{MODEL} is not among them", problem)
+        self.assertEqual(self.summary()["models_observed"], {HAIKU: 1})
+        self.assertFalse((self.out / "outputs" / "t0.json").exists())
+
+    def test_an_alias_in_also_models_is_refused_by_run_and_by_plan(self):
+        self.tasks(["a"])
+        for given in ("haiku", "Sonnet", f"{HAIKU},opus", "gpt-5", f"{HAIKU}, default"):
+            for cmd in ("run", "plan"):
+                with self.subTest(given=given, cmd=cmd):
+                    r = self.run_cli(self.args("--also-models", given, cmd=cmd))
+                    self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                    self.assertIn("--also-models must be a full model id", r.stderr)
+                    self.assertNotIn("Traceback", r.stderr)
+                    self.assertFalse(self.out.exists(), "a refused input must write nothing")
+        self.assertEqual(self.calls(), [])
+
+    def test_a_space_separated_list_or_the_routed_model_in_another_case_is_refused_by_run_and_by_plan(self):
+        self.tasks(["@@mode:helper_model@@"])
+        for given, says in ((f"{HAIKU} {SONNET}", "a model id has no space"),
+                            (f"{SONNET}, {HAIKU} {SONNET}", "a model id has no space"),
+                            ("claude-OPUS-5-5", "names --model 'claude-opus-5-5' in another case"),
+                            (f"{HAIKU},claude-Opus-5-5", "names --model 'claude-opus-5-5' in another case")):
+            for cmd in ("run", "plan"):
+                with self.subTest(given=given, cmd=cmd):
+                    r = self.run_cli(self.args("--also-models", given, cmd=cmd))
+                    self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                    self.assertIn(says, r.stderr)
+                    self.assertNotIn("Traceback", r.stderr)
+                    self.assertFalse(self.out.exists(), "a refused input must write nothing")
+        self.assertEqual(self.calls(), [])
+
+    def test_an_id_a_run_could_never_report_is_refused_by_run_and_by_plan(self):
+        # each would pass the full-id check, then be paid for and rejected (or churn the key) on every run
+        self.tasks(["@@mode:helper_model@@"])
+        for name, given in (("a ';' list", f"{HAIKU};{SONNET}"),
+                            ("a partial id", "claude-haiku"),
+                            ("a bare prefix", "claude-"),
+                            ("another case", "claude-Haiku-4-5-20251001"),
+                            ("a fullwidth look-alike", "claude-\uff48aiku-4-5-20251001"),
+                            ("a zero-width character", HAIKU + "\u200b"),
+                            ("a soft hyphen", "claude-haiku-4-5\u00ad-20251001")):
+            for cmd in ("run", "plan"):
+                with self.subTest(case=name, cmd=cmd):
+                    r = self.run_cli(self.args("--also-models", given, cmd=cmd))
+                    self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                    self.assertIn("written as claude reports them", r.stderr)
+                    self.assertNotIn("Traceback", r.stderr)
+                    self.assertFalse(self.out.exists(), "a refused input must write nothing")
+        self.assertEqual(self.calls(), [])
+
+    def test_the_weaker_check_is_recorded_where_the_result_is_read(self):
+        self.tasks(["@@mode:helper_model@@"])
+        plan = self.run_cli(self.args("--also-models", HAIKU, cmd="plan"))
+        self.assertIn(f"also models {HAIKU} (weaker model check)", plan.stdout)
+        r = self.run_cli(self.args("--also-models", HAIKU))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("(weaker model check)", r.stdout.splitlines()[0])
+        self.assertEqual(self.summary()["also_models"], [HAIKU])
+        self.assertEqual(json.loads((self.out / "outputs" / "t0.json").read_text(encoding="utf-8"))["also_models"], [HAIKU])
+
+    def test_a_default_run_mentions_neither_the_weaker_check_nor_a_grant(self):
+        self.tasks(["a"])
+        plan = self.run_cli(self.args(cmd="plan"))
+        self.assertNotIn("also", plan.stdout)
+        self.assertNotIn("allowed", plan.stdout)
+        r = self.run_cli(self.args())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("also_models", self.summary())
+        self.assertNotIn("also_models", json.loads((self.out / "outputs" / "t0.json").read_text(encoding="utf-8")))
+        grant = self.run_cli(self.args("--tools", "Read", "--allowed-tools", "Read", "--out-dir", str(self.d / "g"), cmd="plan"))
+        self.assertIn("allowed 'Read'", grant.stdout)       # the plan shows the grant before anything is paid for
+
+    def test_also_models_enter_the_run_key_only_when_they_add_a_model(self):
+        # the pinned task's inputs, so "unchanged" is checked against the key release 3.3.4 wrote
+        (self.d / "page.txt").write_text("data", encoding="utf-8")
+        self.tasks(["first"], files={0: ["page.txt"]})
+        keys = {}
+        for label, extra in (("flat", []), ("helper", ["--also-models", HAIKU]),
+                             ("routed model only", ["--also-models", MODEL])):
+            out = self.d / f"out_{label.replace(' ', '_')}"
+            r = self.run_cli(self.args("--tools", "Read", "--out-dir", str(out), *extra))
+            self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+            keys[label] = self.saved_key(out)
+        self.assertEqual(keys["flat"], PIN)
+        self.assertEqual(keys["routed model only"], PIN)       # naming --model itself is the default check
+        self.assertNotEqual(keys["helper"], PIN)
+
+    def test_a_changed_also_models_set_reruns_a_finished_task_and_a_reordered_one_resumes(self):
+        self.tasks(["@@mode:helper_model@@"])
+        def run(given):
+            self.assertEqual(self.run_cli(self.args("--also-models", given)).returncode, 0)
+            return len(self.calls())
+        self.assertEqual(run(HAIKU), 1)
+        self.assertEqual(run(HAIKU), 1)                             # unchanged: resumed
+        self.assertEqual(run(f"{HAIKU}, {SONNET}"), 2)              # a wider set reruns
+        self.assertEqual(run(f"{SONNET},{HAIKU},{HAIKU}"), 2)       # the same set, reordered and repeated: resumed
+        self.assertEqual(run(f"{SONNET},{HAIKU},{MODEL}"), 2)       # --model itself in the list: resumed
+
+
+class InputHashing(Case):
+    """How the run key reads a task's files: in chunks, and fresh every time."""
+
+    @classmethod
+    def module(cls):
+        spec = importlib.util.spec_from_file_location("cleanrun_hashing_under_test", SCRIPT)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_the_digest_equals_an_independent_sha256(self):
+        cleanrun = self.module()
+        chunk = cleanrun.HASH_CHUNK
+        for size in (0, 1, chunk - 1, chunk, chunk + 1, 2 * chunk + 12345):
+            with self.subTest(size=size):
+                data = bytes(range(256)) * (size // 256) + bytes(size % 256)
+                p = self.d / f"f{size}.bin"
+                p.write_bytes(data)
+                self.assertEqual(cleanrun.file_sha(p), hashlib.sha256(data).hexdigest())
+
+    def test_a_large_file_is_hashed_in_chunks_not_read_whole(self):
+        cleanrun = self.module()
+        size = 16 * cleanrun.HASH_CHUNK
+        p = self.d / "big.bin"
+        p.write_bytes(b"x" * size)
+        tracemalloc.start()
+        try:
+            digest = cleanrun.file_sha(p)
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+        self.assertEqual(digest, hashlib.sha256(b"x" * size).hexdigest())
+        self.assertLess(peak, 4 * cleanrun.HASH_CHUNK)      # read whole it would be 16 chunks
+
+    def test_a_file_shared_by_several_tasks_resumes_and_reruns_them_all_when_it_changes(self):
+        (self.d / "shared.pdf").write_text("v1", encoding="utf-8")
+        self.tasks(["a", "b", "c"], files={i: ["shared.pdf"] for i in range(3)})
+        self.assertEqual(self.run_cli(self.args()).returncode, 0)
+        self.assertEqual(self.run_cli(self.args()).returncode, 0)
+        self.assertEqual(len(self.calls()), 3)                     # unchanged: all three resumed
+        (self.d / "shared.pdf").write_text("v2", encoding="utf-8")
+        self.assertEqual(self.run_cli(self.args()).returncode, 0)
+        self.assertEqual(len(self.calls()), 6)                     # changed: all three rerun
+
+    def test_a_rewrite_with_the_mtime_put_back_during_a_run_is_seen_when_the_task_is_picked_up(self):
+        # t0 holds the single worker; while it runs, t1's input is rewritten in place at the same size
+        # and its mtime put back. A digest remembered from before would call the file unchanged.
+        sh = self.d / "shared.txt"
+        sh.write_bytes(b"v1v1")
+        self.tasks(["slow one @@mode:slow@@", "reads shared"], files={1: ["shared.txt"]})
+        self.env["FAKE_SLOW_S"] = "0"
+        self.assertEqual(self.run_cli(self.args("--jobs", "1")).returncode, 0)
+        (self.out / "outputs" / "t0.json").unlink()           # only t0 reruns, and it is the slow one
+        self.env["FAKE_SLOW_S"] = "3"
+        before = len(self.calls())
+        proc = self.start_cli(self.args("--jobs", "1"))
+        try:
+            self.assertTrue(wait_until(lambda: len(self.calls()) > before, 20))
+            st = os.stat(sh)
+            with open(sh, "r+b") as f:
+                f.write(b"v2v2")
+            os.utime(sh, ns=(st.st_atime_ns, st.st_mtime_ns))
+        finally:
+            proc.communicate(timeout=60)
+        reruns = [c for c in self.calls()[before:] if c["prompt"] == "reads shared"]
+        self.assertEqual(len(reruns), 1)                       # not resumed from the v1 output
+        self.assertEqual(reruns[0]["tree"]["shared.txt"], hashlib.sha256(b"v2v2").hexdigest())
+        self.assertEqual(self.summary()["resumed"], 0)
 
 
 class Validation(Case):
@@ -413,6 +717,247 @@ class Inputs(Case):
         self.assertNotIn("Traceback", r.stderr)
         self.assertIn("1 unreadable line(s)", r.stdout)
         self.assertEqual(self.run_cli(["status", "--out-dir", str(self.d / "nowhere")]).returncode, 2)
+
+
+def sha256(data):
+    return hashlib.sha256(data.encode("utf-8") if isinstance(data, str) else data).hexdigest()
+
+
+class KitPathEntries(Case):
+    """files entries of the form {"path": ..., "as": "sub/dir/name"}: a directory structure inside the kit."""
+
+    PIN = "276e916802a89618a91fb043338e79ee870da432a7fb3c737b963cb2b8ef8e71"   # test_a_flat_read_only_tasks_run_key_is_pinned
+
+    def setUp(self):
+        super().setUp()
+        (self.d / "page.txt").write_text("1", encoding="utf-8")
+        (self.d / "other.txt").write_text("2", encoding="utf-8")
+
+    def saved_key(self, out, tid="t0"):
+        return json.loads((out / "outputs" / f"{tid}.json").read_text(encoding="utf-8"))["key"]
+
+    def assert_refused(self, files, *needles, validator=True):
+        for cmd in ("run", "plan"):
+            with self.subTest(files=files, cmd=cmd):
+                self.tasks(["a"], files={0: files})
+                r = self.run_cli(self.args(cmd=cmd, validator=validator))
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                self.assertNotIn("Traceback", r.stderr)
+                for needle in ("t0", *needles):          # the message names the task, the entry and the defect
+                    self.assertIn(needle, r.stderr)
+                self.assertFalse(self.out.exists(), "a refused input must write nothing")
+        self.assertEqual(self.calls(), [])
+
+    def test_an_object_entry_lands_at_its_kit_path_and_claude_sees_it_there(self):
+        (self.d / "src").mkdir()
+        (self.d / "src" / "report.bin").write_bytes(b"%PDF-1.7 bytes")
+        self.tasks(["a"], files={0: [{"path": "src/report.bin", "as": "sub/dir/name.pdf"}, "page.txt"]})
+        r = self.run_cli(self.args())
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        (call,) = self.calls()
+        self.assertEqual(call["tree"], {"sub/dir/name.pdf": sha256(b"%PDF-1.7 bytes"), "page.txt": sha256("1")})
+        self.assertEqual(call["files"], ["page.txt", "sub"])
+
+    def test_the_validator_sees_the_kit_path_of_an_object_entry(self):
+        (self.d / "check.py").write_text(
+            "def validate(output, task):\n"
+            "    return [] if task['files'] == ['sub/name.md', 'page.txt'] else ['bad view: %r' % task['files']]\n",
+            encoding="utf-8")
+        self.tasks(["a"], files={0: [{"path": "other.txt", "as": "sub/name.md"}, "page.txt"]})
+        r = self.run_cli(self.args())
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+
+    def test_two_files_with_the_same_base_name_are_accepted_at_different_kit_paths(self):
+        (self.d / "x").mkdir()
+        (self.d / "x" / "page.txt").write_text("from x", encoding="utf-8")
+        self.tasks(["both objects", "string and object"],
+                   files={0: [{"path": "page.txt", "as": "a/page.txt"}, {"path": "x/page.txt", "as": "b/page.txt"}],
+                          1: ["page.txt", {"path": "x/page.txt", "as": "x/page.txt"}]})
+        r = self.run_cli(self.args())
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        trees = {c["prompt"]: c["tree"] for c in self.calls()}
+        self.assertEqual(trees["both objects"], {"a/page.txt": sha256("1"), "b/page.txt": sha256("from x")})
+        self.assertEqual(trees["string and object"], {"page.txt": sha256("1"), "x/page.txt": sha256("from x")})
+
+    def test_an_invalid_kit_path_is_refused_by_run_and_by_plan(self):
+        cases = {"an empty string": ("", "non-empty string"),
+                 "a number": (5, "non-empty string"),
+                 "null": (None, "non-empty string"),
+                 "an absolute path": ("/etc/page.txt", "absolute"),
+                 "a '..' segment": ("../page.txt", "'..' segment"),
+                 "a '..' after a directory": ("sub/../page.txt", "'..' segment"),
+                 "a '.' segment": ("./page.txt", "'.'"),
+                 "a '.' inside": ("a/./page.txt", "'.'"),
+                 "a lone dot": (".", "'.'"),
+                 "a double slash": ("a//page.txt", "empty"),
+                 "a trailing slash": ("a/", "empty"),
+                 "a backslash": ("a\\page.txt", "backslash"),
+                 "a NUL": ("a\x00page.txt", "NUL"),
+                 "a path over 512 bytes": ("d/" * 256 + "x", "longer than 512 bytes"),
+                 "a path of 383 characters but 764 bytes": ("/".join(["\u015f" * 127] * 3), "longer than 512 bytes"),
+                 "a segment over 255 bytes": ("d/" + "x" * 256, "255 bytes"),
+                 "a segment of 128 characters but 256 bytes": ("ş" * 128, "255 bytes"),
+                 # a disk follows a newer Unicode than this Python: it folds letters Python does not know as
+                 # one name, and refuses others outright, so any unassigned code point is refused up front
+                 "a noncharacter": ("x\uffff", "unassigned"),
+                 "an astral noncharacter": ("d/\U0010ffff", "unassigned"),
+                 "a fork segment": ("x/..namedfork/rsrc", "..namedfork"),
+                 "a fork segment in other case": ("..NamedFork", "..namedfork")}
+        for name, (kit_path, needle) in cases.items():
+            with self.subTest(case=name):
+                entry = {"path": "page.txt", "as": kit_path}
+                self.assert_refused([entry], needle, json.dumps(entry))
+
+    def test_a_lone_surrogate_in_as_is_a_usage_error_not_a_traceback(self):
+        # legal JSON, but no file name: it used to escape as a UnicodeEncodeError and exit 1 ("some failed")
+        line = json.dumps({"id": "t0", "prompt": "a", "files": [{"path": "page.txt", "as": "\ud800"}]})
+        for cmd in ("run", "plan"):
+            with self.subTest(cmd=cmd):
+                (self.d / "tasks.jsonl").write_text(line + "\n", encoding="utf-8")
+                r = self.run_cli(self.args(cmd=cmd))
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                self.assertNotIn("Traceback", r.stderr)
+                self.assertIn("lone surrogate", r.stderr)
+                self.assertFalse(self.out.exists(), "a refused input must write nothing")
+        self.assertEqual(self.calls(), [])
+
+    def test_a_kit_that_cannot_be_built_fails_its_task_and_not_the_fan_out(self):
+        # plan accepted the task; the copy then fails at run time (the disk's own rules, a full disk). The
+        # copy is made to fail for one file here, in the process that runs cleanrun, since no input does it
+        (self.d / "boom.txt").write_text("x", encoding="utf-8")
+        self.tasks(["a", "b"], files={0: [{"path": "boom.txt", "as": "d/boom.txt"}]})
+        wrapper = ("import runpy, shutil, sys\n"
+                   "real = shutil.copy2\n"
+                   "def copy2(src, dst, **kw):\n"
+                   "    if str(src).endswith('boom.txt'):\n"
+                   "        raise PermissionError(13, 'denied by the test')\n"
+                   "    return real(src, dst, **kw)\n"
+                   "shutil.copy2 = copy2\n"
+                   "sys.argv = sys.argv[1:]\n"
+                   "runpy.run_path(sys.argv[0], run_name='__main__')\n")
+        r = subprocess.run([sys.executable, "-c", wrapper, str(SCRIPT), *self.args()], capture_output=True,
+                           text=True, env=self.env, timeout=60)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)          # "some failed", not an internal error
+        self.assertNotIn("STOPPED", r.stdout + r.stderr)
+        failed = self.summary()["failed"]
+        self.assertEqual([f["id"] for f in failed], ["t0"])
+        self.assertIn("could not build the task's kit", failed[0]["problems"][0])
+        self.assertEqual(len(self.calls()), 1)                           # the other task ran
+
+    def test_a_malformed_object_entry_is_refused_by_run_and_by_plan(self):
+        cases = {"no as": ({"path": "page.txt"}, 'exactly a non-empty "path"'),
+                 "no path": ({"as": "x.txt"}, 'exactly a non-empty "path"'),
+                 "an empty path": ({"path": "", "as": "x.txt"}, 'exactly a non-empty "path"'),
+                 "a path that is not a string": ({"path": 5, "as": "x.txt"}, 'exactly a non-empty "path"'),
+                 "an extra key": ({"path": "page.txt", "as": "x.txt", "mode": "ro"}, 'exactly a non-empty "path"'),
+                 "a missing source file": ({"path": "missing.txt", "as": "x.txt"}, "no such file missing.txt")}
+        for name, (entry, needle) in cases.items():
+            with self.subTest(case=name):
+                self.assert_refused([entry], needle, json.dumps(entry) if "no such file" not in needle else "missing.txt")
+
+    def test_a_traversal_in_as_creates_nothing_outside_the_kit(self):
+        tmp = self.d / "tmp"                 # the kit is made under TMPDIR, so everything around it is in self.d
+        tmp.mkdir()
+        self.env["TMPDIR"] = str(tmp)
+        tag = self.d.name
+        def snapshot():                      # every path and its bytes, the tasks file the test rewrites aside
+            return sorted((str(p.relative_to(self.d)), p.is_dir() or p.read_bytes())
+                          for p in self.d.rglob("*") if p.name != "tasks.jsonl")
+        before = snapshot()
+        attempts = [f"../escape-{tag}-1.txt", f"../../escape-{tag}-2.txt", f"../../../escape-{tag}-3.txt",
+                    f"sub/../../escape-{tag}-4.txt", str(self.d / f"escape-{tag}-5.txt")]
+        for kit_path in attempts:
+            self.assert_refused([{"path": "page.txt", "as": kit_path}], "\"as\"", validator=False)
+        self.assertEqual(snapshot(), before)
+        self.assertEqual(list(tmp.iterdir()), [])
+        for where in (self.d.parent, self.d.parent.parent):
+            self.assertEqual(list(where.glob(f"escape-{tag}-*")), [])
+
+    def test_kit_paths_that_are_equal_ignoring_case_are_refused(self):
+        cases = {"the same kit path twice": [{"path": "page.txt", "as": "d/page.txt"}, {"path": "other.txt", "as": "d/page.txt"}],
+                 "a case-only difference": [{"path": "page.txt", "as": "Docs/Page.txt"}, {"path": "other.txt", "as": "docs/page.txt"}],
+                 "a string entry and an object entry": ["page.txt", {"path": "other.txt", "as": "page.txt"}],
+                 "an object entry and a string entry, case apart": [{"path": "other.txt", "as": "PAGE.txt"}, "page.txt"],
+                 # macOS compares names after Unicode normalisation too: a composed and a decomposed s-cedilla
+                 "a normalisation-only difference": [{"path": "page.txt", "as": "ş.md"}, {"path": "other.txt", "as": "ş.md"}],
+                 # U+0390 against U+03AA U+0301: equal only when the casefolded name is normalised again
+                 "a case and normalisation difference": [{"path": "page.txt", "as": "\u0390"}, {"path": "other.txt", "as": "\u03aa\u0301"}]}
+        for name, files in cases.items():
+            with self.subTest(case=name):
+                self.assert_refused(files, "same kit path", json.dumps(files[1]))
+
+    def test_a_file_where_another_entry_needs_a_directory_is_refused(self):
+        cases = {"a file, then a file under it": [{"path": "page.txt", "as": "a"}, {"path": "other.txt", "as": "a/b.txt"}],
+                 "a file under it, then the file": [{"path": "other.txt", "as": "a/b.txt"}, {"path": "page.txt", "as": "a"}],
+                 "a deeper directory": [{"path": "other.txt", "as": "a/b/c.txt"}, {"path": "page.txt", "as": "a/b"}],
+                 "a string entry under which an object entry goes": ["page.txt", {"path": "other.txt", "as": "page.txt/in.txt"}],
+                 "an object entry over which a string entry lands": [{"path": "other.txt", "as": "page.txt/in.txt"}, "page.txt"],
+                 "the same, case apart": [{"path": "page.txt", "as": "A"}, {"path": "other.txt", "as": "a/b.txt"}],
+                 "the same, case and normalisation apart": [{"path": "page.txt", "as": "\u0390"}, {"path": "other.txt", "as": "\u03aa\u0301/b.txt"}],
+                 "a directory, then a file on it, case and normalisation apart": [{"path": "other.txt", "as": "\u03aa\u0301/b.txt"}, {"path": "page.txt", "as": "\u0390"}]}
+        for name, files in cases.items():
+            with self.subTest(case=name):
+                self.assert_refused(files, "directory", json.dumps(files[1]))
+
+    def test_an_object_entry_with_no_directory_keys_like_the_string_entry(self):
+        # The pinned task's inputs, with page.txt reached through an object entry whose source has another
+        # name: the key holds the kit path and the bytes, so it equals the key release 3.3.4 wrote
+        (self.d / "src").mkdir()
+        (self.d / "src" / "page-v1.txt").write_text("data", encoding="utf-8")
+        (self.d / "page.txt").write_text("data", encoding="utf-8")
+        for label, entry in (("string", "page.txt"), ("object", {"path": "src/page-v1.txt", "as": "page.txt"})):
+            with self.subTest(entry=label):
+                out = self.d / f"out_{label}"
+                self.tasks(["first"], files={0: [entry]})
+                r = self.run_cli(self.args("--tools", "Read", "--out-dir", str(out)))
+                self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+                self.assertEqual(self.saved_key(out), self.PIN)
+
+    def test_the_kit_path_of_an_object_entry_is_part_of_the_run_key(self):
+        (self.d / "page.txt").write_text("data", encoding="utf-8")
+        keys = {}
+        for kit_path in ("docs/page.txt", "other/page.txt"):
+            out = self.d / f"out_{kit_path.split('/')[0]}"
+            self.tasks(["first"], files={0: [{"path": "page.txt", "as": kit_path}]})
+            self.assertEqual(self.run_cli(self.args("--tools", "Read", "--out-dir", str(out))).returncode, 0)
+            keys[kit_path] = self.saved_key(out)
+        self.assertNotEqual(keys["docs/page.txt"], keys["other/page.txt"])
+        self.assertNotIn(self.PIN, keys.values())
+        def run(kit_path):
+            self.tasks(["first"], files={0: [{"path": "page.txt", "as": kit_path}]})
+            self.assertEqual(self.run_cli(self.args("--tools", "Read")).returncode, 0)
+            return len(self.calls())
+        before = len(self.calls())
+        self.assertEqual(run("docs/page.txt"), before + 1)
+        self.assertEqual(run("docs/page.txt"), before + 1)        # unchanged: resumed
+        self.assertEqual(run("other/page.txt"), before + 2)       # moved in the kit: reruns
+
+    def test_a_changed_file_under_an_object_entry_reruns_its_task(self):
+        self.tasks(["a"], files={0: [{"path": "page.txt", "as": "in/page.txt"}]})
+        self.assertEqual(self.run_cli(self.args()).returncode, 0)
+        self.assertEqual(self.run_cli(self.args()).returncode, 0)
+        self.assertEqual(len(self.calls()), 1)                     # unchanged: resumed
+        (self.d / "page.txt").write_text("changed", encoding="utf-8")
+        self.assertEqual(self.run_cli(self.args()).returncode, 0)
+        self.assertEqual(len(self.calls()), 2)
+
+    def test_the_copy_refuses_a_destination_outside_the_kit(self):
+        # load_tasks refuses these first; this is the second line, reached only if that check were bypassed
+        spec = importlib.util.spec_from_file_location("cleanrun_under_test", SCRIPT)
+        cleanrun = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cleanrun)
+        kit = self.d / "kit"
+        kit.mkdir()
+        before = sorted(str(p) for p in self.d.rglob("*"))
+        for rel in ("../escape.txt", "a/../../escape.txt", str(self.d / "escape.txt"), "", "."):
+            with self.subTest(rel=rel):
+                with self.assertRaises(RuntimeError):
+                    cleanrun.place(kit, rel)
+        self.assertEqual(sorted(str(p) for p in self.d.rglob("*")), before)
+        self.assertEqual(cleanrun.place(kit, "a/b/c.txt"), kit.resolve() / "a" / "b" / "c.txt")
+        self.assertTrue((kit / "a" / "b").is_dir())
+        with self.assertRaises(RuntimeError):      # copy2 would write inside it, under the source's name
+            cleanrun.place(kit, "a/b")
 
 
 class Processes(Case):

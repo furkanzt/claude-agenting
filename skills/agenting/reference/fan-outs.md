@@ -78,6 +78,31 @@ use might be about equal. Treat the saving as list-price only.
 - **Order of use:** `cleanrun.py plan` (what runs, what resumes, the cost bound), then
   `run`, then `status`. Its money rules (soft per-run cap, `--max-usd` for new
   launches only, unknown cost charged at the cap) are in its docstring.
+- **Tools that need permission:** `claude -p` cannot ask, so a tool in `--tools` such as
+  WebSearch, WebFetch or Bash is denied. `--allowed-tools "WebSearch,WebFetch"` passes
+  claude's allowed-tools flag; every name must also be in `--tools`, and a non-empty
+  list is part of the resume key. It grants permission only: a run that calls WebFetch
+  still shows a second model (a Haiku summariser) in `modelUsage`, which the model
+  check rejects unless `--also-models` lists it (see the next bullet).
+- **Tools that call a helper model:** by default the models in `modelUsage` must be
+  exactly `--model`. `--also-models "claude-haiku-4-5-20251001"` (full ids separated by
+  commas; it refuses aliases like `--model`, an id with a space in it and `--model` in
+  another case) lets a run pass when `--model` is among them and every other
+  model is on the list; without `--model` it still fails. This is a weaker check:
+  `modelUsage` cannot show which listed model wrote the final answer, so a pass is
+  evidence, not proof. It is meant for web stages, together with `--allowed-tools`. It
+  was not verified against a real WebFetch run (the tests use a stub), and a web stage
+  reads untrusted pages, which the kit sandbox does not constrain. A non-empty list,
+  apart from `--model` itself, is part of the resume key.
+- **Files in sub-directories:** a string in a task's `files` is copied flat, under its
+  base name. `{"path": "src/a.pdf", "as": "sub/dir/name.pdf"}` places the file at that
+  relative path inside the run's working directory instead, so two files with one base
+  name can sit side by side and no flattened names or rewritten prompt paths are needed.
+  `as` is refused, before any launch and by `plan` too, when it is absolute, has a `..`,
+  `.` or empty segment, a backslash or a NUL, or collides with another entry's path
+  ignoring case (or makes a file where another needs a directory). The validator sees
+  the `as` path. A task whose files are all strings keeps its resume key; `"as": "x.md"`
+  keys like the string entry `x.md`, and changing `as` reruns the task.
 - **The routing guard asks the question too:** a Workflow whose untyped `agent()`
   call runs once per item (a `map` callback, a `pipeline` stage, a loop body) gets a
   "Clean-run check:" warning that never blocks it; a typed call is silent.

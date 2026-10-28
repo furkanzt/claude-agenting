@@ -112,13 +112,12 @@ Feature: Clean runs fan a set of self-contained tasks out as separate claude -p 
     And stdout names "claude-haiku-4-5-20251001"
     And outputs/t0.json does not exist
 
-  @gap @wip
-  # Backed by: @gap
+  # Backed by: tests/test_cleanrun.py::test_without_also_models_a_helper_beside_the_routed_model_is_still_a_mismatch
   Scenario: An answer naming the routed model plus a second model is also invalid
     Given a task whose claude answer names "claude-opus-5-5" and "claude-haiku-4-5-20251001" in modelUsage
-    When I run cleanrun.py run with model "claude-opus-5-5" and no retries
+    When I run cleanrun.py run with model "claude-opus-5-5", no retries and no --also-models option
     Then the exit code is 1
-    And the first problem of the failed task contains "model mismatch"
+    And the only problem of the failed task is "model mismatch: answered by ['claude-haiku-4-5-20251001', 'claude-opus-5-5'], routed to claude-opus-5-5"
     And outputs/t0.json does not exist
 
   # Backed by: tests/test_cleanrun.py::test_a_missing_claude_is_a_usage_error_and_nothing_is_charged
@@ -161,6 +160,241 @@ Feature: Clean runs fan a set of self-contained tasks out as separate claude -p 
     Then the exit code is 2
     And the output directory is not created, and no ledger.jsonl or summary.json is written
     And the same holds for a bad schema, a validator that does not import and a malformed tasks file
+
+  # ---------------------------------------------------------------- tool permissions
+
+  # Backed by: tests/test_cleanrun.py::test_the_list_is_passed_to_claude_as_its_allowed_tools_flag
+  Scenario Outline: --allowed-tools is passed to claude as its allowed-tools flag
+    Given a tasks file with one task
+    When I run cleanrun.py run with "--tools <tools>" and "--allowed-tools <given>"
+    Then the exit code is 0
+    And the claude command line carries "--allowed-tools" followed by "<sent>"
+    And it still carries "--tools" followed by "<tools>"
+
+    Examples:
+      | tools             | given                      | sent                     |
+      | WebSearch,WebFetch | WebSearch,WebFetch        | WebSearch,WebFetch       |
+      | Bash,Read         | Bash(git status:*), Read   | Bash(git status:*),Read  |
+      | Bash              | Bash(git log --format=%h,%s:*) | Bash(git log --format=%h,%s:*) |
+      | Read Glob         | Glob                       | Glob                     |
+
+  # Backed by: tests/test_cleanrun.py::test_without_the_option_claude_gets_no_allowed_tools_flag
+  Scenario: Without --allowed-tools claude gets no allowed-tools flag
+    Given a tasks file with two tasks
+    When I run cleanrun.py run with "--tools Read" and no --allowed-tools option
+    Then the exit code is 0
+    And no claude command line carries "--allowed-tools" or "--allowedTools"
+    And each claude command line carries "--tools" followed by "Read"
+
+  # Backed by: tests/test_cleanrun.py::test_a_name_that_tools_does_not_list_is_refused_by_run_and_by_plan
+  Scenario Outline: An --allowed-tools entry that --tools does not list is a usage error for run and plan
+    Given a tasks file with one task and an output directory that does not exist
+    When I run cleanrun.py <command> with "--tools <tools>" and "--allowed-tools <allowed>"
+    Then the exit code is 2
+    And stderr mentions "--allowed-tools" and has no traceback
+    And the output directory is not created
+    And claude is never launched
+
+    Examples:
+      | command | tools     | allowed              |
+      | run     | Read      | WebFetch             |
+      | plan    | Read      | WebFetch             |
+      | run     |           | Read                 |
+      | plan    | Read      | Bash(git status:*)   |
+      | run     | WebSearch | WebSearch,WebFetch   |
+      | plan    | Bash      | Bash(git status      |
+      | run     | (git status) | (git status)      |
+      | run     | Bash      | Bash(git (x),Bash,(y)) |
+      | plan    | Bash      | Bash((a),WebFetch,(b)) |
+      | run     | Bash      | Bash(echo $(date) *) |
+      | plan    | Bash,Read | Bash(a)Read          |
+      | plan    | Bash      | Bash(a (b)           |
+      | run     | Read,Glob | Read<TAB>Glob        |
+      | plan    | Read<TAB>Glob | Read<TAB>Glob    |
+      | run     | Read)     | Read)                |
+      | plan    | Read,WebFetch,!WebFetch | WebFetch |
+      | run     | Read,! WebFetch | Read,WebFetch  |
+      | plan    | default   | WebFetch             |
+
+    # Claude cuts a list with one inside/outside flag, so a nested "(" or text after an entry's ")"
+    # would be several grants there, among them a whole-tool Bash or a name --tools never listed.
+    # Refusing them keeps the checked list identical to the granted one. <TAB> stands for a tab character.
+
+  # Backed by: tests/test_cleanrun.py::test_the_list_enters_the_run_key_only_when_it_is_given
+  Scenario: A task run with --allowed-tools gets a different run key than the same task without it
+    Given the pinned scenario's task (prompt "first", file "page.txt" containing "data") run twice in separate output directories with "--tools Read", once without and once with "--allowed-tools Read"
+    When I read outputs/t0.json of both
+    Then the "key" of the run without the option is 276e916802a89618a91fb043338e79ee870da432a7fb3c737b963cb2b8ef8e71, the one pinned by the scenario "A flat Read-only task keeps the run key release 3.3.4 gave it"
+    And the "key" of the run with the option differs from it
+
+  # Backed by: tests/test_cleanrun.py::test_changing_the_list_reruns_a_finished_task
+  Scenario: Changing --allowed-tools reruns a finished task
+    Given a finished run of one task with "--tools Read,Glob" and "--allowed-tools Read"
+    When I run cleanrun.py run again with the same arguments
+    Then no new claude call is made
+    When I run again with "--allowed-tools Read,Glob"
+    Then claude is launched a second time for that task
+    When I run again with "--allowed-tools Glob,Read,Read", the same grant reordered and repeated
+    Then no new claude call is made
+    When I run again without --allowed-tools
+    Then claude is launched a third time for that task
+
+  # ---------------------------------------------------------------- helper models (--also-models)
+
+  # Backed by: tests/test_cleanrun.py::test_a_helper_on_the_list_is_accepted_and_the_summary_lists_both_models
+  Scenario: A helper model on the --also-models list is accepted and the summary lists both models
+    Given a task whose claude answer names "claude-opus-5-5" and "claude-haiku-4-5-20251001" in modelUsage
+    When I run cleanrun.py run with model "claude-opus-5-5" and "--also-models claude-haiku-4-5-20251001"
+    Then the exit code is 0
+    And summary.json models_observed is {"claude-opus-5-5": 1, "claude-haiku-4-5-20251001": 1}
+    And stdout names "claude-haiku-4-5-20251001"
+    And the attempt in ledger.jsonl has model_observed ["claude-haiku-4-5-20251001", "claude-opus-5-5"]
+    And outputs/t0.json exists
+    And the claude command line carries no "--also-models"
+
+  # Backed by: tests/test_cleanrun.py::test_a_model_not_on_the_list_is_rejected_and_named
+  Scenario: A second model that --also-models does not list is a mismatch that names it
+    Given a task whose claude answer names "claude-opus-5-5" and "claude-sonnet-4-5-20250929" in modelUsage
+    When I run cleanrun.py run with model "claude-opus-5-5", no retries and "--also-models claude-haiku-4-5-20251001"
+    Then the exit code is 1
+    And the only problem of the failed task starts with "model mismatch: answered by ['claude-opus-5-5', 'claude-sonnet-4-5-20250929'], routed to claude-opus-5-5"
+    And it contains "not on --also-models: claude-sonnet-4-5-20250929"
+    And outputs/t0.json does not exist
+
+  # Backed by: tests/test_cleanrun.py::test_the_routed_model_missing_is_rejected_even_when_a_listed_helper_answered
+  Scenario: An answer without the routed model is a mismatch even when only a listed helper answered
+    Given a task whose claude answer names only "claude-haiku-4-5-20251001" in modelUsage
+    When I run cleanrun.py run with model "claude-opus-5-5", no retries and "--also-models claude-haiku-4-5-20251001"
+    Then the exit code is 1
+    And the only problem of the failed task starts with "model mismatch: answered by ['claude-haiku-4-5-20251001'], routed to claude-opus-5-5"
+    And it contains "claude-opus-5-5 is not among them"
+    And outputs/t0.json does not exist
+
+  # Backed by: tests/test_cleanrun.py::test_an_alias_in_also_models_is_refused_by_run_and_by_plan
+  Scenario Outline: An alias or a non-claude id in --also-models is a usage error for run and plan
+    Given a tasks file with one task and an output directory that does not exist
+    When I run cleanrun.py <command> with "--also-models <given>"
+    Then the exit code is 2
+    And stderr contains "--also-models must be a full model id" and has no traceback
+    And the output directory is not created
+    And claude is never launched
+
+    Examples:
+      | command | given                              |
+      | run     | haiku                              |
+      | plan    | haiku                              |
+      | run     | Sonnet                             |
+      | plan    | claude-haiku-4-5-20251001,opus     |
+      | run     | gpt-5                              |
+      | plan    | claude-haiku-4-5-20251001, default |
+
+  # Backed by: tests/test_cleanrun.py::test_a_space_separated_list_or_the_routed_model_in_another_case_is_refused_by_run_and_by_plan
+  Scenario Outline: A space inside an --also-models id or the routed model in another case is a usage error for run and plan
+    Given a tasks file with one task and an output directory that does not exist
+    When I run cleanrun.py <command> with model "claude-opus-5-5" and "--also-models <given>"
+    Then the exit code is 2
+    And stderr contains "<message>" and has no traceback
+    And the output directory is not created
+    And claude is never launched
+
+    Examples:
+      | command | given                                                                            | message                                         |
+      | run     | claude-haiku-4-5-20251001 claude-sonnet-4-5-20250929                             | a model id has no space                         |
+      | plan    | claude-haiku-4-5-20251001 claude-sonnet-4-5-20250929                             | a model id has no space                         |
+      | run     | claude-sonnet-4-5-20250929, claude-haiku-4-5-20251001 claude-sonnet-4-5-20250929 | a model id has no space                         |
+      | plan    | claude-sonnet-4-5-20250929, claude-haiku-4-5-20251001 claude-sonnet-4-5-20250929 | a model id has no space                         |
+      | run     | claude-OPUS-5-5                                                                  | names --model 'claude-opus-5-5' in another case |
+      | plan    | claude-OPUS-5-5                                                                  | names --model 'claude-opus-5-5' in another case |
+      | run     | claude-haiku-4-5-20251001,claude-Opus-5-5                                        | names --model 'claude-opus-5-5' in another case |
+      | plan    | claude-haiku-4-5-20251001,claude-Opus-5-5                                        | names --model 'claude-opus-5-5' in another case |
+
+  # Backed by: tests/test_cleanrun.py::test_an_id_a_run_could_never_report_is_refused_by_run_and_by_plan
+  Scenario Outline: An --also-models id that claude could never report is a usage error for run and plan
+    Given a tasks file with one task and an output directory that does not exist
+    When I run cleanrun.py <command> with "--also-models <given>"
+    Then the exit code is 2
+    And stderr contains "written as claude reports them" and has no traceback
+    And the output directory is not created
+    And claude is never launched
+
+    Examples:
+      | given                                   | what it is               |
+      | claude-haiku-4-5-20251001;claude-sonnet-4-5-20250929 | a ';' list   |
+      | claude-haiku                            | a partial id             |
+      | claude-                                 | a bare prefix            |
+      | claude-Haiku-4-5-20251001               | another case             |
+      | claude-<FULLWIDTH h>aiku-4-5-20251001   | a fullwidth look-alike   |
+      | claude-haiku-4-5-20251001<ZERO WIDTH>   | a zero-width character   |
+      | claude-haiku-4-5<SOFT HYPHEN>-20251001  | a soft hyphen            |
+
+    # <FULLWIDTH h>, <ZERO WIDTH> and <SOFT HYPHEN> stand for U+FF48, U+200B and U+00AD, each in both run and plan.
+
+  # Backed by: tests/test_cleanrun.py::test_the_weaker_check_is_recorded_where_the_result_is_read
+  Scenario: The weaker model check is recorded where the result is read
+    Given a task answered by "claude-opus-5-5" and "claude-haiku-4-5-20251001"
+    When I run cleanrun.py plan and then run with "--also-models claude-haiku-4-5-20251001"
+    Then the plan line says "also models claude-haiku-4-5-20251001 (weaker model check)"
+    And the run's first line says "(weaker model check)"
+    And summary.json holds "also_models" as the list with that id
+    And outputs/t0.json holds "also_models" as the same list
+
+  # Backed by: tests/test_cleanrun.py::test_a_default_run_mentions_neither_the_weaker_check_nor_a_grant
+  Scenario: A default run mentions neither the weaker check nor a grant, and a grant shows in the plan
+    Given a tasks file with one task
+    When I run cleanrun.py plan and then run with no --also-models and no --allowed-tools
+    Then neither the plan output nor summary.json nor outputs/t0.json mentions "also" or "allowed"
+    When I run cleanrun.py plan with "--tools Read" and "--allowed-tools Read"
+    Then the plan line says "allowed 'Read'"
+
+  # Backed by: tests/test_cleanrun.py::test_also_models_enter_the_run_key_only_when_they_add_a_model
+  Scenario: --also-models changes the run key only when it adds a model beside the routed one
+    Given the pinned scenario's task (prompt "first", file "page.txt" containing "data") run three times in separate output directories with "--tools Read": without --also-models, with "--also-models claude-haiku-4-5-20251001" and with "--also-models claude-opus-5-5"
+    When I read outputs/t0.json of each
+    Then the "key" of the run without the option is 276e916802a89618a91fb043338e79ee870da432a7fb3c737b963cb2b8ef8e71, the one pinned by the scenario "A flat Read-only task keeps the run key release 3.3.4 gave it"
+    And the "key" of the run that lists only the routed model equals it too
+    And the "key" of the run that lists the helper differs from it
+
+  # Backed by: tests/test_cleanrun.py::test_a_changed_also_models_set_reruns_a_finished_task_and_a_reordered_one_resumes
+  Scenario: A changed --also-models set reruns a finished task and the same set reordered resumes it
+    Given a finished run of one task, answered by "claude-opus-5-5" and "claude-haiku-4-5-20251001", with "--also-models claude-haiku-4-5-20251001"
+    When I run cleanrun.py run again with the same arguments
+    Then no new claude call is made
+    When I run again with "--also-models claude-haiku-4-5-20251001, claude-sonnet-4-5-20250929"
+    Then claude is launched a second time for that task
+    When I run again with "--also-models claude-sonnet-4-5-20250929,claude-haiku-4-5-20251001,claude-haiku-4-5-20251001", the same set reordered and repeated
+    Then no new claude call is made
+    When I run again with "--also-models claude-sonnet-4-5-20250929,claude-haiku-4-5-20251001,claude-opus-5-5", which adds only the routed model
+    Then no new claude call is made
+
+  # ---------------------------------------------------------------- hashing the input files
+
+  # Backed by: tests/test_cleanrun.py::test_the_digest_equals_an_independent_sha256
+  Scenario: A file's digest in the run key is its sha256
+    Given files of 0 bytes, 1 byte, one byte under a megabyte, exactly a megabyte, one over and a little over two
+    When cleanrun hashes each for the run key
+    Then each digest equals the sha256 that Python's hashlib computes for the same bytes
+
+  # Backed by: tests/test_cleanrun.py::test_a_large_file_is_hashed_in_chunks_not_read_whole
+  Scenario: A large file is hashed in chunks and not read whole
+    Given a file of 16 megabytes
+    When cleanrun hashes it for the run key
+    Then the digest is that file's sha256
+    And the memory allocated while hashing stays under 4 megabytes
+
+  # Backed by: tests/test_cleanrun.py::test_a_file_shared_by_several_tasks_resumes_and_reruns_them_all_when_it_changes
+  Scenario: A shared input file resumes its tasks and a change to it reruns all of them
+    Given three tasks that list one file, finished
+    When I run again with the file unchanged
+    Then no new claude call is made
+    When I run again after the file's content changed
+    Then claude is launched again for all three tasks
+
+  # Backed by: tests/test_cleanrun.py::test_a_rewrite_with_the_mtime_put_back_during_a_run_is_seen_when_the_task_is_picked_up
+  Scenario: A rewrite with the mtime put back during a run is seen when the task is picked up
+    Given a finished task whose input file is rewritten in place at the same size, with its mtime put back, while another task holds the only worker
+    When the held-up task is picked up
+    Then claude is launched for it again, with the new bytes in its kit
+    And it is not resumed from the output made from the old bytes
 
   # ---------------------------------------------------------------- validating an answer
 
@@ -434,6 +668,185 @@ Feature: Clean runs fan a set of self-contained tasks out as separate claude -p 
     When I start a second cleanrun.py run on the same directory
     Then the second exits with code 2
     And its stderr contains "another cleanrun"
+
+  # ---------------------------------------------------------------- kit paths (object entries in files)
+
+  # Backed by: tests/test_cleanrun.py::test_an_object_entry_lands_at_its_kit_path_and_claude_sees_it_there
+  Scenario: An object entry is copied to its kit path and claude sees it there
+    Given a task whose files are {"path": "src/report.bin", "as": "sub/dir/name.pdf"} and the string entry "page.txt"
+    When I run cleanrun.py run
+    Then the exit code is 0
+    And the working tree claude ran in holds exactly "sub/dir/name.pdf" with the bytes of src/report.bin and "page.txt" with the bytes of page.txt
+    And its top level lists only "page.txt" and "sub"
+
+  # Backed by: tests/test_cleanrun.py::test_the_validator_sees_the_kit_path_of_an_object_entry
+  Scenario: The validator is handed the kit path of an object entry and the base name of a string entry
+    Given a validator that accepts only the file list ["sub/name.md", "page.txt"]
+    And a task whose files are {"path": "other.txt", "as": "sub/name.md"} and "page.txt"
+    When I run cleanrun.py run
+    Then the exit code is 0
+
+  # Backed by: tests/test_cleanrun.py::test_two_files_with_the_same_base_name_are_accepted_at_different_kit_paths
+  Scenario: Two files with the same base name are accepted when their kit paths differ
+    Given a task whose files are {"path": "page.txt", "as": "a/page.txt"} and {"path": "x/page.txt", "as": "b/page.txt"}
+    And a task whose files are the string entry "page.txt" and {"path": "x/page.txt", "as": "x/page.txt"}
+    When I run cleanrun.py run
+    Then the exit code is 0
+    And the first task's working tree holds "a/page.txt" and "b/page.txt", each with the bytes of its own source
+    And the second task's working tree holds "page.txt" and "x/page.txt", each with the bytes of its own source
+    # Two string entries with one base name are still refused: see "Two files of one task with the same base name are refused".
+
+  # Backed by: tests/test_cleanrun.py::test_an_invalid_kit_path_is_refused_by_run_and_by_plan
+  Scenario Outline: An invalid "as" is a usage error for run and plan and writes nothing
+    Given a task "t0" whose files are {"path": "page.txt", "as": <as>}
+    When I run cleanrun.py run, and separately cleanrun.py plan
+    Then the exit code is 2
+    And stderr names "t0", the entry as JSON and "<defect>", and has no traceback
+    And the output directory is not created
+    And claude is never launched
+
+    Examples:
+      | as                                   | defect             |
+      | ""                                   | non-empty string   |
+      | 5                                    | non-empty string   |
+      | null                                 | non-empty string   |
+      | "/etc/page.txt"                      | absolute           |
+      | "../page.txt"                        | '..' segment       |
+      | "sub/../page.txt"                    | '..' segment       |
+      | "./page.txt"                         | '.'                |
+      | "a/./page.txt"                       | '.'                |
+      | "."                                  | '.'                |
+      | "a//page.txt"                        | empty              |
+      | "a/"                                 | empty              |
+      | "a<BACKSLASH>page.txt"               | backslash          |
+      | "a<NUL>page.txt"                     | NUL                |
+      | "d/" repeated 256 times, then "x"    | longer than 512 bytes |
+      | three segments of 127 s-cedillas     | longer than 512 bytes |
+      | "d/" then 256 x characters           | 255 bytes          |
+      | 128 s-cedillas (256 bytes in UTF-8)  | 255 bytes          |
+      | "x" then U+FFFF                      | unassigned         |
+      | "d/" then U+10FFFF                   | unassigned         |
+      | "x/..namedfork/rsrc"                 | ..namedfork        |
+      | "..NamedFork"                        | ..namedfork        |
+
+    # <BACKSLASH> and <NUL> stand for a backslash and a NUL character.
+
+  # Backed by: tests/test_cleanrun.py::test_a_lone_surrogate_in_as_is_a_usage_error_not_a_traceback
+  Scenario: A lone surrogate in "as" is a usage error for run and plan, not a traceback
+    Given a task "t0" whose tasks line holds the JSON escape \ud800 as its "as", which is legal JSON but no file name
+    When I run cleanrun.py run, and separately cleanrun.py plan
+    Then the exit code is 2
+    And stderr mentions "lone surrogate" and has no traceback
+    And the output directory is not created
+    And claude is never launched
+
+  # Backed by: tests/test_cleanrun.py::test_a_kit_that_cannot_be_built_fails_its_task_and_not_the_fan_out
+  Scenario: A kit that cannot be built fails its task and the other tasks still run
+    Given two tasks, the first with an object entry whose copy fails at run time
+    When I run cleanrun.py run
+    Then the exit code is 1, not an internal-error stop
+    And the summary lists only the first task as failed, with "could not build the task's kit"
+    And claude is launched once, for the second task
+
+  # Backed by: tests/test_cleanrun.py::test_a_malformed_object_entry_is_refused_by_run_and_by_plan
+  Scenario Outline: A malformed object entry is a usage error for run and plan and writes nothing
+    Given a task "t0" whose files hold the entry <entry>
+    When I run cleanrun.py run, and separately cleanrun.py plan
+    Then the exit code is 2
+    And stderr names "t0" and "<defect>", and has no traceback
+    And the output directory is not created
+    And claude is never launched
+
+    Examples:
+      | entry                                              | defect                      |
+      | {"path": "page.txt"}                               | exactly a non-empty "path"  |
+      | {"as": "x.txt"}                                    | exactly a non-empty "path"  |
+      | {"path": "", "as": "x.txt"}                        | exactly a non-empty "path"  |
+      | {"path": 5, "as": "x.txt"}                         | exactly a non-empty "path"  |
+      | {"path": "page.txt", "as": "x.txt", "mode": "ro"}  | exactly a non-empty "path"  |
+      | {"path": "missing.txt", "as": "x.txt"}             | no such file missing.txt    |
+
+  # Backed by: tests/test_cleanrun.py::test_a_traversal_in_as_creates_nothing_outside_the_kit
+  Scenario: A traversal in "as" is refused and creates nothing outside the kit
+    Given TMPDIR points into the test's own directory, so the kit would be made there
+    And a task whose files are {"path": "page.txt", "as": ...} with "as" in turn each of "../escape-1.txt", "../../escape-2.txt", "../../../escape-3.txt", "sub/../../escape-4.txt" and an absolute path into the test's directory
+    When I run cleanrun.py run, and separately cleanrun.py plan, for each attempt
+    Then each exit code is 2 and claude is never launched
+    And every path in the test's directory and its bytes are what they were before, TMPDIR is still empty
+    And no escape file exists in the test directory's parent or grandparent
+
+  # Backed by: tests/test_cleanrun.py::test_kit_paths_that_are_equal_ignoring_case_are_refused
+  Scenario Outline: Two entries on one kit path, ignoring case, are refused when either is an object entry
+    Given a task "t0" whose files are <first> and <second>
+    When I run cleanrun.py run, and separately cleanrun.py plan
+    Then the exit code is 2
+    And stderr names "t0", the second entry as JSON and "same kit path"
+    And the output directory is not created
+
+    Examples:
+      | first                                       | second                                       |
+      | {"path": "page.txt", "as": "d/page.txt"}    | {"path": "other.txt", "as": "d/page.txt"}    |
+      | {"path": "page.txt", "as": "Docs/Page.txt"} | {"path": "other.txt", "as": "docs/page.txt"} |
+      | "page.txt"                                  | {"path": "other.txt", "as": "page.txt"}      |
+      | {"path": "other.txt", "as": "PAGE.txt"}     | "page.txt"                                   |
+      | {"path": "page.txt", "as": "<NFC s-cedilla>.md"} | {"path": "other.txt", "as": "<NFD s-cedilla>.md"} |
+      | {"path": "page.txt", "as": "<U+0390>"}      | {"path": "other.txt", "as": "<U+03AA U+0301>"} |
+
+    # A macOS disk treats a composed and a decomposed s-cedilla (U+015F, s U+0327) as one name, so they collide.
+    # It also treats U+0390 and U+03AA U+0301 as one name, which only the canonical caseless match
+    # (NFD, casefold, NFD) sees: casefolding after NFC alone leaves them apart.
+
+  # Backed by: tests/test_cleanrun.py::test_a_file_where_another_entry_needs_a_directory_is_refused
+  Scenario Outline: A file where another entry needs a directory is refused
+    Given a task "t0" whose files are <first> and <second>
+    When I run cleanrun.py run, and separately cleanrun.py plan
+    Then the exit code is 2
+    And stderr names "t0", the second entry as JSON and "directory"
+    And the output directory is not created
+
+    Examples:
+      | first                                        | second                                          |
+      | {"path": "page.txt", "as": "a"}              | {"path": "other.txt", "as": "a/b.txt"}          |
+      | {"path": "other.txt", "as": "a/b.txt"}       | {"path": "page.txt", "as": "a"}                 |
+      | {"path": "other.txt", "as": "a/b/c.txt"}     | {"path": "page.txt", "as": "a/b"}               |
+      | "page.txt"                                   | {"path": "other.txt", "as": "page.txt/in.txt"}  |
+      | {"path": "other.txt", "as": "page.txt/in.txt"} | "page.txt"                                    |
+      | {"path": "page.txt", "as": "A"}              | {"path": "other.txt", "as": "a/b.txt"}          |
+      | {"path": "page.txt", "as": "<U+0390>"}       | {"path": "other.txt", "as": "<U+03AA U+0301>/b.txt"} |
+      | {"path": "other.txt", "as": "<U+03AA U+0301>/b.txt"} | {"path": "page.txt", "as": "<U+0390>"}  |
+
+  # Backed by: tests/test_cleanrun.py::test_an_object_entry_with_no_directory_keys_like_the_string_entry
+  Scenario: An object entry with no directory part keys exactly like the string entry of the same name and bytes
+    Given the pinned scenario's task (prompt "first", page.txt containing "data", --tools Read)
+    And the same task with the entry {"path": "src/page-v1.txt", "as": "page.txt"}, whose source also contains "data"
+    When each runs in its own output directory and I read outputs/t0.json
+    Then both "key"s equal 276e916802a89618a91fb043338e79ee870da432a7fb3c737b963cb2b8ef8e71, the one pinned by the scenario "A flat Read-only task keeps the run key release 3.3.4 gave it"
+
+  # Backed by: tests/test_cleanrun.py::test_the_kit_path_of_an_object_entry_is_part_of_the_run_key
+  Scenario: Moving an object entry to another kit path changes its run key and reruns it
+    Given the pinned scenario's task with the entry {"path": "page.txt", "as": "docs/page.txt"}, and again with "as" "other/page.txt"
+    When each runs in its own output directory
+    Then the two keys differ, and neither equals the pinned key
+    When a finished run with "docs/page.txt" is run again unchanged
+    Then no new claude call is made
+    When it is run again with "other/page.txt"
+    Then claude is launched again for that task
+
+  # Backed by: tests/test_cleanrun.py::test_a_changed_file_under_an_object_entry_reruns_its_task
+  Scenario: A changed file under an object entry reruns its task
+    Given a finished run of one task with the entry {"path": "page.txt", "as": "in/page.txt"}
+    When I run cleanrun.py run again unchanged
+    Then no new claude call is made
+    When page.txt is changed and I run again
+    Then claude is launched a second time
+
+  # Backed by: tests/test_cleanrun.py::test_the_copy_refuses_a_destination_outside_the_kit
+  Scenario: The copy refuses a destination outside the kit even if a kit path got past the load checks
+    Given a kit directory
+    When cleanrun's place() is asked for "../escape.txt", "a/../../escape.txt", an absolute path, "" or "."
+    Then each raises RuntimeError and no file or directory is created anywhere in the test's directory
+    And place() for "a/b/c.txt" returns that path under the resolved kit and creates "a/b" inside it
+    And place() for "a/b", now a directory in the kit, raises RuntimeError
 
   # ---------------------------------------------------------------- process groups, signals, crashes
 

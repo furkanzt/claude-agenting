@@ -11,6 +11,8 @@ plays the listed modes on successive calls for the same prompt.
   invalid_output  success; structured_output {"answer": "bad"}
   no_structured   success without structured_output
   wrong_model     modelUsage names another model
+  helper_model    success; modelUsage names --model and FAKE_HELPER_MODEL (a tool's own helper)
+  helper_only     success; modelUsage names only FAKE_HELPER_MODEL
   error           is_error true, subtype error_during_execution, errors list, exit 1
   error_exit0     is_error true but exit 0 with a structured_output (defensive case)
   budget          the real --max-budget-usd stop: exit 1, is_error, subtype
@@ -25,7 +27,9 @@ plays the listed modes on successive calls for the same prompt.
                   the stdout file open; writes its pid to FAKE_PIDS_DIR
   slow            sleeps FAKE_SLOW_S (default 2) then answers ok
 
-Env: FAKE_COST (default 0.05), FAKE_LOG (one JSON line per call), FAKE_STATE_DIR (seq counters).
+Env: FAKE_COST (default 0.05), FAKE_HELPER_MODEL (default claude-haiku-4-5-20251001), FAKE_LOG (one JSON line per call: argv, the flat listing "files",
+the whole working tree as "tree" {relative path: sha256 of the bytes}, prompt, system, mode, pid),
+FAKE_STATE_DIR (seq counters).
 """
 import fcntl
 import hashlib
@@ -70,6 +74,16 @@ def record_pid(pid):
             f.write(str(pid))
 
 
+def tree():
+    out = {}
+    for d, _, names in os.walk("."):
+        for name in names:
+            p = os.path.join(d, name)
+            with open(p, "rb") as f:
+                out[os.path.relpath(p, ".").replace(os.sep, "/")] = hashlib.sha256(f.read()).hexdigest()
+    return out
+
+
 def main():
     prompt = sys.stdin.read()
     model = arg("--model") or "claude-unknown"
@@ -78,7 +92,7 @@ def main():
     m = re.search(r"@@mode:(\w+)@@", prompt)
     s = re.search(r"@@seq:([\w,]+)@@", prompt)
     mode = seq_mode(prompt, s.group(1).split(",")) if s else (m.group(1) if m else os.environ.get("FAKE_MODE", "ok"))
-    log({"argv": sys.argv[1:], "files": sorted(os.listdir(".")), "prompt": prompt, "system": system,
+    log({"argv": sys.argv[1:], "files": sorted(os.listdir(".")), "tree": tree(), "prompt": prompt, "system": system,
          "mode": mode, "pid": os.getpid()})
     cost = float(os.environ.get("FAKE_COST", "0.05"))
     usage_mu = {"inputTokens": 3, "outputTokens": 40, "cacheReadInputTokens": 0, "cacheCreationInputTokens": 500,
@@ -111,6 +125,12 @@ def main():
         out["structured_output"] = {"answer": "bad"}
     elif mode == "wrong_model":
         out["modelUsage"] = {"claude-haiku-4-5-20251001": dict(usage_mu)}
+        out["structured_output"] = {"answer": "ok"}
+    elif mode in ("helper_model", "helper_only"):
+        helper = os.environ.get("FAKE_HELPER_MODEL", "claude-haiku-4-5-20251001")
+        out["modelUsage"] = {helper: {**usage_mu, "outputTokens": 7}}
+        if mode == "helper_model":
+            out["modelUsage"][model] = dict(usage_mu)
         out["structured_output"] = {"answer": "ok"}
     elif mode == "error":
         out.update(is_error=True, subtype="error_during_execution", errors=["API Error: overloaded"])

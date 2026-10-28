@@ -24,17 +24,87 @@ USAGE
 
   Tasks file (UTF-8): one JSON object per line, {"id": "...", "prompt": "...",
   "files": [...]}. `files` (optional) are copied into the task's own empty working
-  directory, which is all the run can see (--restricted). Relative paths resolve
-  against the tasks file. Ids must differ even ignoring case.
+  directory (the kit), which is all the run can see (--restricted). Relative paths
+  resolve against the tasks file. Ids must differ even ignoring case.
+  - A string entry is copied flat, under the base name of the file it resolves to (a
+    symlink takes its target's name); two string entries may not share a base name.
+  - An object entry {"path": "...", "as": "sub/dir/name.pdf"} is copied to that path
+    inside the kit, whatever the source is called, and its directories are created
+    there. "as" is relative, uses '/', has no empty, '.' or '..' segment, no backslash
+    or NUL, at most 512 bytes in UTF-8 and 255 per segment, no lone surrogate, no
+    '..namedfork' segment and no code point unassigned in this Python's Unicode tables
+    (a disk follows a newer Unicode: it folds such letters into one name or refuses
+    them). An object entry's kit path may not equal another entry's ignoring case, nor
+    be a file where another entry needs a directory ("a" and "a/b"). Each refusal is
+    a usage error before any launch, for plan as well as run. A kit that still cannot
+    be built at run time (a full disk, the disk's own rules) fails that one task, with
+    nothing launched and nothing spent, and the other tasks go on.
+  - The validator's task lists each file by its kit path. The run key holds each
+    file's kit path and content, so "as" with no directory ("x.md") keys exactly
+    like the string entry "x.md", and changing "as" reruns the task.
   The system prompt file is sent byte for byte (--system-prompt-file); keep the
   stable rules there and the per-task data in the prompt, so runs that follow each
   other share a cached prefix. The schema must be a JSON Schema object.
 
-  Options: --tools "" (default, none) or e.g. Read; --validator FILE.py (a module with
-  validate(output, task) -> list of problem strings; task carries id, prompt and the
-  file names); --jobs 4; --max-usd X; --per-run-usd 2.5; --timeout 1800 (seconds per
-  attempt); --retries 1; --usage-check "CMD" (opt-in, see below); --claude-bin PATH
-  (else $CLEANRUN_CLAUDE_BIN, else `claude`).
+  Options: --tools "" (default, none) or e.g. Read; --allowed-tools LIST (default none,
+  see PERMISSIONS); --also-models LIST (default none, see MODEL CHECK); --validator
+  FILE.py (a module with validate(output, task) -> list of problem strings; task carries
+  id, prompt and the files' kit paths); --jobs 4; --max-usd X;
+  --per-run-usd 2.5; --timeout 1800 (seconds per attempt); --retries 1; --usage-check
+  "CMD" (opt-in, see below); --claude-bin PATH (else $CLEANRUN_CLAUDE_BIN, else `claude`).
+
+PERMISSIONS (--allowed-tools)
+  `claude -p` cannot ask, so a tool in --tools that needs permission (WebSearch,
+  WebFetch, Bash and others) is denied. --allowed-tools LIST, spelled like --tools
+  (comma separated, e.g. "WebSearch,WebFetch"), is passed to claude as its
+  --allowed-tools flag and grants that permission up front.
+  - Default empty: no flag is passed and the claude command line is unchanged.
+  - Every name in LIST (the text before the opening parenthesis of a pattern such as
+    "Bash(git status:*)") must also be in --tools, else it is a usage error before
+    any launch, for plan as well as run. A comma or space inside parentheses belongs
+    to the pattern. Nested parentheses and text after an entry's closing parenthesis
+    are refused: claude splits such a list differently from how it reads, so the
+    list that was checked would not be the list it grants.
+  - --tools must name each tool explicitly while LIST is used: "default" (claude's whole
+    default set) and an exclusion such as "!WebFetch" are refused, because claude would
+    read the grant against a tool set cleanrun cannot see.
+  - A non-empty LIST is part of the resume key, because it changes what a run may do:
+    changing it reruns finished tasks, while the same entries in another order or
+    repeated do not. With none given the key is what it was before this option existed,
+    so finished out-dirs keep resuming.
+  - What it does NOT solve: it grants permission only. A run that calls WebFetch still
+    has a second model (a Haiku summariser) in modelUsage, and the model check still
+    rejects that run as a model mismatch unless --also-models lists that model (see
+    MODEL CHECK). This flag alone does not make a web stage pass.
+
+MODEL CHECK (--also-models)
+  By default a run is valid only when the models in claude's modelUsage are exactly
+  [--model]. A tool that calls a helper model of its own (WebFetch runs a small Haiku
+  summariser) adds a second model, so such a run is rejected even when the routed model
+  answered. --also-models LIST (comma separated full model ids, spaces around a comma
+  ignored, aliases refused as for --model, a usage error before any launch for plan as
+  well as run) loosens that: the run passes when --model is among the observed models
+  and every other observed model is on LIST. An id with a space inside it (a list
+  separated by spaces) and --model spelled in another case are refused the same way:
+  neither names a model a run could report, so the first would only pay for runs that
+  fail and the second would only change the key and rerun finished tasks. So is any id
+  not written as claude reports it (lower-case letters, digits, '.' and '-', with a
+  version number): a ';' list, a partial id, an upper-case or look-alike spelling.
+  While it is in force the plan and start lines say so, and summary.json and each saved
+  output carry "also_models"; without it none of them mentions it.
+  - This is a weaker check than the default. modelUsage says which models were called,
+    not which one wrote the final answer, so a pass is evidence that the routed model
+    answered, not proof. A run without --model in modelUsage is still rejected, whatever
+    else is there; a model not on LIST is rejected and named.
+  - It exists for tools that call a helper model, and is meant to be used together with
+    --allowed-tools for web stages. Nothing here was verified against a real WebFetch
+    run (the tests use a stub claude). A web stage reads untrusted pages, and the kit
+    sandbox does not constrain what the run fetches or what those pages say.
+  - Default empty: the exact check, the claude command line and the run key are what
+    they were before this option existed. A repeat, or --model itself in LIST, changes
+    nothing: LIST is kept as a sorted set without --model, so naming only --model is the
+    default. A non-empty set is part of the resume key, so a changed set reruns finished
+    tasks, while the same ids reordered or repeated do not.
 
 MONEY (list price)
   - --per-run-usd is passed to claude as --max-budget-usd. It is a SOFT cap: claude
@@ -49,9 +119,10 @@ MONEY (list price)
 
 GUARANTEES
   - Routing is explicit: a full model id (aliases are refused) and an effort, given
-    on the command line, never read from a project default. The model that actually
-    answered must be exactly that id, or the run is invalid; the summary lists every
-    model observed.
+    on the command line, never read from a project default. By default the models in
+    modelUsage must be exactly that id, or the run is invalid. The one opt-in exception
+    is --also-models (see MODEL CHECK): the id must still be there and every other
+    model must be listed. The summary lists every model observed, helpers included.
   - Each `claude` runs in its own process group with its output in files, not pipes.
     On timeout the group is killed. On Ctrl-C, SIGTERM, SIGHUP or SIGQUIT every
     running group is killed, nothing new launches and the summary is written; a
@@ -61,8 +132,15 @@ GUARANTEES
   - One exclusive lock per output directory; atomic writes; every attempt is
     appended to ledger.jsonl.
   - Resume: a finished task is skipped only if its key (model, effort, tools,
-    system prompt, schema, prompt, file contents, validator source) is unchanged AND
+    allowed tools and also-models when given, system prompt, schema, prompt, file
+    contents, validator source) is unchanged AND
     its saved output still passes the validator.
+  - Input files are hashed in 1 MiB chunks, so a large file costs a megabyte of memory
+    and not its own size. They are hashed again for every task and every key, never
+    remembered between calls and never cached on disk: a remembered digest can outlive
+    a change the file system does not show (a rewrite with the mtime put back), and the
+    key would then describe bytes the task was not given. An 80 MB file hashes in about
+    40 ms, so the repetition costs seconds across a large fan-out.
   - --usage-check CMD (opt-in): before launches, at most once per 60 s, CMD is run;
     exit 0 = room in the usage window, 2 = window full, anything else = cannot
     tell. "Cannot tell" is retried twice with a backoff, then stops the run as
@@ -90,6 +168,7 @@ import sys
 import tempfile
 import threading
 import time
+import unicodedata
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -103,6 +182,9 @@ FLAGS = ["--restricted", "--strict-mcp-config", "--no-session-persistence", "--d
          "--output-format", "json"]
 GATE_CACHE_S = 60
 MAX_SCHEMA_BYTES = 100_000
+# 255 bytes is a file name's limit on APFS and ext4; the total leaves the kit's own temp-dir path room
+# under macOS's 1024-byte PATH_MAX, so a path that loads cannot fail the copy and crash the run
+MAX_KIT_PATH_BYTES, MAX_NAME_BYTES = 512, 255
 BUDGET_SUBTYPE = "error_max_budget_usd"
 SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)
 
@@ -113,6 +195,22 @@ class UsageError(Exception):
 
 def now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+HASH_CHUNK = 1 << 20
+
+
+def file_sha(path):
+    """sha256 of a file's bytes, the same hex as sha(path.read_bytes()), read in chunks so a large
+    input costs a megabyte of memory and not its own size. Deliberately not remembered between calls:
+    a digest trusted later, by size and mtime, can describe bytes the file no longer holds (a rewrite
+    with the mtime put back, a write through a shared mapping), and the run key must describe the
+    bytes a task is given."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(HASH_CHUNK):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def sha(data):
@@ -174,12 +272,193 @@ def finite_positive(text):
 # ------------------------------------------------------------------ inputs
 
 
-def check_routing(model, effort):
+def check_model_id(model, flag):
     if not model or model.lower() in ALIASES or not model.startswith("claude-"):
-        raise UsageError(f"--model must be a full model id such as claude-opus-5-5, not {model!r} "
+        raise UsageError(f"{flag} must be a full model id such as claude-opus-5-5, not {model!r} "
                          "(an alias silently moves to a newer model)")
+
+
+def check_routing(model, effort):
+    check_model_id(model, "--model")
     if effort not in EFFORTS:
         raise UsageError(f"--effort must be one of {', '.join(EFFORTS)}")
+
+
+# a model id as claude reports it in modelUsage: lower-case ASCII with a version number. Anything
+# else (a ';' list, a partial id, a zero-width or fullwidth look-alike, another case) can never match
+# an observed model, so a run using it would be paid for and rejected
+REPORTED_ID = re.compile(r"claude-[a-z0-9.-]*[0-9][a-z0-9.-]*")
+
+
+def check_also_models(text, model):
+    """The --also-models ids as a sorted list without repeats and without --model itself, [] for none.
+    Listing only the routed model therefore keeps the exact check and the key it always had."""
+    ids = [m.strip() for m in text.split(",") if m.strip()]
+    for m in ids:
+        check_model_id(m, "--also-models")
+        # both pass the id check yet name no model a run reports: a space-separated list reads as one
+        # id, so every helper run is paid and rejected, and --model in another case admits nothing
+        # while it changes the key, so every finished task reruns
+        if any(ch.isspace() for ch in m):
+            raise UsageError(f"--also-models separates ids with a comma, and a model id has no space: {m!r}")
+        if m != model and m.lower() == model.lower():
+            raise UsageError(f"--also-models names --model {model!r} in another case: {m!r}")
+        if not REPORTED_ID.fullmatch(m):
+            raise UsageError(f"--also-models ids are written as claude reports them (lower-case letters, digits, '.' "
+                             f"and '-', with a version number, such as claude-haiku-4-5-20251001): {m!r}")
+    return sorted(set(ids) - {model})
+
+
+def model_problem(observed, model, also):
+    """Why the models in modelUsage do not fit the routing, or None. Without --also-models the
+    answer must come from exactly the routed model, as it always has; with it, the routed model
+    must still be there and every other model must be on the list."""
+    base = f"model mismatch: answered by {observed}, routed to {model}"
+    if not also:
+        return None if observed == [model] else base
+    why = []
+    if model not in observed:       # a listed helper never stands in for the model the task was routed to
+        why.append(f"{model} is not among them")
+    extra = [m for m in observed if m != model and m not in also]
+    if extra:
+        why.append(f"not on --also-models: {', '.join(extra)}")
+    return f"{base} ({'; '.join(why)})" if why else None
+
+
+def tool_entries(text, flag):
+    """The entries of a tool list, split the way claude splits its own: only a comma or a space
+    separates, except inside parentheses, where both belong to a pattern such as Bash(git status:*).
+    claude tracks 'inside' with one flag, so a nested '(' or text after an entry's ')' would be cut
+    differently there than a depth count would cut it. Those are refused here rather than copied,
+    so the list that was checked is the list claude grants."""
+    entries, cur, inside, closed = [], "", False, False
+    for ch in text:
+        if inside:
+            if ch == "(":
+                raise UsageError(f"{flag} has a '(' inside parentheses, which claude would split differently: {text!r}")
+            if ch == ")":
+                inside, closed = False, True
+            cur += ch
+        elif ch in ", ":
+            if cur:
+                entries.append(cur)
+            cur, closed = "", False
+        elif ch == ")":
+            raise UsageError(f"{flag} has a ')' with no '(': {text!r}")
+        elif closed:
+            raise UsageError(f"{flag} has text after the ')' that ends an entry; separate entries with a comma: {text!r}")
+        else:
+            if ch == "(":
+                inside = True
+            cur += ch
+    if inside:
+        raise UsageError(f"{flag} has a '(' that is never closed: {text!r}")
+    if cur:
+        entries.append(cur)
+    for e in entries:
+        name = e.split("(", 1)[0]
+        if not name:
+            raise UsageError(f"{flag} has an entry with no tool name: {e!r}")
+        if any(c.isspace() for c in name):
+            raise UsageError(f"{flag} has a tool name with whitespace other than a plain space between entries: {e!r}")
+    return entries
+
+
+def check_allowed_tools(allowed, tools):
+    """The normalised --allowed-tools string, '' for none. Every name must be offered by --tools:
+    permission for a tool the run does not have would be a silent no-op."""
+    entries = tool_entries(allowed, "--allowed-tools")
+    if entries:
+        listed = tool_entries(tools, "--tools")
+        for e in listed:
+            if e.startswith("!"):     # claude reads it as withholding the tool, so a grant for it would do nothing
+                raise UsageError(f"--allowed-tools cannot be combined with an exclusion in --tools ({e!r}); "
+                                 f"name the tools to give instead (--tools {tools!r})")
+        offered = {e.split("(", 1)[0] for e in listed}
+        for e in entries:
+            name = e.split("(", 1)[0]
+            if name not in offered:
+                raise UsageError(f"--allowed-tools lists {name!r}, which --tools does not list "
+                                 f"(--tools {tools!r}); a tool the run is not given cannot be allowed")
+    return ",".join(entries)
+
+
+def check_kit_path(rel, where):
+    """An object entry's "as": a plain relative path that can only name a place inside the kit."""
+    if not isinstance(rel, str) or not rel:
+        raise UsageError(f"{where}: \"as\" must be a non-empty string")
+    try:
+        size = len(rel.encode("utf-8"))
+    except UnicodeEncodeError:      # a lone surrogate is legal JSON but cannot be a file name
+        raise UsageError(f"{where}: \"as\" is not valid Unicode text (a lone surrogate)")
+    if size > MAX_KIT_PATH_BYTES:
+        raise UsageError(f"{where}: \"as\" is longer than {MAX_KIT_PATH_BYTES} bytes")
+    if "\x00" in rel or "\\" in rel:
+        raise UsageError(f"{where}: \"as\" has a NUL or a backslash; separate directories with '/'")
+    # A disk's name rules follow a newer Unicode than this Python's tables: it folds letters Python does
+    # not know as one name (a silent overwrite inside the kit that KitPaths cannot see) and refuses others
+    # outright (EILSEQ, after plan said the task could run). Every such case is an unassigned code point here.
+    for ch in rel:
+        if unicodedata.category(ch) == "Cn":
+            raise UsageError(f"{where}: \"as\" has U+{ord(ch):04X}, which is unassigned in the Unicode "
+                             f"{unicodedata.unidata_version} tables this Python knows; the disk may fold or refuse it")
+    if rel.startswith("/"):
+        raise UsageError(f"{where}: \"as\" must be relative to the kit, not an absolute path")
+    for part in rel.split("/"):
+        if part in ("", ".", ".."):
+            raise UsageError(f"{where}: \"as\" has an empty, '.' or '..' segment (a double, leading or "
+                             "trailing slash counts as empty)")
+        if len(part.encode("utf-8")) > MAX_NAME_BYTES:
+            raise UsageError(f"{where}: \"as\" has a segment longer than {MAX_NAME_BYTES} bytes")
+        if part.casefold() == "..namedfork":      # APFS reads <file>/..namedfork/rsrc as a resource fork
+            raise UsageError(f"{where}: \"as\" has a '..namedfork' segment, which a macOS disk reads as a fork, not a name")
+    return rel
+
+
+class KitPaths:
+    """The kit paths of one task's files, compared the way a macOS disk compares names (ignoring case
+    and Unicode normalisation), so no two entries land on one file and no file sits where another
+    entry needs a directory. Two string entries keep their older rule (an exact base-name match only):
+    a task file that loaded before object entries existed still loads."""
+
+    def __init__(self, where):
+        self.where = where
+        self.files, self.dirs = {}, {}      # folded kit path -> (entry, is_object); folded directory -> entry
+
+    def add(self, rel, is_object, entry):
+        # Unicode's canonical caseless match: casefold can undo a normalisation (Greek letters with two
+        # accents), so NFC before it alone misses names a macOS disk treats as one
+        fold = lambda s: unicodedata.normalize("NFD", unicodedata.normalize("NFD", s).casefold())
+        parts = rel.split("/")
+        key = fold(rel)
+        prefixes = [fold("/".join(parts[:i])) for i in range(1, len(parts))]
+        other = self.files.get(key)
+        if other and (is_object or other[1]):
+            raise UsageError(f"{self.where}: files entry {entry} lands on the same kit path as {other[0]} "
+                             "(kit paths must differ even ignoring case)")
+        if key in self.dirs:
+            raise UsageError(f"{self.where}: files entry {entry} would be a file where {self.dirs[key]} "
+                             "needs a directory")
+        for d in prefixes:
+            if d in self.files:
+                raise UsageError(f"{self.where}: files entry {entry} needs a directory where "
+                                 f"{self.files[d][0]} is a file")
+        self.files.setdefault(key, (entry, is_object))
+        for d in prefixes:
+            self.dirs.setdefault(d, entry)
+
+
+def place(kit, rel):
+    """Where a kit path is copied to, created inside the kit. load_tasks already refuses any path that
+    could leave it; this check is the second line, because the kit is the model's whole sandbox."""
+    root = Path(kit).resolve()
+    dest = (root / rel).resolve()
+    if dest == root or not dest.is_relative_to(root):
+        raise RuntimeError(f"kit path {rel!r} resolves outside the kit")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.is_dir():       # copy2 would write inside it, under the source's base name: not the declared path
+        raise RuntimeError(f"kit path {rel!r} is already a directory in the kit")
+    return dest
 
 
 def load_tasks(path):
@@ -204,19 +483,32 @@ def load_tasks(path):
         if not isinstance(prompt, str) or not prompt.strip():
             raise UsageError(f"{path.name}:{n}: {tid}: prompt must be a non-empty string")
         files = t.get("files") or []
-        if not isinstance(files, list) or not all(isinstance(f, str) for f in files):
-            raise UsageError(f"{path.name}:{n}: {tid}: files must be a list of paths")
-        resolved, names = [], set()
+        if not isinstance(files, list) or not all(isinstance(f, (str, dict)) for f in files):
+            raise UsageError(f"{path.name}:{n}: {tid}: files must be a list of paths or {{\"path\": ..., \"as\": ...}} objects")
+        placed, names, kit = [], set(), KitPaths(f"{path.name}:{n}: {tid}")
         for f in files:
-            p = Path(f) if Path(f).is_absolute() else path.parent / f
+            entry = json.dumps(f, ensure_ascii=True)
+            if isinstance(f, dict):
+                if set(f) != {"path", "as"} or not isinstance(f["path"], str) or not f["path"]:
+                    raise UsageError(f"{kit.where}: files entry {entry}: an object entry needs exactly a "
+                                     "non-empty \"path\" and an \"as\"")
+                rel = check_kit_path(f["as"], f"{kit.where}: files entry {entry}")
+                src = f["path"]
+            else:
+                rel, src = None, f
+            p = Path(src) if Path(src).is_absolute() else path.parent / src
             if not p.is_file():
-                raise UsageError(f"{path.name}:{n}: {tid}: no such file {f}")
-            if p.name in names:
-                raise UsageError(f"{path.name}:{n}: {tid}: two files are both named {p.name}")
-            names.add(p.name)
-            resolved.append(p.resolve())
+                raise UsageError(f"{kit.where}: no such file {src}")
+            if rel is None:
+                if p.name in names:
+                    raise UsageError(f"{kit.where}: two files are both named {p.name}")
+                names.add(p.name)
+            resolved = p.resolve()
+            # a string entry lands under its resolved name, as it always has, so its key does not move
+            kit.add(rel or resolved.name, rel is not None, entry)
+            placed.append((resolved, rel or resolved.name))
         seen[tid.casefold()] = tid
-        tasks.append({**t, "id": tid, "prompt": prompt, "files": resolved})
+        tasks.append({**t, "id": tid, "prompt": prompt, "files": placed})
     if not tasks:
         raise UsageError(f"{path.name}: no tasks")
     return tasks
@@ -238,14 +530,20 @@ def load_validator(path):
 
 
 def run_key(cfg, task):
-    files = sorted([p.name, sha(p.read_bytes())] for p in task["files"])
-    return sha({"v": KEY_VERSION, "model": cfg["model"], "effort": cfg["effort"], "tools": cfg["tools"],
-                "system": sha(cfg["system"]), "schema": sha(cfg["schema_text"]), "prompt": sha(task["prompt"]),
-                "files": files, "validator": sha(cfg["validator_source"])})
+    files = sorted([rel, file_sha(p)] for p, rel in task["files"])
+    key = {"v": KEY_VERSION, "model": cfg["model"], "effort": cfg["effort"], "tools": cfg["tools"],
+           "system": sha(cfg["system"]), "schema": sha(cfg["schema_text"]), "prompt": sha(task["prompt"]),
+           "files": files, "validator": sha(cfg["validator_source"])}
+    if cfg["allowed_tools"]:       # only a run that uses it: finished out-dirs from before it keep their keys
+        # the entries as a set: the same grant in another order, or repeated, must not rerun finished tasks
+        key["allowed_tools"] = sorted(set(tool_entries(cfg["allowed_tools"], "--allowed-tools")))
+    if cfg["also_models"]:         # the same rule: an output the weaker check passed must not resume under the exact one
+        key["also_models"] = cfg["also_models"]
+    return sha(key)
 
 
 def task_view(task):
-    return {**{k: v for k, v in task.items() if k != "files"}, "files": [f.name for f in task["files"]]}
+    return {**{k: v for k, v in task.items() if k != "files"}, "files": [rel for _, rel in task["files"]]}
 
 
 def check(validate, output, task):
@@ -462,13 +760,19 @@ class Runner:
     def call(self, task):
         kit = Path(tempfile.mkdtemp(prefix="cleanrun_kit_"))       # all the model can see
         io = Path(tempfile.mkdtemp(prefix="cleanrun_io_"))         # prompt and outputs, outside the kit
-        out = {"stdout": "", "stderr": "", "rc": None, "timeout": False, "error": None, "wall": 0.0}
+        out = {"stdout": "", "stderr": "", "rc": None, "timeout": False, "error": None, "kit_error": None, "wall": 0.0}
         try:
-            for p in task["files"]:
-                shutil.copy2(p, kit / p.name)
+            try:
+                for p, rel in task["files"]:
+                    shutil.copy2(p, place(kit, rel))
+            except (OSError, RuntimeError) as e:      # nothing has launched: this task fails, the rest go on
+                out["kit_error"] = f"could not build the task's kit: {e}"
+                return out
             (io / "prompt").write_bytes(task["prompt"].encode("utf-8"))
             cmd = self.claude + ["-p", "--model", self.cfg["model"], "--effort", self.cfg["effort"], *FLAGS,
-                                 "--tools", self.cfg["tools"], "--system-prompt-file", str(self.system_file),
+                                 "--tools", self.cfg["tools"],
+                                 *(["--allowed-tools", self.cfg["allowed_tools"]] if self.cfg["allowed_tools"] else []),
+                                 "--system-prompt-file", str(self.system_file),
                                  "--max-budget-usd", str(self.cfg["per_run_usd"]), "--json-schema", self.cfg["schema_text"]]
             t0 = time.time()
             with open(io / "prompt", "rb") as fin, open(io / "stdout", "wb") as fout, open(io / "stderr", "wb") as ferr:
@@ -525,8 +829,9 @@ class Runner:
             return None, [f"is_error ({d.get('subtype') or 'no subtype'}): {str(msg)[:160]}{tail}"], d, True
         if call["rc"] != 0:
             return None, [f"exit {call['rc']}{tail}"], d, True
-        if observed != [self.cfg["model"]]:
-            return None, [f"model mismatch: answered by {observed}, routed to {self.cfg['model']}"], d, True
+        mismatch = model_problem(observed, self.cfg["model"], self.cfg["also_models"])
+        if mismatch:
+            return None, [mismatch], d, True
         output = d.get("structured_output")
         problems = check(validate, output, task)
         return (output if not problems else None), problems, d, True
@@ -552,6 +857,9 @@ class Runner:
             if not self.may_launch():
                 return "stopped", problems
             call = self.call(task)
+            if call["kit_error"]:                          # this task's files cannot be laid out; the next task's may be fine
+                self.ledger({"id": task["id"], "event": "not_started", "error": call["kit_error"]})
+                return "failed", [call["kit_error"]]
             if call["error"]:                              # nothing ran, nothing was spent
                 self.ledger({"id": task["id"], "event": "not_started", "error": call["error"]})
                 self.halt("claude could not start")
@@ -569,6 +877,7 @@ class Runner:
                          "output_tokens": tk["output"], "cache_write": tk["cache_write"], "cache_read": tk["cache_read"]})
             if output is not None:
                 write_atomic(state, {"id": task["id"], "key": key, "model": self.cfg["model"], "ts": now(),
+                                     **({"also_models": self.cfg["also_models"]} if self.cfg["also_models"] else {}),
                                      "output": output})
                 return "ran", []
             if not retry or self.killed.is_set():
@@ -593,6 +902,8 @@ class Runner:
 
 def build_cfg(a):
     check_routing(a.model, a.effort)
+    also_models = check_also_models(a.also_models, a.model)
+    allowed_tools = check_allowed_tools(a.allowed_tools, a.tools)
     system = read_utf8(a.system_prompt, "system prompt")
     schema_text = read_utf8(a.schema, "schema")
     try:
@@ -614,7 +925,8 @@ def build_cfg(a):
     if not claude_argv or not shutil.which(claude_argv[0]):
         raise UsageError(f"cannot find the claude executable {claude_argv[0] if claude_argv else claude!r}")
     validate, vsource = load_validator(a.validator)
-    cfg = {"model": a.model, "effort": a.effort, "tools": a.tools, "system": system, "schema_text": schema_text,
+    cfg = {"model": a.model, "effort": a.effort, "tools": a.tools, "allowed_tools": allowed_tools,
+           "also_models": also_models, "system": system, "schema_text": schema_text,
            "validator_source": vsource, "max_usd": a.max_usd, "per_run_usd": a.per_run_usd,
            "timeout": a.timeout, "retries": a.retries, "jobs": a.jobs, "usage_check": a.usage_check,
            "claude_argv": claude_argv}
@@ -646,7 +958,7 @@ def cmd_plan(a):
     cfg, validate, tasks = build_cfg(a)
     pending = to_run(cfg, validate, tasks, a.out_dir)
     print(f"plan: {len(tasks)} task(s), {len(tasks) - len(pending)} resume, {len(pending)} to run; "
-          f"{cfg['model']} @ {cfg['effort']}, tools {cfg['tools']!r}, {cfg['jobs']} job(s)")
+          f"{cfg['model']} @ {cfg['effort']}, tools {cfg['tools']!r}{routing_extras(cfg)}, {cfg['jobs']} job(s)")
     print(bound_line(cfg, len(pending)))
     return 0
 
@@ -669,7 +981,19 @@ def summary_of(run, tasks, cfg, state):
             "stopped": run.stop_reason, "launches": run.launches,
             "charged_usd": round(run.budget.spent, 4), "observed_cost_usd": round(run.budget.observed, 4),
             "unknown_cost_runs": run.budget.unknown, "models_observed": models,
-            "model": cfg["model"], "effort": cfg["effort"]}
+            "model": cfg["model"], "effort": cfg["effort"],
+            **({"also_models": cfg["also_models"]} if cfg["also_models"] else {})}      # the weaker check was in force
+
+
+def routing_extras(cfg):
+    """What beyond model, effort and tools shapes a run, for the plan and start lines: the grant, and the
+    weaker model check. Empty by default, so a default line reads as it always has."""
+    out = ""
+    if cfg["allowed_tools"]:
+        out += f", allowed {cfg['allowed_tools']!r}"
+    if cfg["also_models"]:
+        out += f", also models {', '.join(cfg['also_models'])} (weaker model check)"
+    return out
 
 
 def cmd_run(a):
@@ -712,7 +1036,7 @@ def cmd_run(a):
     for s in SIGNALS:
         signal.signal(s, on_signal)
     print(f"cleanrun: {len(tasks)} task(s), {len(tasks) - len(pending)} resume, {len(pending)} to run; "
-          f"{cfg['model']} @ {cfg['effort']}, {cfg['jobs']} job(s); " + bound_line(cfg, len(pending)), flush=True)
+          f"{cfg['model']} @ {cfg['effort']}{routing_extras(cfg)}, {cfg['jobs']} job(s); " + bound_line(cfg, len(pending)), flush=True)
     ex = ThreadPoolExecutor(cfg["jobs"])
     state = "finished"
     try:
@@ -803,6 +1127,8 @@ def main(argv=None):
         p.add_argument("--effort", required=True)
         p.add_argument("--out-dir", required=True)
         p.add_argument("--tools", default="")
+        p.add_argument("--allowed-tools", default="")
+        p.add_argument("--also-models", default="")
         p.add_argument("--validator")
         p.add_argument("--jobs", type=int, default=4)
         p.add_argument("--max-usd", type=finite_positive)
