@@ -1,13 +1,21 @@
 """Guards on the agenting skill's text: triggers must not shrink, and the fan-out
 guidance must keep its evidence caveats."""
 
+import json
+import os
 import re
+import shlex
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SKILL = ROOT / "skills" / "agenting" / "SKILL.md"
 FAN_OUTS = ROOT / "skills" / "agenting" / "reference" / "fan-outs.md"
+CLEANRUN = ROOT / "scripts" / "cleanrun.py"
+FAKE_CLAUDE = ROOT / "tests" / "fixtures" / "fake_claude_cleanrun.py"
 
 OLD_TRIGGERS = [
     "writing or editing a Workflow script",
@@ -59,6 +67,71 @@ class ProcedureCleanRunStep(unittest.TestCase):
                        "checked in code", "cleanrun.py plan"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, step)
+
+
+    def test_the_clean_run_step_shows_the_files_and_the_commands(self):
+        # 2026-10-28: the step said to use cleanrun.py plan but not what to put in front of it, and in
+        # auto mode the guard's warning arrives after the launch, so the skill is where the model learns it
+        step = self.procedure.split("**Clean run or Workflow?**", 1)[1].split("\n3. ", 1)[0]
+        step = " ".join(step.split())
+        for phrase in ("tasks.jsonl", "rules.md", "schema.json", "check.py",
+                       '{"path": "reports/q3.txt", "as": "q3/report.txt"}',
+                       'python3 "<plugin>/scripts/cleanrun.py" plan --tasks tasks.jsonl --system-prompt rules.md '
+                       '--schema schema.json --model <full id> --effort <effort> --validator check.py --out-dir out',
+                       "run --max-usd N", "status --out-dir out",
+                       "two levels above this skill's base directory", "reference/fan-outs.md"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, step)
+
+
+class WorkedExample(unittest.TestCase):
+    """The example at the end of fan-outs.md is run for real, against the stub, so it cannot drift from the script."""
+
+    def setUp(self):
+        text = FAN_OUTS.read_text(encoding="utf-8")
+        self.example = text.split("### A worked example", 1)[1]
+        self.files = {name: body for name, body in
+                      re.findall(r"\*\*`([\w.]+)`\*\*[^\n]*\n```[a-z]*\n(.*?)\n```", self.example, re.S)}
+        m = re.search(r"```\n(python3 \"<plugin>/scripts/cleanrun\.py\" plan.*?)\n```", self.example, re.S)
+        self.commands = m.group(1).splitlines() if m else []
+
+    def test_it_names_all_four_files_and_three_commands(self):
+        self.assertEqual(sorted(self.files), ["check.py", "rules.md", "schema.json", "tasks.jsonl"])
+        self.assertEqual([c.split()[2] for c in self.commands], ["plan", "run", "status"])
+
+    def test_every_task_line_and_the_schema_are_json_and_one_task_uses_an_as_entry(self):
+        lines = self.files["tasks.jsonl"].splitlines()
+        tasks = [json.loads(line) for line in lines]
+        self.assertEqual([t["id"] for t in tasks], ["t1", "t2"])
+        self.assertTrue(any(isinstance(f, dict) and set(f) == {"path", "as"} for t in tasks for f in t["files"]))
+        self.assertEqual(json.loads(self.files["schema.json"])["type"], "object")
+
+    def test_the_commands_run_as_written_against_the_stub(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            for name, body in self.files.items():
+                (d / name).write_text(body + "\n", encoding="utf-8")
+            (d / "reports").mkdir()
+            (d / "page.txt").write_text("any text\n", encoding="utf-8")
+            (d / "reports" / "q3.txt").write_text("any other text\n", encoding="utf-8")
+            env = dict(os.environ, CLEANRUN_CLAUDE_BIN=f"{shlex.quote(sys.executable)} {shlex.quote(str(FAKE_CLAUDE))}",
+                       FAKE_STATE_DIR=str(d))
+            done = {}
+            for line in self.commands:
+                argv = shlex.split(line.replace('"<plugin>/scripts/cleanrun.py"', shlex.quote(str(CLEANRUN))))
+                argv[0] = sys.executable
+                done[argv[2]] = subprocess.run(argv, cwd=d, env=env, capture_output=True, text=True, timeout=120)
+            plan, run, status = done["plan"], done["run"], done["status"]
+            self.assertEqual(plan.returncode, 0, plan.stdout + plan.stderr)
+            self.assertIn("plan: 2 task(s), 0 resume, 2 to run", plan.stdout)
+            self.assertIn("cost bound:", plan.stdout)
+            # the stub answers {"answer": ...}, which the example's validator rightly rejects: what matters
+            # here is that the written run line is accepted and runs (a usage error would be exit 2)
+            self.assertIn(run.returncode, (0, 1), run.stdout + run.stderr)
+            self.assertNotIn("Traceback", run.stdout + run.stderr)
+            self.assertTrue((d / "out" / "summary.json").exists())
+            self.assertEqual(status.returncode, run.returncode, status.stdout + status.stderr)   # status echoes the last run
+            self.assertIn("last run", status.stdout)
 
 
 class FanOutGuidance(unittest.TestCase):

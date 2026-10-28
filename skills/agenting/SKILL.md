@@ -141,6 +141,17 @@ Every tier here is a Claude model. Before proposing a non-Claude one, read
    line. One fails (web stages, a refuter launched per flagged item, a stage
    that needs the session): write the Workflow, and name the condition that
    failed.
+   A clean run is four small files and three commands. `tasks.jsonl` holds one
+   `{"id", "prompt", "files"}` per line (a file that needs a folder is
+   `{"path": "reports/q3.txt", "as": "q3/report.txt"}`), `rules.md` the system
+   prompt, `schema.json` the answer shape and `check.py` a
+   `validate(output, task)` that returns a list of problems. From that folder:
+   `python3 "<plugin>/scripts/cleanrun.py" plan --tasks tasks.jsonl
+   --system-prompt rules.md --schema schema.json --model <full id> --effort
+   <effort> --validator check.py --out-dir out`, read its cost bound, then the
+   same with `run --max-usd N`, then `status --out-dir out`. `<plugin>` is two
+   levels above this skill's base directory. A complete example, with the files
+   written out, is in [reference/fan-outs.md](reference/fan-outs.md).
 3. **Draft** the script. Done when every `agent()` call has `model` or
    `agentType`, and `effort`, or is marked `// routing: inherit` (below).
 4. **Resolve by mode.** The session's `[agenting]` line from SessionStart names

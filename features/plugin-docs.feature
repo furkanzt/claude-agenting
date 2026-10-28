@@ -129,6 +129,30 @@ Feature: Plugin packaging, agent pins and doc invariants stay consistent, becaus
     When it is searched for "self-contained", "no tool beyond Read", "do not coordinate", "checked in code" and "cleanrun.py plan"
     Then all five phrases are present
 
+  # Backed by: tests/test_skill_docs.py::test_the_clean_run_step_shows_the_files_and_the_commands
+  Scenario: The clean-run step shows the four files and the commands to type
+    Given the "Clean run or Workflow?" step of the Procedure, line breaks read as spaces
+    When it is searched for the file names tasks.jsonl, rules.md, schema.json and check.py, the {"path", "as"} entry, the full plan command with its flags, "run --max-usd N", "status --out-dir out", "two levels above this skill's base directory" and "reference/fan-outs.md"
+    Then every one of them is present
+
+  # Backed by: tests/test_skill_docs.py::test_it_names_all_four_files_and_three_commands
+  Scenario: The worked example in fan-outs.md names its four files and its three commands
+    Given the "A worked example" section of reference/fan-outs.md
+    When its labelled blocks and its command block are read
+    Then the files are check.py, rules.md, schema.json and tasks.jsonl, and the commands are plan, run and status in that order
+
+  # Backed by: tests/test_skill_docs.py::test_every_task_line_and_the_schema_are_json_and_one_task_uses_an_as_entry
+  Scenario: The worked example's task lines and schema are valid JSON and one task uses an as entry
+    Given the "tasks.jsonl" and "schema.json" blocks of the worked example
+    When each task line and the schema are parsed as JSON
+    Then the task ids are t1 and t2, one task has a files entry holding exactly "path" and "as", and the schema is an object schema
+
+  # Backed by: tests/test_skill_docs.py::test_the_commands_run_as_written_against_the_stub
+  Scenario: The worked example's commands run as written against the stub
+    Given a folder holding the example's four files, page.txt and reports/q3.txt, and the claude stub
+    When the plan, run and status lines are run with the plugin's cleanrun.py in place of the plugin path
+    Then plan exits 0 and says "2 to run" with a cost bound, run is accepted and writes summary.json (exit 0 or 1, never a usage error), and status exits as run did and reports the last run
+
   # ---- list-price caveats and evidence discipline -----------------------------
 
   # Backed by: tests/test_skill_docs.py::test_every_saving_is_a_list_price_and_the_window_caveat_travels_with_it

@@ -117,3 +117,53 @@ quote 63% for read-heavy tasks.
 - **The routing guard asks the question too:** a Workflow whose untyped `agent()`
   call runs once per item (a `map` callback, a `pipeline` stage, a loop body) gets a
   "Clean-run check:" warning that never blocks it; a typed call is silent.
+
+### A worked example
+
+Two tasks, each summarising one file. Make a folder and put these in it, plus any text
+in `page.txt` and in `reports/q3.txt`. A string in `files` is copied flat; the object
+form puts a file in a folder inside the run's working directory, so the second task
+reads `q3/report.txt`.
+
+**`tasks.jsonl`**
+```json
+{"id": "t1", "prompt": "Summarise page.txt in one sentence.", "files": ["page.txt"]}
+{"id": "t2", "prompt": "Summarise q3/report.txt in one sentence.", "files": [{"path": "reports/q3.txt", "as": "q3/report.txt"}]}
+```
+
+**`rules.md`** (the system prompt; the stable rules go here)
+```
+You summarise the file you are given. Answer only with the requested JSON.
+```
+
+**`schema.json`**
+```json
+{"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"], "additionalProperties": false}
+```
+
+**`check.py`** (the validator: a problem string per defect, an empty list when the answer is good)
+```python
+def validate(output, task):
+    s = output.get("summary", "")
+    return [] if s.strip() and len(s) < 400 else ["summary is empty or too long"]
+```
+
+Run these from that folder. `<plugin>` is the plugin's folder, two levels above this
+skill's base directory; the model is a full id, never an alias.
+
+```
+python3 "<plugin>/scripts/cleanrun.py" plan --tasks tasks.jsonl --system-prompt rules.md --schema schema.json --model claude-opus-5-5 --effort xhigh --validator check.py --out-dir out
+python3 "<plugin>/scripts/cleanrun.py" run  --tasks tasks.jsonl --system-prompt rules.md --schema schema.json --model claude-opus-5-5 --effort xhigh --validator check.py --out-dir out --max-usd 5
+python3 "<plugin>/scripts/cleanrun.py" status --out-dir out
+```
+
+- `plan` writes nothing and says what would run or resume. Its "cost bound" is tasks times
+  attempts times the soft per-run cap, a ceiling and not an estimate; `--max-usd` stops new
+  launches once the charge reaches it.
+- Running the same `run` again resumes every finished task whose inputs are unchanged and
+  launches nothing for it; changing a file, the prompt, the schema or the validator reruns it.
+- Each answer that passes the validator is saved as `out/outputs/<id>.json`, with the answer
+  under `output`. A later stage that needs those answers is the next batch: list the file
+  in its tasks, for example `{"path": "out/outputs/t1.json", "as": "stage1/t1.json"}`.
+- An answer that fails the validator is a failed task, not a saved output, and its problem
+  strings are printed.

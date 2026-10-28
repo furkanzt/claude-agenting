@@ -466,7 +466,7 @@ override; the classify rule written after nine-run data; dont-guess `balanced` h
 
 ## 9. Push plan (when the owner says push)
 
-Nothing is pushed since 3.3.4 (2026-10-26): the nine commits after it (eight changes, then the 3.4.0 release commit) are local. For the next push: group the unpushed commits into bites
+Nothing is pushed since 3.3.4 (2026-10-26): every commit after it is local (`git log origin/main..HEAD`). The 3.4.0 release commit is not the last of them; a docs change followed it, so group the bites around it or move it last when pushing. For the next push: group the unpushed commits into bites
 (consecutive runs belonging to one piece of work, one commit each, members folded into numbered paragraphs,
 never reordered), keep the version bump a separate commit after the bites, then
 `CLAUDE_SKIP_SQUASH_GUARD=1 git push`. Before pushing, check the net diff for `evals/private`, absolute local

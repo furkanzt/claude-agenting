@@ -10,7 +10,9 @@ whether a clean run applied.
 - **The skill Procedure asks "Clean run or Workflow?" before it asks for a draft.** New step 2 of
   `skills/agenting/SKILL.md`: the four conditions (self-contained, no tool beyond Read, no coordination within a
   batch, output checked in code), `cleanrun.py plan` then `run` as the default when all four hold, and the failed
-  condition named when a Workflow is written instead.
+  condition named when a Workflow is written instead. The step also shows the four small files a clean run needs
+  and the exact `plan`, `run` and `status` commands, and `reference/fan-outs.md` carries a worked example whose
+  files and commands a test extracts and runs against the stub, so the example cannot drift from the script.
 - **The routing guard warns when untyped `agent()` calls fan out.** Once Stage 1 passes, a call site with no
   `agentType` key inside a `map`, `forEach` or `flatMap` callback, a `pipeline` stage after the items, the function
   of `Array.from`, or a `for`/`while` body gets a short factual paragraph pointing at the clean-run step. It never
