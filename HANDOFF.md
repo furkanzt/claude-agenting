@@ -106,6 +106,11 @@ in Workflow scans.
   marked untested (63% was measured on short tasks). The guard change (three reviewers) and each `cleanrun.py` change (one reviewer)
   were reviewed adversarially before commit and the findings they confirmed are fixed; the Procedure step, the key-pin test and
   the docs note were not. `--also-models` and `--allowed-tools` were not run against a real WebFetch.
+- **3.4.1 (2026-10-28):** docs only. The saving for read-heavy tasks in `reference/fan-outs.md` is now observed on one unit
+  (about half at list price, 41% to 56% for the Opus reader and about 50% for the Sonnet reader, every answer passing the code
+  checks), replacing the 3.4.0 wording that called it untested. The number is confounded: the Workflow readers self-checked with
+  Bash and the clean runs took 12 to 13 turns against 30 calls, and the Workflow side is one run. Cost of the experiment 4.57 dollars
+  of a 12 dollar ceiling. Method and numbers: `evals/research/2026-10-28-clean-run-read-heavy-unit.md`. No code changed.
 - **Effort probe tool:** `evals/probes/read_effort.py` (reads the effort a subagent really ran with) and
   `evals/probes/effort_application.workflow.js` (the Workflow that launches the probe agents), with
   `tests/test_effort_probe.py` and `features/effort-probe.feature`.
@@ -265,7 +270,7 @@ verification (a bounded null), the classify narrowing, the clean-run usage-windo
 
 ## 4. Decisions waiting for the owner
 
-1. **Release.** 3.4.0 (2026-10-28) is committed locally and **not pushed or installed**; 3.3.4 (2026-10-26) is the last pushed release. A release is its own commit:
+1. **Release.** 3.4.1 (2026-10-28) is released and pushed; nothing is unreleased. A release is its own commit:
    bump `version` in `.claude-plugin/plugin.json` **and** `marketplace.json` together (`plugin.json` wins), move
    the CHANGELOG "Unreleased" entry under the new number, push, then on the owner's machine
    `claude plugin marketplace update agenting` and `claude plugin update agenting@agenting`, and
@@ -466,7 +471,7 @@ override; the classify rule written after nine-run data; dont-guess `balanced` h
 
 ## 9. Push plan (when the owner says push)
 
-Nothing is pushed since 3.3.4 (2026-10-26): every commit after it is local (`git log origin/main..HEAD`). The 3.4.0 release commit is not the last of them; a docs change followed it, so group the bites around it or move it last when pushing. For the next push: group the unpushed commits into bites
+Nothing is unpushed as of 3.4.1 (2026-10-28). For the next push: group the unpushed commits into bites
 (consecutive runs belonging to one piece of work, one commit each, members folded into numbered paragraphs,
 never reordered), keep the version bump a separate commit after the bites, then
 `CLAUDE_SKIP_SQUASH_GUARD=1 git push`. Before pushing, check the net diff for `evals/private`, absolute local

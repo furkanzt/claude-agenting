@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 3.4.1 — 2026-10-28 (docs: the read-heavy clean-run saving is observed, no longer untested)
+
+No code, hook, script or agent changes: guidance, tests, the scenario matrix and a research note only. Run keys are unchanged.
 
 ### Changed
 - **`reference/fan-outs.md`: the saving for read-heavy tasks is now observed on one unit, no longer untested.** One
