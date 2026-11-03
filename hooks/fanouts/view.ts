@@ -192,9 +192,10 @@ export function agentStats(a: FanoutAgent, withEffort = true): string {
 }
 
 // The effort every agent of a phase shares, else null. When there is one, the agent column's title
-// carries it once and the rows read as the Workflow view's do ("Opus 5.5 · 31.6k tok").
+// carries it once and the rows read as the Workflow view's do ("Opus 5.5 · 31.6k tok"). A call still
+// queued has no effort known yet, so it does not count against the others.
 export function sharedEffort(list: FanoutAgent[]): string | null {
-  const efforts = new Set(list.map(a => a.effort))
+  const efforts = new Set(list.map(a => a.effort).filter((e): e is string => Boolean(e)))
   const [only] = [...efforts]
   return efforts.size === 1 && only ? only : null
 }

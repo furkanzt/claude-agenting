@@ -436,6 +436,12 @@ Feature: Fan-out view
     When the focus ring moves onto agent:3, agent:9, agent:13, then back to the phase
     Then ❯ marks agent:3 and agent:9, the pager reads "1-10 of 14 ↓", "2-11 of 14 ↑↓", "5-14 of 14 ↑", and back on the phase no row is marked and the pager is "1-10 of 14 ↓"
 
+  # Backed by: tests/fanouts.test.tsx > a call still queued, its effort unknown, does not hide the effort the others share
+  Scenario: A queued call with no effort known yet does not hide the phase's shared effort
+    Given a phase with one running xhigh call and one queued call whose effort is not known yet
+    When the pane is drawn
+    Then the column title ends "· xhigh", the running row reads "Opus 5.5" and the queued row reads "queued"
+
   # Backed by: tests/fanouts.test.tsx > the focus ring meets every phase row before any agent row
   Scenario: The focus ring meets every phase row before any agent row
     Given a fan-out with two phases, the open one holding two agents
@@ -505,6 +511,12 @@ Feature: Fan-out view
     Given the pane is closed
     When the person runs /fanouts twice
     Then the first opens it with focus and closeOnEscape, the second closes it
+
+  # Backed by: tests/fanouts.test.tsx > /fanouts runs at once while a turn is in flight, as /rename does
+  Scenario: /fanouts runs at once while Claude is working
+    Given a session starts with the plugin loaded
+    When the plugin registers /fanouts
+    Then it registers it with immediate true, so typing /fanouts mid-turn opens the pane without waiting for the turn to end
 
   # Backed by: tests/fanouts.test.tsx > a toast says when a running fan-out finishes; a stopped one says stopped
   # Backed by: tests/fanouts.test.tsx > a stopped run is announced as stopped

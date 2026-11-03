@@ -70,10 +70,14 @@ function engine(on: On, answers: Array<Snapshot | 'fail'>, version = '2.1.317', 
   const scans: string[][] = []
   const toasts: string[] = []
   const opened: Array<Record<string, unknown>> = []
+  const registered: Array<Record<string, unknown>> = []
   const closed: string[] = []
   let panes: Array<{ id: string; title: string; isShown: boolean; isFocused: boolean; isPlaced: boolean }> = []
   on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('command.register', () => ({ value: { command: 'fanouts' } }))
+  on('command.register', (_, e) => {
+    registered.push({ ...e })
+    return { value: { command: 'fanouts' } }
+  })
   on('session.version', () => ({ value: { version } }))
   on('env.get', (_, e) => ({ value: env[e.name] }))
   on('ui.toast', (_, e) => {
@@ -102,7 +106,7 @@ function engine(on: On, answers: Array<Snapshot | 'fail'>, version = '2.1.317', 
     }
     return { value: { exitCode: 0, stdout: JSON.stringify(a), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
-  return { scans, toasts, opened, closed }
+  return { scans, toasts, opened, closed, registered }
 }
 
 async function started($: Engine, on: On, answers: Array<Snapshot | 'fail'>, version?: string, env?: Record<string, string>) {
@@ -387,6 +391,22 @@ test('a phase whose agents share one effort names it once, in the column title',
   await ui.unmount()
 })
 
+test('a call still queued, its effort unknown, does not hide the effort the others share', async ($, on) => {
+  const f = fanout({
+    agents: [
+      agent({ id: 'a', label: 'gen:1', phase: 'G', state: 'running', effort: 'xhigh', tokens: null, elapsed_s: 9 }),
+      agent({ id: 'b', label: 'gen:2', phase: 'G', state: 'queued', effort: null, model: null, tokens: null, elapsed_s: null }),
+    ],
+    phases: ['G'],
+  })
+  await started($, on, [snap([f])])
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /^╭/ }))?.text).toMatch(/┬ G · 2 agents · xhigh ─/)
+  expect((await ui.find({ type: 'Button', text: /gen:1/ }))?.text).toMatch(/^ ⏺ gen:1 {8}Opus 5\.5 +9s$/)
+  expect((await ui.find({ type: 'Button', text: /gen:2/ }))?.text).toMatch(/^ ◌ gen:2 {8}queued *$/)
+  await ui.unmount()
+})
+
 test('the focus ring meets every phase row before any agent row', async ($, on) => {
   await started($, on, [snap([fanout()])])
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
@@ -466,6 +486,15 @@ test('/fanouts opens the pane with the keyboard, Escape closing it; /fanouts aga
   const second = await $.command.run(run('fanouts'))
   expect(second).toMatchObject({ text: 'Clean fan-outs pane closed.' })
   expect(closed).toEqual(['fanouts'])
+})
+
+test('/fanouts runs at once while a turn is in flight, as /rename does', async ($, on) => {
+  const { registered } = await started($, on, [snap([])])
+  expect(registered).toEqual([{
+    name: 'fanouts',
+    description: 'Show or hide clean-run fan-outs (cleanrun.py, clean_runtime.mjs) laid out like /workflows',
+    immediate: true,
+  }])
 })
 
 test('the selected phase takes the focus ring when the pane takes the keyboard', async ($, on) => {

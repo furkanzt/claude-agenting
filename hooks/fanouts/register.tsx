@@ -154,9 +154,12 @@ async function choose($: EngineInterface, key: string) {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
+    // immediate: /fanouts typed while a turn is in flight runs at once, as /rename does; its hook
+    // only opens or closes the pane and asks for a scan, so it needs nothing from the turn
     await $.command.register({
       name: COMMAND,
       description: 'Show or hide clean-run fan-outs (cleanrun.py, clean_runtime.mjs) laid out like /workflows',
+      immediate: true,
     })
     try {
       live.version = (await $.session.version()).version
