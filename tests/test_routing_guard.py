@@ -555,7 +555,7 @@ class StageOneCauses(GuardCase):
 
 
 class SpreadsAndNullishValues(GuardCase):
-    """Observed 2026-10-12 (a peer session in ~/Desktop/impark): a fan-out kept each lens's routing as
+    """Observed 2026-10-12 (a peer session in another project): a fan-out kept each lens's routing as
     data and spread it into the options, `{..., schema: CLAIMS, ...lens.route}`. The guard reads the
     source, not run-time values, so routing inside a spread is invisible to it, and the Stage 1 cause did
     not say so. The workaround, explicit keys with variable values, passes on key presence alone: the

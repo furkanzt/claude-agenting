@@ -27,7 +27,7 @@ the finding with a `file:line` reference so whoever wants the detail can open it
 
 ## Evidence
 - src/parser.py:88-104   the kazanım code regex lives here
-- src/paths.py:24        IMPARK_DOCS resolution; raises if not found
+- src/paths.py:24        DOCS_DIR resolution; raises if not found
 
 ## Caveats
 [if any: traps, inconsistencies, things you could not verify]

@@ -190,7 +190,7 @@
     "id": "read-report-03",
     "row": "read-report",
     "phase": "confirmation",
-    "title": "Answer 12 exact questions about AyşeHoca's question-generation export and its live image rule file (Turkish prose)",
+    "title": "Answer 12 exact questions about a production app's question-generation export and its live image rule file (Turkish prose)",
     "delivery": "files",
     "grading_type": "code",
     "pass_rule": "score >= 0.9",
