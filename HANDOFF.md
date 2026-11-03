@@ -120,6 +120,8 @@ in Workflow scans.
   read-only `scripts/fanout_scan.py`. Copied from a real 2.1.317 screen; reviewed by a two-angle adversarial
   workflow (13 findings confirmed, fixed) after a larger review of the standalone mod it grew from. Tests:
   `tests/test_fanout_scan.py` (62) and `tests/fanouts.test.tsx` (44, run with `scripts/quality/run_plugin_tests.py`).
+- **3.5.1 (2026-11-03):** fan-out view: `/fanouts` is registered `immediate`, so it opens the pane while a turn
+  runs; a queued call's unknown effort no longer hides a phase's shared effort in the column title.
 
 ### Key facts to carry
 
@@ -276,7 +278,7 @@ verification (a bounded null), the classify narrowing, the clean-run usage-windo
 
 ## 4. Decisions waiting for the owner
 
-1. **Release.** 3.5.0 (2026-11-03) is released and pushed; nothing is unreleased. A release is its own commit:
+1. **Release.** 3.5.1 (2026-11-03) is committed and NOT pushed; 3.5.0 is the last pushed release. A release is its own commit:
    bump `version` in `.claude-plugin/plugin.json` **and** `marketplace.json` together (`plugin.json` wins), move
    the CHANGELOG "Unreleased" entry under the new number, push, then on the owner's machine
    `claude plugin marketplace update agenting` and `claude plugin update agenting@agenting`, and
@@ -477,7 +479,7 @@ override; the classify rule written after nine-run data; dont-guess `balanced` h
 
 ## 9. Push plan (when the owner says push)
 
-Nothing is unpushed as of 3.5.0 (2026-11-03). For the next push: group the unpushed commits into bites
+Unpushed as of 2026-11-03: two fan-out view commits and the 3.5.1 release commit. For the next push: group the unpushed commits into bites
 (consecutive runs belonging to one piece of work, one commit each, members folded into numbered paragraphs,
 never reordered), keep the version bump a separate commit after the bites, then
 `CLAUDE_SKIP_SQUASH_GUARD=1 git push`. Before pushing, check the net diff for `evals/private`, absolute local

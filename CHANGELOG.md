@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.5.1 — 2026-11-03 (fan-out view: /fanouts without waiting, the shared effort while calls queue)
+
+### Changed
+- **`/fanouts` runs at once while Claude is working**, as `/rename` does (the command is registered
+  `immediate`); before, it waited for the turn to end. ctrl+x tab, then enter on the band row, opens the pane too.
+- **A phase's shared effort stays in the column title while calls are still queued.** A queued call has no effort
+  known yet; it no longer counts as a second effort, so the title keeps "· xhigh" and a queued row reads "queued".
+
 ## 3.5.0 — 2026-11-03 (the fan-out view: clean runs shown the way Workflows are)
 
 A clean run (`scripts/cleanrun.py`, or the external `clean_runtime.mjs`) is a set of separate `claude -p`
