@@ -35,6 +35,9 @@ UNIT_REF_PREFIXES: tuple[str, ...] = ("tests/", "scripts/quality/")
 # Refs resolved as "<file> > <test title>" (only the file part is checked) —
 # the Vitest/Jest style. Empty tuple if the project has no JS tests.
 FILE_TITLE_REF_PREFIXES: tuple[str, ...] = ()
+# A "<dir>/<name>.test.ts(x) > <title>" ref under a unit prefix (this repo's hooks-module tests,
+# run by scripts/quality/run_plugin_tests.py): the file must exist AND hold test('<title>'.
+TEST_TITLE_REF_RE = re.compile(r"^(?P<file>\S+\.test\.tsx?) > (?P<title>.+)$")
 # Where the generated matrix lives + the builder that regenerates it.
 MATRIX_PATH = ROOT / "docs" / "scenarios" / "coverage-matrix.md"
 MATRIX_BUILDER = ROOT / "scripts" / "quality" / "build_coverage_matrix.py"
@@ -115,15 +118,31 @@ def _split_refs(backed: str) -> list[str]:
     return refs
 
 
+def _has_test_title(source: str, title: str) -> bool:
+    """True when a JS test file declares test(...) or it(...) with exactly this title, in any of
+    the three quote styles (a single-quoted title escapes its own quotes and backslashes)."""
+    single = title.replace("\\", "\\\\").replace("'", "\\'")
+    return any(f"{fn}({q}" in source for fn in ("test", "it")
+               for q in (f"'{single}'", f'"{title}"', f"`{title}`"))
+
+
 def reference_violations(text: str, root: Path) -> list[str]:
-    """Rule 3: refs resolve to real files (and real functions for :: refs)."""
+    """Rule 3: refs resolve to real files (and real functions for :: refs, real test titles for
+    <file>.test.ts(x) > <title> refs)."""
     problems = []
     for s in scenarios_with_metadata(text):
         backed = (s["backed"] or "").strip()
         if not backed or backed.lower().startswith("@gap"):
             continue
         for ref in _split_refs(backed):
-            if FILE_TITLE_REF_PREFIXES and ref.startswith(FILE_TITLE_REF_PREFIXES):
+            titled = TEST_TITLE_REF_RE.match(ref)
+            if titled and ref.startswith(_ALL_PREFIXES):
+                fpath = root / titled["file"]
+                if not fpath.is_file():
+                    problems.append(f"{s['title']} -> {ref}")
+                elif not _has_test_title(fpath.read_text(encoding="utf-8"), titled["title"]):
+                    problems.append(f"{s['title']} -> {ref} (no such test title)")
+            elif FILE_TITLE_REF_PREFIXES and ref.startswith(FILE_TITLE_REF_PREFIXES):
                 if not (root / ref.split(" > ")[0]).is_file():
                     problems.append(f"{s['title']} -> {ref}")
             elif ref.startswith(UNIT_REF_PREFIXES):
@@ -200,10 +219,21 @@ def test_stacked_backed_by_lines_are_all_validated(tmp_path):
     assert len(reference_violations(_STACKED, tmp_path)) == 2
 
 
+def test_guard_flags_a_ghost_test_title_and_accepts_a_real_one(tmp_path):
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "x.test.tsx").write_text(
+        "test('draws the row, and says it\\'s a fan-out', async () => {})\n", encoding="utf-8")
+    feature = ("Feature: X\n\n"
+               "  # Backed by: tests/x.test.tsx > draws the row, and says it's a fan-out\n"
+               "  Scenario: real\n    Then ok\n\n"
+               "  # Backed by: tests/x.test.tsx > a title nobody wrote\n"
+               "  Scenario: ghost\n    Then ok\n")
+    assert reference_violations(feature, tmp_path) == [
+        "ghost -> tests/x.test.tsx > a title nobody wrote (no such test title)"]
+
+
 def test_split_refs_keeps_commas_inside_test_titles():
-    if not FILE_TITLE_REF_PREFIXES:
-        pytest.skip("project has no file>title refs")
-    p = FILE_TITLE_REF_PREFIXES[0]
+    p = (FILE_TITLE_REF_PREFIXES or UNIT_REF_PREFIXES)[0]
     assert _split_refs(
         f"{p}a.test.ts > offers a Lightbox, never inline, "
         f"tests/test_b.py::test_x, {p}c.test.ts > grows (1499/1, 2999/1)"

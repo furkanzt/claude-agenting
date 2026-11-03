@@ -1,9 +1,10 @@
 # agenting (Claude Code plugin)
 
-Routing gate and cost tools for Claude Code Workflows: Python hooks (`hooks/`), scripts
+Routing gate and cost tools for Claude Code Workflows: Python hooks (`hooks/`), a TypeScript
+hooks module (the fan-out view, `hooks/fanouts/`, contract `types/index.d.ts`), scripts
 (`scripts/`), a model-and-effort eval harness (`evals/`), tiered agent definitions (`agents/`)
 and the routing skill (`skills/agenting/`). English throughout (code, comments, docs, commits).
-No server, no UI.
+No server.
 
 ## Commands
 
@@ -12,6 +13,7 @@ No server, no UI.
 | Whole test suite (about 65 s) | `python3 -m pytest tests -q` |
 | Plugin health check (end to end) | `python3 scripts/check-setup.py` |
 | Eval harness self-check | `python3 evals/evalkit.py selfcheck` |
+| Fan-out view tests (hooks module) | `python3 scripts/quality/run_plugin_tests.py` |
 | Regenerate the scenario matrix | `python3 scripts/quality/build_coverage_matrix.py` |
 | Dev dependencies | `python3 -m pip install -r requirements-dev.txt` |
 

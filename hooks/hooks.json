@@ -1,5 +1,8 @@
 {
-  "description": "agenting: a two-stage routing gate on the Workflow tool (Stage 1 denies agent() calls with no model/agentType or no effort; Stage 2 asks for plan approval in manual mode and steps aside with a systemMessage in auto mode), a finish check that warns when a completed Workflow's journal shows agents that never returned, a mid-session cache-cost tripwire, and a SessionStart line that carries mode, disposition and the workflows opt-in across compaction.",
+  "description": "agenting: a two-stage routing gate on the Workflow tool (Stage 1 denies agent() calls with no model/agentType or no effort; Stage 2 asks for plan approval in manual mode and steps aside with a systemMessage in auto mode), a finish check that warns when a completed Workflow's journal shows agents that never returned, a mid-session cache-cost tripwire, and a SessionStart line that carries mode, disposition and the workflows opt-in across compaction. The hooks module hooks/fanouts/register.tsx adds the fan-out view: a band row per running clean run (cleanrun.py, clean_runtime.mjs) laid out like the bottom panel's Workflow row, and a /fanouts pane laid out like /workflows.",
+  "modules": [
+    "./fanouts/register.tsx"
+  ],
   "hooks": {
     "PreToolUse": [
       {

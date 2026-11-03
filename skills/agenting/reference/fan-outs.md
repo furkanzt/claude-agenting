@@ -159,6 +159,12 @@ python3 "<plugin>/scripts/cleanrun.py" run  --tasks tasks.jsonl --system-prompt 
 python3 "<plugin>/scripts/cleanrun.py" status --out-dir out
 ```
 
+While a run goes on, the plugin's fan-out view shows it as a Workflow is shown: a row above the
+prompt, and `/fanouts` for the per-task view (cleanrun starts no Workflow, so `/workflows` never
+lists it). It also recognises `clean_runtime.mjs`, an external runner (not shipped with this plugin)
+that runs each `agent()` call of a Workflow script as its own cleanrun:
+`node …/clean_runtime.mjs <script.js> --out DIR`.
+
 - `plan` writes nothing and says what would run or resume. Its "cost bound" is tasks times
   attempts times the soft per-run cap, a ceiling and not an estimate; `--max-usd` stops new
   launches once the charge reaches it.

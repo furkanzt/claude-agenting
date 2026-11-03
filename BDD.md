@@ -20,6 +20,8 @@ test by a citation that a machine checks. See [TDD.md](TDD.md) for how the tests
 | tripwire | `hooks/cache-tripwire.py`, the mid-session model or effort switch cost nudge |
 | meter | `scripts/measure-tokenomics.py`, the transcript cost meter |
 | clean run | One self-contained task run as its own `claude -p --restricted` process (`scripts/cleanrun.py`) |
+| fan-out view | The hooks module `hooks/fanouts/`: the band row and the `/fanouts` pane that show clean runs like Workflows |
+| band, pane | The row the view draws above the prompt (`AbovePrompt`), and the `/fanouts` panel (`Pane`) |
 | evalkit | `evals/evalkit.py`, the harness that measures model and effort cells |
 | row, cell, task, run | A routing-table job type; a model plus an effort; one gradable job; one cell attempting one task once |
 | screening / confirmation | The first round of tasks for a row; the later, larger round for a candidate |
@@ -49,7 +51,10 @@ Directly above the tags and the `Scenario:` line, one or more comment lines:
 - `tests/<file>::<function>`: the file must exist and `def <function>` must appear in it. Several
   stacked `# Backed by:` lines are all validated.
 - `scripts/quality/<file>::<check_function>`: a live check (none yet).
-- File>title citations (`web/x.test.ts > title`) exist in the harness but this repo has no JS tests.
+- `tests/<file>.test.tsx > <test title>`: a hooks-module test; the meta-guard checks that the file
+  exists and declares `test('<title>'` (or `it(...)`, any quote style) with exactly that title, so
+  a renamed or deleted test leaves a ghost citation it reports. These run with
+  `scripts/quality/run_plugin_tests.py`.
 
 ## The ratchet: `@gap @wip`
 
@@ -88,3 +93,4 @@ harness by tests with a stub `claude`; none of them calls a real model.
 | `effort-probe.feature` | `evals/probes/read_effort.py`, the subagent-effort reader | `tests/test_effort_probe.py` |
 | `e1-analysis.feature` | `evals/probes/e1_analysis.py`, the E1 rule applier | `tests/test_e1_analysis.py` |
 | `e1b-analysis.feature` | `evals/probes/e1b_analysis.py`, the E1b rule applier (Opus and Haiku xhigh versus Sonnet) | `tests/test_e1b_analysis.py` |
+| `fanout-view.feature` | `hooks/fanouts/` (band and `/fanouts` pane) and `scripts/fanout_scan.py` | `tests/fanouts.test.tsx`, `tests/test_fanout_scan.py` |

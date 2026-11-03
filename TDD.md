@@ -1,8 +1,8 @@
 # TDD in this repo
 
 How tests are written and run here. The product is a Claude Code plugin: Python hooks
-that Claude Code runs on events, Python scripts, an eval harness, agent definitions and
-skill docs. There is no server and no UI. The behaviour is described as scenarios in
+that Claude Code runs on events, a TypeScript hooks module (the fan-out view, `hooks/fanouts/`),
+Python scripts, an eval harness, agent definitions and skill docs. There is no server. The behaviour is described as scenarios in
 `features/` (see [BDD.md](BDD.md)); this file is about the tests that prove them.
 
 ## Where tests live
@@ -11,6 +11,8 @@ skill docs. There is no server and no UI. The behaviour is described as scenario
 |---|---|---|
 | Hook pipe tests | `tests/test_routing_guard.py`, `tests/test_session_continuity.py`, `tests/test_finish_check.py` | Each hook runs as a subprocess with JSON on stdin, the way Claude Code runs it, and its stdout JSON / exit code is asserted |
 | Script tests | `tests/test_tokenomics.py` (meter and the cache tripwire's prices), `tests/test_cleanrun.py`, `tests/test_evalkit.py` | The CLIs' behaviour with `claude -p` replaced by a stub |
+| Hooks-module tests | `tests/fanouts.test.tsx` | The fan-out view's band and pane, drawn through Claude Code's plugin test kit (`claude-code/testing`) with the engine stubbed beneath the plugin; no model, no network |
+| Fan-out scanner | `tests/test_fanout_scan.py` | `scripts/fanout_scan.py` against run folders built in a temp dir and a fake process table |
 | Doc and pin invariants | `tests/test_skill_docs.py` | Wording and pins that other code relies on (description length, list-price caveats, no local paths) |
 | Isolation proof | `tests/test_real_state_untouched.py` | The `AGENTING_STATE_DIR` override keeps the real `~/.claude` state unchanged |
 | Meta-guard | `tests/test_catalogue_integrity.py` | The scenario catalogue still matches the tests it cites (see BDD.md) |
@@ -49,11 +51,16 @@ Shared helpers: `tests/_util.py` (`HookTestCase`, script paths). Stubs: `tests/f
 | One test | `python3 -m pytest tests/test_tokenomics.py -k long_prompt -q` |
 | Plugin health (end to end, not config reading) | `python3 scripts/check-setup.py` |
 | Eval harness self-check (graders on fixtures, secret scan) | `python3 evals/evalkit.py selfcheck` |
+| Hooks-module tests (fan-out view) | `python3 scripts/quality/run_plugin_tests.py` |
+| Hooks-module check (manifest, what the engine would refuse) | `claude plugin validate .` |
 | Regenerate the scenario matrix | `python3 scripts/quality/build_coverage_matrix.py` |
 | Apply scenario to test mappings | `python3 scripts/quality/apply_backed_by.py <mappings.json>` |
 | Dev dependencies | `python3 -m pip install -r requirements-dev.txt` |
 
-There is no CI configuration in this repo. The suite above is the gate; run it before a commit.
+There is no CI configuration in this repo. The suite above is the gate; run it before a commit, and
+`scripts/quality/run_plugin_tests.py` with it when `hooks/fanouts/` or `types/` changed. That runner
+copies only the plugin's own files into a temp folder first: `claude plugin test` takes no filter and
+would otherwise run test files under the gitignored `evals/private/`.
 `gherkin-official` must be installed or the meta-guard's Gherkin-parse check silently skips.
 
 ## Mocking policy

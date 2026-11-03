@@ -77,6 +77,14 @@ this result (agenting skill: "When the finish check fires").
 
 Change them in plain language or with `/agenting-mode` (e.g. `/agenting-mode manual quality`, `/agenting-mode workflows on`). No argument reports the recorded values.
 
+**Fan-out view.** A clean run (`scripts/cleanrun.py`; or `clean_runtime.mjs`, an external runner this plugin does not ship, which runs each `agent()` call of a Workflow script as its own cleanrun and is recognised as `node …/clean_runtime.mjs <script.js> --out DIR`) is a set of separate `claude -p` processes, so Claude Code's bottom panel and `/workflows` never list it. The plugin's hooks module (`hooks/fanouts/`) shows it the same way: one row per running clean run above the prompt, laid out like the bottom panel's Workflow row, and a `/fanouts` pane laid out like `/workflows` (phases on the left, the chosen phase's agents with model, effort, tokens and time on the right). It finds runs on its own: `scripts/fanout_scan.py` reads `ps` and the run folders every 3 s while one runs, every 15 s otherwise, and writes nothing. A toast says when a run ends.
+
+```
+  ◯ nightly-review  ▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱  10/20 · 25m12s · ↓ 1.4m tokens · clean fan-out
+```
+
+Keys: `/fanouts` opens or closes the pane; from the prompt, ctrl+x tab then enter opens it on the highlighted row; ↑↓ picks a phase; esc closes it. Colours are theme keys, so they follow your theme, and the bar takes the engine's glyphs by the engine's own rule (`█░` when `TERM` is `xterm-ghostty` or `TERM_PROGRAM` is `ghostty`, `▰▱` otherwise); the layout is copied from Claude Code 2.1.317 into `hooks/fanouts/look.ts`, and the pane notes in a dim line when the running version differs. A plugin cannot add rows to the engine's own panel or `/workflows`, which is why the view is its own.
+
 **Project rules.** A project can keep hand-written routing rules in `agenting/AGENTING.md` at its root: a `## Rules` section (e.g. *"always route the synthesis step to opus/xhigh here"*) and a `## Config` section with one knob, `auto-disposition-default`. Claude reads it in full before the first Workflow of a session; its Rules override the disposition and the routing table. The template is `templates/AGENTING.md`.
 
 ## Install
@@ -110,7 +118,9 @@ Upgrading from 2.x: see the 3.0.0 entry in [CHANGELOG.md](CHANGELOG.md).
 | `scripts/check-setup.py` | End-to-end health check: it *runs* things rather than reading config. |
 | `scripts/measure-tokenomics.py` | Recomputes the main/agent cost split (advisor spend included), spawn tax, and effort distribution from real transcripts; `anatomy` breaks down what a Workflow agent costs to start. Dated per-model price table, list price. |
 | `scripts/cleanrun.py` | Runs a fan-out of self-contained tasks as clean `claude -p --restricted` processes instead of Workflow agents: explicit model and effort, a check of the model that answered, process-group kills, a budget cap, resume with re-validation. 63% cheaper per task at list price on one measured pipeline. `plan`, `run`, `status`. |
-| `tests/` | Pipe tests for the stateful hooks and the tokenomics meter. |
+| `hooks/fanouts/` | The fan-out view, a hooks module (`register.tsx`, `look.ts`, `view.ts`): the band row and the `/fanouts` pane for clean runs. Its state contract is `types/index.d.ts`. |
+| `scripts/fanout_scan.py` | The fan-out view's read-only scanner: one JSON snapshot of the clean runs on this machine from `ps` and their run folders. |
+| `tests/` | Pipe tests for the stateful hooks and the tokenomics meter; `fanouts.test.tsx` for the fan-out view (run with `scripts/quality/run_plugin_tests.py`). |
 
 ### The shipped roster
 
@@ -188,6 +198,8 @@ A missing *entry* gets one more look. A resumed or forked chat gets a new `sessi
 python3 -m pytest tests          # or, without pytest:
 python3 -m unittest discover -s tests
 ```
+
+The fan-out view's hooks module has its own tests, run by Claude Code's plugin test kit (no model is called): `python3 scripts/quality/run_plugin_tests.py`.
 
 Every test pipes JSON into a hook exactly as Claude Code does, with `AGENTING_STATE_DIR` set to a temporary directory. Covered: session-continuity (seeding, record/status, the workflows opt-in across compaction, legacy state, the one-line message), the routing guard (Stage 1, `agenting:<name>` agent types, manual approval round-trip, the auto-mode system message), and the finish check against three journal fixtures in `tests/fixtures/`. `scripts/check-setup.py` also honours `AGENTING_STATE_DIR`.
 
