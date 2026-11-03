@@ -315,7 +315,8 @@ Feature: Fan-out view
   Scenario: A running fan-out gets one bottom-panel row above the prompt
     Given a running fan-out merge5 with 1 of 3 agents done, 7m09s and 132.2k tokens
     When the band is drawn
-    Then it reads "  ◯ merge5  ▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱  1/3 · 7m09s · ↓ 132.2k tokens · clean fan-out"
+    Then it reads "◯ merge5  ▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱  1/3 · 7m09s · ↓ 132.2k tokens · clean fan-out"
+    And it is a plain Button with the digit 1, which the engine draws before it as "1: "
 
   # Backed by: tests/fanouts.test.tsx > in Ghostty (TERM_PROGRAM ghostty) the bar is █░, as the engine draws it there
   # Backed by: tests/fanouts.test.tsx > in Ghostty (TERM xterm-ghostty) the bar is █░, as the engine draws it there
@@ -341,6 +342,19 @@ Feature: Fan-out view
     Given two running fan-outs in the band, the first row holding the focus ring when the band takes the keyboard
     When the second row is pressed
     Then the pane opens with the keyboard and Escape closing it, showing the second fan-out
+
+  # Backed by: tests/fanouts.test.tsx > each band row carries its digit, so typing 2 into an empty prompt opens the pane on the second, mid-turn too
+  Scenario: Typing a band row's digit into an empty prompt opens the pane on that fan-out, mid-turn too
+    Given two running fan-outs in the band while Claude is working
+    When the band is drawn
+    Then its rows carry the digits 1 and 2
+    And the row with the digit 2, pressed as the engine presses it for a 2 typed into an empty prompt, opens the pane on the second fan-out
+
+  # Backed by: tests/fanouts.test.tsx > beside a docked pane the band row is clipped to the band's width after its digit, never wrapped
+  Scenario: Beside a docked pane the band row is clipped, never wrapped
+    Given a running fan-out merge5 and a band 70 cells wide
+    When the band is drawn
+    Then the row takes the 67 cells after the engine's "1: ", ending "· cl…", its name and bar whole
 
   # Backed by: tests/fanouts.test.tsx > a finished run is ◯ in success, a failed one ✘, a stopped one ⚠
   Scenario: The row's icon says how a run ended

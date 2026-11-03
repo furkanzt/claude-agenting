@@ -160,8 +160,9 @@ python3 "<plugin>/scripts/cleanrun.py" status --out-dir out
 ```
 
 While a run goes on, the plugin's fan-out view shows it as a Workflow is shown: a row above the
-prompt, and `/fanouts` for the per-task view (cleanrun starts no Workflow, so `/workflows` never
-lists it). It also recognises `clean_runtime.mjs`, an external runner (not shipped with this plugin)
+prompt, `1: ◯ name …`, and a per-task view that typing that digit into the empty prompt opens, as
+`/fanouts` does, both also while Claude is working. cleanrun starts no Workflow, so `/workflows`
+never lists it. It also recognises `clean_runtime.mjs`, an external runner (not shipped with this plugin)
 that runs each `agent()` call of a Workflow script as its own cleanrun:
 `node …/clean_runtime.mjs <script.js> --out DIR`.
 

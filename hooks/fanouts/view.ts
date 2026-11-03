@@ -79,6 +79,26 @@ export function bandStats(f: Fanout): string {
   return parts.join(SEP)
 }
 
+// A band row's digit as the engine draws it before the row ("1: "): typed into an empty prompt it
+// opens the pane on that row, as a survey's digits answer it.
+export const HOTKEY_CELLS = 3
+
+export function clip(text: string, width: number): string {
+  if (width <= 0) return ''
+  const chars = [...text]
+  return chars.length > width ? chars.slice(0, Math.max(0, width - 1)).join('') + '…' : text
+}
+
+// "◯ name  <bar>  <stats>" in `columns` cells after the digit, so the row never wraps (the engine
+// cannot truncate a Text nested in a hotkey Button): the stats give way first, then the name; the
+// warning stays whole.
+export function bandRow(f: Fanout, columns: number, warn = ''): { name: string; stats: string; warn: string } {
+  const room = columns - HOTKEY_CELLS - 2 - 2 - BAR_CELLS - 2
+  const name = clip(f.name, Math.max(1, room - [...warn].length))
+  const stats = clip(bandStats(f), room - [...name].length - [...warn].length)
+  return { name, stats, warn }
+}
+
 // The /workflows header's right side: "3/3 agents · 6s · done", the run's cost before the end word.
 export function headerStats(f: Fanout): string {
   const c = counts(f)

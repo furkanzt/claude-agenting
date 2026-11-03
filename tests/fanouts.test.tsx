@@ -135,15 +135,15 @@ test('the band draws the bottom-panel Workflow row, and says it is a clean fan-o
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...BAND, surface })
     const row = await ui.find({ type: 'Text', text: /merge5/ })
-    expect(row?.text).toBe('  ◯ merge5  ▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱  1/3 · 7m09s · ↓ 132.2k tokens · clean fan-out')
+    expect(row?.text).toBe('◯ merge5  ▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱  1/3 · 7m09s · ↓ 132.2k tokens · clean fan-out')
     const texts = await ui.findAll({ type: 'Text' })
     expect(texts.find(t => t.text === '◯')?.props).toMatchObject({ dimColor: true })
     expect(texts.find(t => t.text === ' merge5')?.props).toMatchObject({ dimColor: true })
     expect(texts.find(t => t.text === '▰▰▰▰▰▰')?.props.color).toBeUndefined()
     expect(texts.find(t => t.text === '▱▱▱▱▱▱▱▱▱▱▱▱▱▱')?.props).toMatchObject({ dimColor: true })
-    // the row is a plain Button: drawn as the row alone, reachable with ctrl+x tab
+    // the row is a plain Button with its digit: the engine draws "1: " and then the row
     const buttons = await ui.findAll({ type: 'Button' })
-    expect(buttons.map(b => [b.key, b.props.plain, b.text])).toEqual([['open:0', true, row?.text]])
+    expect(buttons.map(b => [b.key, b.props.plain, b.props.hotkey, b.text])).toEqual([['open:0', true, '1', row?.text]])
     await ui.unmount()
   }
 })
@@ -161,6 +161,32 @@ test('pressing a band row (ctrl+x tab, enter) opens the pane on that fan-out, wi
   const names = await pane.findAll({ type: 'Text', text: /^other$/ })
   expect(names.find(t => t.props.bold)?.props).toMatchObject({ bold: true, color: 'permission' })
   await pane.unmount()
+})
+
+test('each band row carries its digit, so typing 2 into an empty prompt opens the pane on the second, mid-turn too', async ($, on) => {
+  const other = fanout({ id: '/w/b', dir: '/w/b', name: 'other' })
+  const { opened } = await started($, on, [snap([fanout(), other])])
+  // isWorking: Claude is mid-turn; the band and its digits stay
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal', props: { ...BAND.props, isWorking: true } })
+  const buttons = await band.findAll({ type: 'Button' })
+  expect(buttons.map(b => [b.key, b.props.hotkey])).toEqual([['open:0', '1'], ['open:1', '2']])
+  // the engine presses the Button whose hotkey is the digit typed
+  await band.press({ key: buttons.find(b => b.props.hotkey === '2')!.key })
+  await band.unmount()
+  expect(opened).toEqual([{ id: 'fanouts', title: 'Clean fan-outs', focus: true, closeOnEscape: true }])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await pane.findAll({ type: 'Text', text: /^other$/ })).find(t => t.props.bold)).toBeDefined()
+  await pane.unmount()
+})
+
+test('beside a docked pane the band row is clipped to the band\'s width after its digit, never wrapped', async ($, on) => {
+  await started($, on, [snap([fanout()])])
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal', props: { ...BAND.props, bodyColumns: 70 } })
+  const row = (await band.find({ type: 'Text', text: /merge5/ }))?.text ?? ''
+  // 70 cells less the engine's "1: ": the stats give way, the name and the bar stay whole
+  expect(row).toBe('◯ merge5  ▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱  1/3 · 7m09s · ↓ 132.2k tokens · cl…')
+  expect([...row].length).toBe(67)
+  await band.unmount()
 })
 
 async function bandBar($: Engine, on: On, env: Record<string, string>) {
@@ -208,7 +234,7 @@ test('with a survey up the band is the engine\'s, even while a fan-out runs', as
   engineDraws(on)
   await started($, on, [snap([fanout()])])
   let ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /merge5/ }))?.text).toMatch(/^ {2}◯ merge5 /)
+  expect((await ui.find({ type: 'Text', text: /merge5/ }))?.text).toMatch(/^◯ merge5 /)
   await ui.unmount()
   ui = await $.ui.mount({ ...BAND, surface: 'terminal', props: { ...BAND.props, hasSurvey: true } })
   expect((await ui.find({ type: 'Text' }))?.text).toBe('engine')
@@ -219,11 +245,11 @@ test('the band shows three rows at most, and fits maxRows', async ($, on) => {
   const four = ['a', 'b', 'c', 'd'].map(n => fanout({ id: `/w/${n}`, dir: `/w/${n}`, name: n }))
   await started($, on, [snap(four)])
   let ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect(await ui.findAll({ type: 'Text', text: /^ {2}◯ [abcd] / })).toHaveLength(3)
+  expect(await ui.findAll({ type: 'Text', text: /^◯ [abcd] / })).toHaveLength(3)
   expect((await ui.find({ type: 'Text', text: /more/ }))?.text).toBe('  +1 more clean fan-outs · /fanouts')
   await ui.unmount()
   ui = await $.ui.mount({ ...BAND, surface: 'terminal', props: { ...BAND.props, maxRows: 2 } })
-  expect(await ui.findAll({ type: 'Text', text: /^ {2}◯ [abcd] / })).toHaveLength(1)
+  expect(await ui.findAll({ type: 'Text', text: /^◯ [abcd] / })).toHaveLength(1)
   expect((await ui.find({ type: 'Text', text: /more/ }))?.text).toBe('  +3 more clean fan-outs · /fanouts')
   await ui.unmount()
 })
@@ -234,11 +260,11 @@ test('an ended run keeps its band row five minutes from when it was seen ending'
   const { clock } = await started($, on, [snap([fanout()]), snap([ended], NOW + 3), snap([ended], NOW + 3 + 290), snap([ended], NOW + 3 + 310)])
   await clock.advance(3000)    // seen ending at NOW + 3
   let ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /merge5/ }))?.text).toMatch(/^ {2}⚠ merge5 /)
+  expect((await ui.find({ type: 'Text', text: /merge5/ }))?.text).toMatch(/^⚠ merge5 /)
   await ui.unmount()
   await clock.advance(15000)   // 290 s after: still there
   ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /merge5/ }))?.text).toMatch(/^ {2}⚠ merge5 /)
+  expect((await ui.find({ type: 'Text', text: /merge5/ }))?.text).toMatch(/^⚠ merge5 /)
   await ui.unmount()
   await clock.advance(15000)   // 310 s after: gone
   ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
@@ -528,7 +554,7 @@ test('a scan that cannot read the process table keeps the last snapshot: no fals
   await clock.advance(3000)
   expect(toasts).toEqual([])
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await band.find({ type: 'Text', text: /merge5/ }))?.text).toMatch(/^ {2}◯ merge5 /)
+  expect((await band.find({ type: 'Text', text: /merge5/ }))?.text).toMatch(/^◯ merge5 /)
   await band.unmount()
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await pane.find({ type: 'Text', text: /scanner:/ }))?.text).toContain('could not read the process table')
@@ -542,7 +568,7 @@ test('a run unreadable for one scan keeps its row and its end is still announced
   await clock.advance(3000)
   expect(toasts).toEqual([])
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /merge5/ }))?.text).toMatch(/^ {2}◯ merge5 /)
+  expect((await ui.find({ type: 'Text', text: /merge5/ }))?.text).toMatch(/^◯ merge5 /)
   await ui.unmount()
   await clock.advance(3000)
   expect(toasts).toHaveLength(1)

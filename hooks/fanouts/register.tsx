@@ -15,7 +15,7 @@ import {
   agentLine,
   announce,
   bandFanouts,
-  bandStats,
+  bandRow,
   barCells,
   carryUnknown,
   description,
@@ -194,7 +194,8 @@ export const register: Register = on => {
   }).catch(($, e, next) => next(e))
 
   // The band: one row per running (or just ended) fan-out, as the bottom panel draws a Workflow.
-// Each row is a plain Button, so the keyboard reaches the pane without /fanouts: ctrl+x tab, enter.
+  // Each row is a plain Button with a digit: typing 1 (2, 3) into an empty prompt opens the pane on
+  // that row, mid-turn too, as a survey's digits answer it. ctrl+x tab, enter reaches it as well.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     const snap = await read($, snapshot)
@@ -209,10 +210,10 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column">
         {lines.map((f, i) => (
-          // a plain Button draws just the row; ctrl+x tab gives the band the keyboard with the ring
-          // on the first row (autoFocus), so enter opens the pane on it
-          <Button key={`open:${i}`} plain autoFocus={i === 0 ? true : undefined} onPress={() => openOn($, f.dir)}>
-            {panelRow(ui, f, failing !== null && i === lines.length - 1)}
+          // the engine draws the digit before the row ("1: ◯ name …"); ctrl+x tab puts the ring on
+          // the first row (autoFocus), so enter opens the pane on it too
+          <Button key={`open:${i}`} plain hotkey={String(i + 1)} autoFocus={i === 0 ? true : undefined} onPress={() => openOn($, f.dir)}>
+            {panelRow(ui, f, failing !== null && i === lines.length - 1, e.props.bodyColumns)}
           </Button>
         ))}
         {more > 0 && (
@@ -295,23 +296,24 @@ export const register: Register = on => {
   })
 }
 
-// The bottom-panel row: "  ◯ count-long  ████████░░░░░░░░░░░░  2/5 · 23s · ↓ 132.2k tokens · clean fan-out".
-function panelRow(ui: Ui, f: Fanout, stale: boolean) {
+// The bottom-panel row after its digit: "◯ count-long  ████████░░░░░░░░░░░░  2/5 · 23s · ↓ 132.2k tokens ·
+// clean fan-out", clipped to the band's width.
+function panelRow(ui: Ui, f: Fanout, stale: boolean, columns: number) {
   const { Text } = ui
   const tone = runTone(f.state)
   const cells = barCells(f)
   const bar = barGlyphs(live.ghostty)
+  const row = bandRow(f, columns, stale ? `${SEP}${GLYPHS.warning} scanner failing` : '')
   return (
     <Text wrap="truncate-end">
-      {'  '}
       <Text color={tone.color} dimColor={tone.dim}>{tone.icon}</Text>
-      <Text dimColor> {f.name}</Text>
+      <Text dimColor> {row.name}</Text>
       {'  '}
       <Text>{bar.full.repeat(cells.full)}</Text>
       <Text dimColor>{bar.empty.repeat(cells.empty)}</Text>
       {'  '}
-      <Text dimColor>{bandStats(f)}</Text>
-      {stale && <Text color="warning">{`${SEP}${GLYPHS.warning} scanner failing`}</Text>}
+      <Text dimColor>{row.stats}</Text>
+      {row.warn && <Text color="warning">{row.warn}</Text>}
     </Text>
   )
 }
