@@ -114,6 +114,12 @@ in Workflow scans.
 - **Effort probe tool:** `evals/probes/read_effort.py` (reads the effort a subagent really ran with) and
   `evals/probes/effort_application.workflow.js` (the Workflow that launches the probe agents), with
   `tests/test_effort_probe.py` and `features/effort-probe.feature`.
+- **3.5.0 (2026-11-03):** the fan-out view, the plugin's first hooks module (`hooks/fanouts/`, contract
+  `types/index.d.ts`): a band row per running clean run laid out like the bottom panel's Workflow row, and a
+  `/fanouts` pane laid out like `/workflows` (phases, ten agents a page, ↑↓ into the agents), fed by the
+  read-only `scripts/fanout_scan.py`. Copied from a real 2.1.317 screen; reviewed by a two-angle adversarial
+  workflow (13 findings confirmed, fixed) after a larger review of the standalone mod it grew from. Tests:
+  `tests/test_fanout_scan.py` (62) and `tests/fanouts.test.tsx` (44, run with `scripts/quality/run_plugin_tests.py`).
 
 ### Key facts to carry
 
@@ -270,7 +276,7 @@ verification (a bounded null), the classify narrowing, the clean-run usage-windo
 
 ## 4. Decisions waiting for the owner
 
-1. **Release.** 3.4.1 (2026-10-28) is released and pushed; nothing is unreleased. A release is its own commit:
+1. **Release.** 3.5.0 (2026-11-03) is released and pushed; nothing is unreleased. A release is its own commit:
    bump `version` in `.claude-plugin/plugin.json` **and** `marketplace.json` together (`plugin.json` wins), move
    the CHANGELOG "Unreleased" entry under the new number, push, then on the owner's machine
    `claude plugin marketplace update agenting` and `claude plugin update agenting@agenting`, and
@@ -471,7 +477,7 @@ override; the classify rule written after nine-run data; dont-guess `balanced` h
 
 ## 9. Push plan (when the owner says push)
 
-Nothing is unpushed as of 3.4.1 (2026-10-28). For the next push: group the unpushed commits into bites
+Nothing is unpushed as of 3.5.0 (2026-11-03). For the next push: group the unpushed commits into bites
 (consecutive runs belonging to one piece of work, one commit each, members folded into numbered paragraphs,
 never reordered), keep the version bump a separate commit after the bites, then
 `CLAUDE_SKIP_SQUASH_GUARD=1 git push`. Before pushing, check the net diff for `evals/private`, absolute local

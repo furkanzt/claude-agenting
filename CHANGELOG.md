@@ -1,5 +1,33 @@
 # Changelog
 
+## 3.5.0 — 2026-11-03 (the fan-out view: clean runs shown the way Workflows are)
+
+A clean run (`scripts/cleanrun.py`, or the external `clean_runtime.mjs`) is a set of separate `claude -p`
+processes, so Claude Code's bottom panel and `/workflows` never list it: a run of five Opus calls could go on
+for an hour with nothing on screen. The plugin now ships a hooks module, its first, that shows it.
+
+### Added
+- **A row above the prompt per running clean run**, laid out like the bottom panel's Workflow row:
+  `◯ name  ██████░░░░  9/14 · 38s · ↓ 915.0k tokens · clean fan-out`. The bar takes the engine's glyphs by
+  the engine's rule (`█░` in Ghostty, `▰▱` elsewhere); times and token counts use its formats. A finished run
+  keeps its row five minutes; a toast says when one ends. ctrl+x tab, enter opens the pane on a row.
+- **`/fanouts`, laid out like `/workflows`**: name, description and stats; a Phases column; the chosen phase's
+  agents ten at a time with model, tokens and time (effort in the column title when the phase shares one), a
+  pager in the frame (`1-10 of 14 ↓`). ↑↓ walks the phases and on into the agents; esc closes it, and
+  `/fanouts` again closes it.
+- **`scripts/fanout_scan.py`**, the read-only scanner behind it (`ps` and the run folders, every 3 s while a run
+  goes on, every 15 s otherwise). It reads a folder used more than once as its current run only, and marks a
+  snapshot degraded when `ps` fails rather than reporting live runs as ended.
+- **`scripts/quality/run_plugin_tests.py`** runs the module's tests (`tests/fanouts.test.tsx`, Claude Code's
+  plugin test kit) on a copy of the plugin's own files, since `claude plugin test` takes no filter.
+
+### Changed
+- The meta-guard checks that a `tests/<file>.test.tsx > <title>` citation names a test the file declares.
+
+The layout and colours were copied from a real Claude Code 2.1.317 screen; colours are theme keys. A plugin
+cannot add rows to the engine's own panel or `/workflows`, so the view draws its own, and the pane notes a
+different Claude Code version in a dim line. 86 scenarios in `features/fanout-view.feature`.
+
 ## 3.4.1 — 2026-10-28 (docs: the read-heavy clean-run saving is observed, no longer untested)
 
 No code, hook, script or agent changes: guidance, tests, the scenario matrix and a research note only. Run keys are unchanged.
