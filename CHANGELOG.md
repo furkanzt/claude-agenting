@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.5.2 — 2026-11-03 (fan-out view: one key opens the pane)
+
+### Changed
+- **Type a band row's digit to open the pane.** Each row now reads `1: ◯ name  ██░░…`; typing `1` (or `2`,
+  `3`) into the empty prompt opens the pane on that run, also while Claude is working, the way a survey's
+  digits answer it. It replaces ctrl+x tab, enter as the way in (that chord still works). While a row
+  shows, a `1` typed first into an empty prompt opens the pane instead of starting the message.
+- **The row never wraps.** Beside a docked pane it is clipped to the band's width (the stats give way first)
+  instead of spilling onto a second line.
+
 ## 3.5.1 — 2026-11-03 (fan-out view: /fanouts without waiting, the shared effort while calls queue)
 
 ### Changed
