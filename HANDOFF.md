@@ -284,7 +284,7 @@ verification (a bounded null), the classify narrowing, the clean-run usage-windo
 
 ## 4. Decisions waiting for the owner
 
-1. **Release.** 3.5.1 and 3.5.2 (2026-11-03) are committed and NOT pushed; 3.5.0 is the last pushed release. A release is its own commit:
+1. **Release.** 3.5.2 (2026-11-03) is the last pushed release (3.5.1 went out with it). A release is its own commit:
    bump `version` in `.claude-plugin/plugin.json` **and** `marketplace.json` together (`plugin.json` wins), move
    the CHANGELOG "Unreleased" entry under the new number, push, then on the owner's machine
    `claude plugin marketplace update agenting` and `claude plugin update agenting@agenting`, and
@@ -485,8 +485,7 @@ override; the classify rule written after nine-run data; dont-guess `balanced` h
 
 ## 9. Push plan (when the owner says push)
 
-Unpushed as of 2026-11-03: two fan-out view commits, the 3.5.1 release commit, one fan-out view commit (the
-band row's digit) and the 3.5.2 release commit: four bites (the two view commits squash into one). For the next push: group the unpushed commits into bites
+Nothing unpushed as of 2026-11-03: 3.5.1 and 3.5.2 went out together in four bites. For the next push: group the unpushed commits into bites
 (consecutive runs belonging to one piece of work, one commit each, members folded into numbered paragraphs,
 never reordered), keep the version bump a separate commit after the bites, then
 `CLAUDE_SKIP_SQUASH_GUARD=1 git push`. Before pushing, check the net diff for `evals/private`, absolute local
