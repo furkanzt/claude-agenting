@@ -6,6 +6,8 @@ on 2026-10-09; commands are given so you can re-check instead of trusting this f
 
 ## 0. Start here (10 minutes)
 
+Release handoffs: the fan-out view since 3.5.0 is in [docs/handoffs/HANDOFF-3.5.2.md](docs/handoffs/HANDOFF-3.5.2.md).
+
 **The one-paragraph state.** Claude Haiku 5.5 shipped on 2026-10-07 and the `haiku` alias moved
 to it, so the `scanner` agent had silently changed model. This repo re-ran every routing row
 against Haiku 5.5 (four effort cells) with six new eval tasks, vetted the winners with extra
