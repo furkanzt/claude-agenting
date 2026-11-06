@@ -152,6 +152,33 @@ Feature: Clean runs fan a set of self-contained tasks out as separate claude -p 
     Then claude is launched a second time for that task
     And the same holds when only the model, only the tools or only the schema differ
 
+  # Backed by: tests/test_cleanrun.py::test_the_session_that_started_the_run_is_written_to_summary_json
+  Scenario: summary.json names the Claude Code session that started the run
+    Given a tasks file with one task and CLAUDE_PID "4242" and CLAUDE_CODE_SESSION_ID "sess-1" in the environment
+    When I run cleanrun.py run
+    Then summary.json holds "owner" with pid 4242 and session "sess-1"
+
+  # Backed by: tests/test_cleanrun.py::test_a_run_outside_claude_code_records_no_owner
+  Scenario Outline: A run with no usable CLAUDE_PID records no owner
+    Given a tasks file with one task and <env> in the environment
+    When I run cleanrun.py run
+    Then summary.json has no "owner"
+
+    Examples:
+      | env                  |
+      | no CLAUDE_PID        |
+      | an empty CLAUDE_PID  |
+      | CLAUDE_PID "not-a-pid" |
+      | CLAUDE_PID "-5"      |
+      | CLAUDE_PID "12 34"   |
+
+  # Backed by: tests/test_cleanrun.py::test_the_owner_is_not_part_of_the_run_key
+  Scenario: The owner is not part of the run key, so a run started from another chat resumes
+    Given a finished run of one task started with CLAUDE_PID "1"
+    When I run cleanrun.py run again with CLAUDE_PID "2"
+    Then no new claude call is made, summary.json says resumed 1 and its owner pid is 2
+    And the saved output's key is unchanged
+
   @gap @wip
   # Backed by: @gap
   Scenario: Plan refuses the same bad inputs as run and writes nothing

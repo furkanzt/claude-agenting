@@ -156,6 +156,12 @@ GUARANTEES
     with every other cleanrun process using the same CMD ($CLEANRUN_USAGE_CACHE, else
     a file in the temp dir), because usage endpoints refuse frequent calls.
 
+OWNER
+  When it runs inside a Claude Code session (CLAUDE_PID in its environment), summary.json carries
+  "owner": {"pid": <that claude process>, "session": <CLAUDE_CODE_SESSION_ID>}, so the plugin's
+  fan-out view can show the run only in the chat that started it, also after the run lost its
+  parent process (`cmd &`, nohup). It is not part of the run key.
+
 EXIT CODES  0 all tasks done · 1 some failed · 2 usage error, lock held, or stopped by
 --max-usd, the usage check or a claude that cannot start · 3 a task crashed ·
 130 interrupted.
@@ -998,6 +1004,19 @@ def cmd_plan(a):
     return 0
 
 
+def owner_of_run():
+    """The Claude Code session that started this run, from its own environment: {"owner": {"pid", "session"}},
+    or {} outside one. The fan-out view uses it to show a run only in the chat that started it. It is in
+    summary.json and not in the run key, so a run started from another chat resumes like any other."""
+    pid = os.environ.get("CLAUDE_PID", "")
+    if not (pid.isascii() and pid.isdigit()):
+        return {}
+    owner = {"pid": int(pid)}
+    if os.environ.get("CLAUDE_CODE_SESSION_ID"):
+        owner["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+    return {"owner": owner}
+
+
 def summary_of(run, tasks, cfg, state):
     with run.lock:
         status = dict(run.status)
@@ -1017,7 +1036,8 @@ def summary_of(run, tasks, cfg, state):
             "charged_usd": round(run.budget.spent, 4), "observed_cost_usd": round(run.budget.observed, 4),
             "unknown_cost_runs": run.budget.unknown, "models_observed": models,
             "model": cfg["model"], "effort": cfg["effort"],
-            **({"also_models": cfg["also_models"]} if cfg["also_models"] else {})}      # the weaker check was in force
+            **({"also_models": cfg["also_models"]} if cfg["also_models"] else {}),      # the weaker check was in force
+            **owner_of_run()}
 
 
 def routing_extras(cfg):

@@ -3,6 +3,16 @@
 ## Unreleased
 
 ### Fixed
+- **The fan-out view shows a chat's own clean runs only.** `fanout_scan.py` read the whole machine's process
+  table, so a clean run started in one chat showed in the band and `/fanouts` of every other chat (a Workflow
+  is shown only in its own chat). It now works for the `claude` process it runs under and lists a run that
+  descends from it, or whose `summary.json` names it as `owner`; `--owner PID` names another chat, `--all`
+  lists the whole machine. `cleanrun.py` writes the `owner` (`pid` and `session`, from `CLAUDE_PID` and
+  `CLAUDE_CODE_SESSION_ID`) to `summary.json`, outside the run key, so a run that lost its parent (`cmd &`,
+  `nohup`) is still attributed, and a `clean_runtime.mjs` that lost its parent counts as the chat's through
+  its calls. A folder the view remembers is dropped when its summary names another owner.
+  The snapshot gains an optional `owner`. **Not shown any more:** a run started outside any chat, and a run
+  from an older `cleanrun.py` that lost its parent.
 - **`cleanrun.py` refuses tasks that list `files` when `--tools` gives the run nothing to read them with.**
   `files` are only copied into a task's kit and `--tools` is empty by default, so such a run was launched,
   charged, and answered with empty, schema-valid output ("I have no tool to open the file"), counted as done.

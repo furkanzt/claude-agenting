@@ -2,18 +2,18 @@
 
 Index to `features/*.feature`, this project's executable behaviour catalogue, governed by [TDD.md](TDD.md) and [BDD.md](BDD.md).
 
-**835 scenarios** across 14 domains — **586 ARMED**, **249 GAP**. Full breakdown: [docs/scenarios/coverage-matrix.md](docs/scenarios/coverage-matrix.md).
+**846 scenarios** across 14 domains — **597 ARMED**, **249 GAP**. Full breakdown: [docs/scenarios/coverage-matrix.md](docs/scenarios/coverage-matrix.md).
 
 | Feature | Scenarios | ARMED | GAP | What it pins |
 |---|--:|--:|--:|---|
 | [`cache-tripwire.feature`](features/cache-tripwire.feature) | 46 | 14 | 32 |  |
-| [`cleanrun.feature`](features/cleanrun.feature) | 102 | 83 | 19 |  |
+| [`cleanrun.feature`](features/cleanrun.feature) | 105 | 86 | 19 |  |
 | [`e1-analysis.feature`](features/e1-analysis.feature) | 11 | 11 | 0 |  |
 | [`e1b-analysis.feature`](features/e1b-analysis.feature) | 25 | 25 | 0 |  |
 | [`effort-probe.feature`](features/effort-probe.feature) | 6 | 6 | 0 |  |
 | [`eval-grading.feature`](features/eval-grading.feature) | 108 | 85 | 23 |  |
 | [`eval-runs.feature`](features/eval-runs.feature) | 68 | 51 | 17 |  |
-| [`fanout-view.feature`](features/fanout-view.feature) | 90 | 90 | 0 |  |
+| [`fanout-view.feature`](features/fanout-view.feature) | 98 | 98 | 0 |  |
 | [`finish-check.feature`](features/finish-check.feature) | 30 | 14 | 16 |  |
 | [`plugin-docs.feature`](features/plugin-docs.feature) | 46 | 16 | 30 |  |
 | [`routing-guard.feature`](features/routing-guard.feature) | 139 | 111 | 28 |  |

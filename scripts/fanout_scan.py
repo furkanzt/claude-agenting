@@ -20,9 +20,19 @@ out-dir): every file but the outputs is appended or rewritten across runs. Only 
 current run counts: log lines after the last `start`, calls whose tasks.jsonl was written since
 that start, ledger lines stamped since then.
 
-usage: fanout_scan.py [--dir DIR]... [--cwd PID=DIR]...
+Whose runs: only the chat's own. One machine runs many Claude Code sessions (chats), as many as there are
+`claude` processes, and a Workflow is shown only in the chat that started it; a clean run is too. The scanner
+works for the chat it runs under (the nearest ancestor named `claude`, else its parent) and lists a run only
+when it descends from that process, or when the run's own summary.json names that process as its "owner" (a run
+that lost its parent, `cmd &`, is still attributed; a clean_runtime.mjs that lost its parent is the chat's when
+one of its calls is; a run with no such link, another chat's or one started outside any chat, is not listed). A folder named by --dir is dropped when its summary.json names another owner.
+--all lifts all of this, for use by hand.
+
+usage: fanout_scan.py [--dir DIR]... [--cwd PID=DIR]... [--owner PID | --all]
   --dir      a fan-out directory seen earlier, read even when no process holds it any more
   --cwd      a process's working directory resolved earlier (skips one lsof call)
+  --owner    the claude process whose runs to list (default: found from this process's ancestors)
+  --all      every run on this machine, whoever started it
 
 Always exits 0 and prints one JSON object (version "v": 1). "degraded": true means the process
 table could not be read, so the snapshot says nothing about what runs. A problem with one fan-out
@@ -205,6 +215,44 @@ def read_json(path):
             return json.load(f)
     except (OSError, ValueError):
         return None
+
+
+def descendants(procs, root):
+    """Pids of every process below `root` in the table."""
+    kids = {}
+    for p in procs:
+        kids.setdefault(p["ppid"], []).append(p["pid"])
+    below, todo = set(), [root]
+    while todo:
+        for k in kids.get(todo.pop(), ()):
+            if k not in below:
+                below.add(k)
+                todo.append(k)
+    return below
+
+
+def recorded_owner(out_dir):
+    """The claude pid a cleanrun wrote into out_dir/summary.json as its "owner", else None (a run from before
+    the field, or one started outside Claude Code)."""
+    summ = read_json(os.path.join(out_dir, "summary.json"))
+    owner = summ.get("owner") if isinstance(summ, dict) else None
+    pid = owner.get("pid") if isinstance(owner, dict) else None
+    return pid if isinstance(pid, int) and not isinstance(pid, bool) else None
+
+
+def chat_pid(procs, parent):
+    """The claude process this scanner works for: the nearest ancestor named `claude` (the module's scanner
+    is its direct child), else the parent."""
+    by_pid = {p["pid"]: p for p in procs}
+    pid = parent
+    for _ in range(64):
+        p = by_pid.get(pid)
+        if p is None:
+            break
+        if p["argv"] and os.path.basename(p["argv"][0]) == "claude":
+            return pid
+        pid = p["ppid"]
+    return parent
 
 
 def iter_lines(path):
@@ -670,7 +718,15 @@ def broken(fid, kind, exc):
             "alive": None, "agents": [], "problems": [f"scan failed: {exc!r}"[:200]]}
 
 
-def scan(procs, known_dirs, resolver, now):
+def scan(procs, known_dirs, resolver, now, owner=None):
+    """owner: the claude pid whose runs to list; None lists every run on the machine."""
+    below = None if owner is None else descendants(procs, owner)
+
+    def mine(p, out=None):
+        if below is None or p["pid"] in below:
+            return True
+        return out is not None and recorded_owner(out) == owner
+
     runtimes = {}       # OUT -> node process (None for a dead runtime that still has calls running)
     runtime_pids = {}
     cleanruns = {}      # out-dir -> cleanrun process
@@ -680,20 +736,24 @@ def scan(procs, known_dirs, resolver, now):
         if is_claude_print(p["argv"]):
             children[p["ppid"]] = children.get(p["ppid"], 0) + 1
     for p in procs:
+        if is_cleanrun(p["argv"]):
+            out = flag_path(resolver, p, "--out-dir")
+            if out:
+                if mine(p, out):
+                    cleanruns[out] = p
+            elif mine(p):
+                unresolved.append(" ".join(flag_tokens(p["argv"], "--out-dir")))
+    calling = {c["ppid"] for c in cleanruns.values()}      # a runtime that lost its parent has no record of its
+    for p in procs:                                         # own: it is the chat's when one of its calls is
         if runtime_script(p["argv"]) is not None:
+            if not (mine(p) or p["pid"] in calling):
+                continue
             out = flag_path(resolver, p, "--out")
             if out:
                 runtimes[out] = p
                 runtime_pids[p["pid"]] = out
             else:
                 unresolved.append(" ".join(flag_tokens(p["argv"], "--out")))
-    for p in procs:
-        if is_cleanrun(p["argv"]):
-            out = flag_path(resolver, p, "--out-dir")
-            if out:
-                cleanruns[out] = p
-            else:
-                unresolved.append(" ".join(flag_tokens(p["argv"], "--out-dir")))
     fanouts, seen = [], set()
     # a runtime's calls: children of a live runtime, or cleanruns orphaned under a dead runtime's OUT
     for out_dir, p in cleanruns.items():
@@ -719,6 +779,8 @@ def scan(procs, known_dirs, resolver, now):
         d = os.path.normpath(d)
         if d in seen or not os.path.isdir(d):
             continue
+        if owner is not None and recorded_owner(d) not in (None, owner):
+            continue      # another chat's run: this folder reached us through a table that listed every chat's
         seen.add(d)
         held = [r for r in unresolved if r and (d.endswith("/" + os.path.normpath(r))
                                                  or os.path.normpath(r) == "." or os.path.normpath(r).startswith(".."))]
@@ -741,18 +803,27 @@ def scan(procs, known_dirs, resolver, now):
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     dirs, cwds, problems = [], {}, []
+    owner, every = None, False
     i = 0
     while i < len(argv):
         a = argv[i]
-        if a in ("--dir", "--cwd") and i + 1 < len(argv):
+        if a in ("--dir", "--cwd", "--owner") and i + 1 < len(argv):
             v = argv[i + 1]
             if a == "--dir":
                 dirs.append(v)
+            elif a == "--owner":
+                if v.isdigit():
+                    owner = int(v)
+                else:
+                    problems.append(f"--owner needs a pid, not {v!r}")
             else:
                 pid, _, cwd = v.partition("=")
                 if pid.isdigit() and cwd:
                     cwds[int(pid)] = cwd
             i += 2
+        elif a == "--all":
+            every = True
+            i += 1
         else:
             problems.append(f"unknown argument {a!r}")
             i += 1
@@ -769,12 +840,16 @@ def main(argv=None):
     except (OSError, subprocess.SubprocessError) as exc:
         procs, degraded = [], True
         problems.append(f"ps failed: {exc!r}"[:200])
+    if every:
+        owner = None
+    elif owner is None:
+        owner = chat_pid(procs, os.getppid())
     resolver = Resolver(cwds)
-    fanouts, unresolved = scan(procs, dirs, resolver, now)
+    fanouts, unresolved = scan(procs, dirs, resolver, now, owner)
     if unresolved:
         problems.append(f"could not read the working directory of {len(unresolved)} fan-out process(es)")
     live = {str(p["pid"]) for p in procs}
-    snapshot = {"v": V, "now": now, "platform": sys.platform, "degraded": degraded, "fanouts": fanouts,
+    snapshot = {"v": V, "now": now, "platform": sys.platform, "degraded": degraded, "owner": owner, "fanouts": fanouts,
                 "cwds": {str(k): v for k, v in resolver.cwds.items() if str(k) in live},
                 "problems": problems}
     sys.stdout.write(json.dumps(snapshot, ensure_ascii=False, separators=(",", ":")))

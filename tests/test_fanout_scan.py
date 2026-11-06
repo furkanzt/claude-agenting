@@ -731,6 +731,127 @@ class CleanrunTest(unittest.TestCase):
         self.assertEqual((f["ended_at"], f["elapsed_s"]), (NOW - 100, 500))
 
 
+class ChatScopeTest(unittest.TestCase):
+    """2026-11-06: one chat's clean run showed in every other chat, because the scanner read the whole machine's
+    process table. A run is listed for the chat (the claude process) it descends from or that its summary.json
+    names as its owner."""
+
+    ME, OTHER = 100, 200
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = self.tmp.name
+        self.addCleanup(self.tmp.cleanup)
+        self.claude = [{"pid": 100, "ppid": 50, "etime": 5000, "argv": ["claude"]},
+                       {"pid": 101, "ppid": 100, "etime": 4000, "argv": ["/bin/zsh", "-c", "run"]},
+                       {"pid": 200, "ppid": 51, "etime": 5000, "argv": ["claude", "-c"]},
+                       {"pid": 201, "ppid": 200, "etime": 4000, "argv": ["/bin/zsh", "-c", "run"]}]
+
+    def run_dir(self, name, record=None, state="running"):
+        out = os.path.join(self.root, name, "out")
+        os.makedirs(out)
+        write(os.path.join(self.root, name, "tasks.jsonl"), jl({"id": "t1", "prompt": "p"}))
+        write(os.path.join(out, ".lock"), "1")
+        summ = {"state": state, "requested": 1}
+        if record is not None:
+            summ["owner"] = {"pid": record, "session": "s"}
+        write(os.path.join(out, "summary.json"), json.dumps(summ))
+        return out
+
+    def world(self):
+        """Seven runs: two chats, runs that kept their parent and runs that lost it."""
+        w = {"A": self.run_dir("a"), "B": self.run_dir("b"), "C": self.run_dir("c", record=self.ME),
+             "D": self.run_dir("d", record=self.OTHER), "E": self.run_dir("e")}
+        r1, r2 = Runtime(self.root, "r1"), Runtime(self.root, "r2")
+        r1.flush()
+        r2.flush()
+        w["R1"], w["R2"] = r1.out, r2.out
+        procs = self.claude + [
+            cleanrun(110, 101, w["A"]), cleanrun(210, 201, w["B"]),
+            cleanrun(120, 1, w["C"]), cleanrun(220, 1, w["D"]), cleanrun(130, 1, w["E"]),
+            {**node(140, w["R1"]), "ppid": 101}, {**node(240, w["R2"]), "ppid": 201}]
+        return w, procs
+
+    def dirs(self, procs, owner, known=()):
+        fanouts, _ = fs.scan(procs, list(known), fs.Resolver({}, no_lookup), NOW, owner)
+        return {f["dir"] for f in fanouts}
+
+    def test_a_chat_lists_the_runs_below_it_and_the_ones_that_name_it_and_no_others(self):
+        w, procs = self.world()
+        self.assertEqual(self.dirs(procs, self.ME), {w["A"], w["C"], w["R1"]})
+        self.assertEqual(self.dirs(procs, self.OTHER), {w["B"], w["D"], w["R2"]})
+
+    def test_without_an_owner_every_run_on_the_machine_is_listed_as_before(self):
+        w, procs = self.world()
+        self.assertEqual(self.dirs(procs, None), set(w.values()))
+
+    def test_a_run_with_no_link_to_any_chat_is_listed_for_none(self):
+        w, procs = self.world()
+        self.assertNotIn(w["E"], self.dirs(procs, self.ME) | self.dirs(procs, self.OTHER))
+
+    def test_a_foreign_run_whose_folder_cannot_be_resolved_is_not_reported_as_unresolved(self):
+        mine = cleanrun(111, 101, "rel/out")
+        theirs = {**mine, "pid": 211, "ppid": 201}
+        _, unresolved = fs.scan(self.claude + [mine, theirs], [], fs.Resolver({}, lambda pid: None), NOW, self.ME)
+        self.assertEqual(unresolved, ["rel/out"])        # one: the chat's own
+
+    def test_a_known_folder_that_names_another_owner_is_dropped(self):
+        w, procs = self.world()
+        gone = self.run_dir("gone", record=self.ME, state="finished")
+        foreign = self.run_dir("foreign", record=self.OTHER, state="finished")
+        unrecorded = self.run_dir("old", state="finished")        # a run from before the field: cannot tell, kept
+        shown = self.dirs(self.claude, self.ME, known=[gone, foreign, unrecorded])
+        self.assertEqual(shown, {gone, unrecorded})
+        self.assertEqual(self.dirs(self.claude, None, known=[gone, foreign, unrecorded]), {gone, foreign, unrecorded})
+
+    def test_a_runtime_that_lost_its_parent_is_still_running_through_the_calls_that_name_the_chat(self):
+        # `node clean_runtime.mjs ... &` re-parents to PID 1; its calls inherited the chat's CLAUDE_PID
+        r = Runtime(self.root, "r3")
+        r.started("x:1", "P")
+        call = r.call("x:1", {"state": "running", "owner": {"pid": self.ME}})
+        r.flush()
+        procs = self.claude + [node(140, r.out), cleanrun(141, 140, call)]
+        for owner, shown in ((self.ME, True), (self.OTHER, False)):
+            with self.subTest(owner=owner):
+                fanouts, _ = fs.scan(procs, [], fs.Resolver({}, no_lookup), NOW, owner)
+                self.assertEqual([f["dir"] for f in fanouts], [r.out] if shown else [])
+                for f in fanouts:
+                    self.assertEqual(f["state"], "running")        # its node is alive: not "died"
+                    self.assertNotIn("calls still running with no runtime process to record them", f["problems"])
+
+    def test_the_scanner_works_for_the_nearest_claude_above_it(self):
+        procs = self.claude + [{"pid": 150, "ppid": 101, "etime": 1, "argv": ["sh", "-c", "python3 fanout_scan.py"]}]
+        self.assertEqual(fs.chat_pid(procs, 101), 100)           # a shell in between
+        self.assertEqual(fs.chat_pid(procs, 150), 100)
+        self.assertEqual(fs.chat_pid(procs, 100), 100)           # its direct parent is the claude process
+        self.assertEqual(fs.chat_pid(procs, 999), 999)           # not in the table: its parent, as the last resort
+        self.assertEqual(fs.chat_pid([{"pid": 7, "ppid": 1, "etime": 1, "argv": ["zsh"]}], 7), 7)
+
+    def snapshot(self, procs, args, parent):
+        ps_out = mock.Mock(stdout="".join(f"{p['pid']} {p['ppid']} 01:00 {' '.join(p['argv'])}\n" for p in procs),
+                           returncode=0, stderr="")
+        with mock.patch.object(fs.subprocess, "run", return_value=ps_out), mock.patch.object(fs.os, "getppid", return_value=parent):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                fs.main(args)
+        return json.loads(buf.getvalue())
+
+    def test_main_scopes_to_its_chat_unless_told_otherwise(self):
+        w, procs = self.world()
+        got = lambda snap: {f["dir"] for f in snap["fanouts"]}
+        mine = self.snapshot(procs, [], parent=100)                    # as the module runs it
+        self.assertEqual((mine["owner"], got(mine)), (100, {w["A"], w["C"], w["R1"]}))
+        shell = self.snapshot(procs, [], parent=101)                   # through a shell
+        self.assertEqual(shell["owner"], 100)
+        named = self.snapshot(procs, ["--owner", "200"], parent=100)
+        self.assertEqual((named["owner"], got(named)), (200, {w["B"], w["D"], w["R2"]}))
+        every = self.snapshot(procs, ["--all"], parent=100)
+        self.assertEqual((every["owner"], got(every)), (None, set(w.values())))
+        bad = self.snapshot(procs, ["--owner", "x"], parent=100)       # a bad pid is reported and the default holds
+        self.assertEqual(bad["owner"], 100)
+        self.assertTrue(any("--owner" in q for q in bad["problems"]))
+
+
 class MainTest(unittest.TestCase):
     def test_main_prints_a_degraded_v1_snapshot_when_ps_fails(self):
         with mock.patch.object(fs.subprocess, "run", side_effect=OSError("no ps")):

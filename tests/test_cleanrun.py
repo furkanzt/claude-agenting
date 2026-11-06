@@ -438,6 +438,41 @@ class AlsoModels(Case):
         self.assertEqual(run(f"{SONNET},{HAIKU},{MODEL}"), 2)       # --model itself in the list: resumed
 
 
+class OwnerRecord(Case):
+    """summary.json says which Claude Code session started the run, so the fan-out view can show it in that chat
+    only (2026-11-06: every chat showed every chat's clean runs)."""
+
+    def run_as(self, **env):
+        for k in ("CLAUDE_PID", "CLAUDE_CODE_SESSION_ID"):
+            self.env.pop(k, None)
+        self.env.update(env)
+        r = self.run_cli(self.args())
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+
+    def test_the_session_that_started_the_run_is_written_to_summary_json(self):
+        self.tasks(["a"])
+        self.run_as(CLAUDE_PID="4242", CLAUDE_CODE_SESSION_ID="sess-1")
+        self.assertEqual(self.summary()["owner"], {"pid": 4242, "session": "sess-1"})
+
+    def test_a_run_outside_claude_code_records_no_owner(self):
+        self.tasks(["a"])
+        for pid in (None, "", "not-a-pid", "-5", "12 34"):
+            with self.subTest(pid=pid):
+                self.run_as(**({} if pid is None else {"CLAUDE_PID": pid}), CLAUDE_CODE_SESSION_ID="sess-1")
+                self.assertNotIn("owner", self.summary())
+                (self.out / "outputs" / "t0.json").unlink()
+
+    def test_the_owner_is_not_part_of_the_run_key(self):
+        self.tasks(["a"])
+        self.run_as(CLAUDE_PID="1")
+        key = json.loads((self.out / "outputs" / "t0.json").read_text(encoding="utf-8"))["key"]
+        self.run_as(CLAUDE_PID="2")                           # another chat, the same finished task: resumed
+        self.assertEqual(len(self.calls()), 1)
+        self.assertEqual(self.summary()["resumed"], 1)
+        self.assertEqual(self.summary()["owner"]["pid"], 2)   # the latest invocation owns the folder's summary
+        self.assertEqual(json.loads((self.out / "outputs" / "t0.json").read_text(encoding="utf-8"))["key"], key)
+
+
 class InputHashing(Case):
     """How the run key reads a task's files: in chunks, and fresh every time."""
 

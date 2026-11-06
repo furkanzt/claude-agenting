@@ -58,6 +58,8 @@ export type Snapshot = {
   v: 1
   now: number
   platform: string
+  // the claude process whose runs this lists (the chat); null when every run on the machine is listed
+  owner?: number | null
   // the process table could not be read: the snapshot says nothing about what runs
   degraded?: boolean
   fanouts: Fanout[]

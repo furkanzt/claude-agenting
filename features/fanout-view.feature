@@ -102,6 +102,57 @@ Feature: Fan-out view
     When the scanner reads the known folder run1
     Then that fan-out's state is unknown
 
+  # ---- whose runs: a chat shows its own, as a Workflow is shown only in the chat that started it
+  # 2026-11-06: every chat showed every chat's clean runs, because the scanner read the machine's whole process table.
+
+  # Backed by: tests/test_fanout_scan.py::test_a_chat_lists_the_runs_below_it_and_the_ones_that_name_it_and_no_others
+  Scenario: A chat lists the runs below its claude process and the runs that name it as owner
+    Given two claude processes, a cleanrun and a clean_runtime below each, and cleanruns that lost their parent whose summary.json names one claude process or the other
+    When the scanner runs for the first claude process
+    Then it lists its own cleanrun, its own runtime and the parentless run that names it, and none of the other chat's
+
+  # Backed by: tests/test_fanout_scan.py::test_a_runtime_that_lost_its_parent_is_still_running_through_the_calls_that_name_the_chat
+  Scenario: A clean_runtime that lost its parent is the chat's when one of its calls names the chat
+    Given a node clean_runtime.mjs with parent 1 and a cleanrun child whose summary.json names the first claude process
+    When the scanner runs for the first claude process and for the other one
+    Then the first lists the runtime as running, not died, and the other lists nothing
+
+  # Backed by: tests/test_fanout_scan.py::test_a_run_with_no_link_to_any_chat_is_listed_for_none
+  Scenario: A run that lost its parent and names no owner is listed for no chat
+    Given a parentless cleanrun whose summary.json has no owner
+    When the scanner runs for either claude process
+    Then that run is not listed
+
+  # Backed by: tests/test_fanout_scan.py::test_without_an_owner_every_run_on_the_machine_is_listed_as_before
+  Scenario: Without an owner the scan lists every run on the machine
+    Given the same processes and runs
+    When the scanner is called with no owner
+    Then all of them are listed
+
+  # Backed by: tests/test_fanout_scan.py::test_a_foreign_run_whose_folder_cannot_be_resolved_is_not_reported_as_unresolved
+  Scenario: Another chat's run whose folder cannot be resolved is not reported as unresolved
+    Given a cleanrun below each claude process, both with a relative --out-dir whose working directory cannot be read
+    When the scanner runs for the first claude process
+    Then exactly one unresolved path is reported, the chat's own
+
+  # Backed by: tests/test_fanout_scan.py::test_a_known_folder_that_names_another_owner_is_dropped
+  Scenario: A known folder whose summary.json names another owner is dropped
+    Given known folders whose summary.json names this chat, names another chat, or has no owner
+    When the scanner runs for this chat
+    Then the first and the last are listed and the other chat's is not
+
+  # Backed by: tests/test_fanout_scan.py::test_the_scanner_works_for_the_nearest_claude_above_it
+  Scenario: The scanner works for the nearest claude process above it
+    Given a scanner whose parent is a shell below a claude process
+    When it picks the chat to work for
+    Then that is the claude process, and with no claude above it the scanner's parent
+
+  # Backed by: tests/test_fanout_scan.py::test_main_scopes_to_its_chat_unless_told_otherwise
+  Scenario: The scanner scopes to its chat by default, --owner names another and --all lifts it
+    Given the same processes and runs, with the scanner started under the first claude process
+    When it runs with no option, with --owner of the other claude process, with --all and with a bad --owner
+    Then the snapshot's owner and fan-outs are the first chat's, the other chat's, none and the first chat's again with the bad option reported
+
   # Backed by: tests/test_fanout_scan.py::test_a_live_standalone_run_counts_its_claude_children_as_running
   Scenario: A standalone cleanrun counts its claude -p children as running
     Given a cleanrun run with three tasks, one output and two live claude -p children
