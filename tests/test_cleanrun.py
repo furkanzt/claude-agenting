@@ -475,11 +475,11 @@ class InputHashing(Case):
     def test_a_file_shared_by_several_tasks_resumes_and_reruns_them_all_when_it_changes(self):
         (self.d / "shared.pdf").write_text("v1", encoding="utf-8")
         self.tasks(["a", "b", "c"], files={i: ["shared.pdf"] for i in range(3)})
-        self.assertEqual(self.run_cli(self.args()).returncode, 0)
-        self.assertEqual(self.run_cli(self.args()).returncode, 0)
+        self.assertEqual(self.run_cli(self.args("--tools", "Read")).returncode, 0)
+        self.assertEqual(self.run_cli(self.args("--tools", "Read")).returncode, 0)
         self.assertEqual(len(self.calls()), 3)                     # unchanged: all three resumed
         (self.d / "shared.pdf").write_text("v2", encoding="utf-8")
-        self.assertEqual(self.run_cli(self.args()).returncode, 0)
+        self.assertEqual(self.run_cli(self.args("--tools", "Read")).returncode, 0)
         self.assertEqual(len(self.calls()), 6)                     # changed: all three rerun
 
     def test_a_rewrite_with_the_mtime_put_back_during_a_run_is_seen_when_the_task_is_picked_up(self):
@@ -489,11 +489,11 @@ class InputHashing(Case):
         sh.write_bytes(b"v1v1")
         self.tasks(["slow one @@mode:slow@@", "reads shared"], files={1: ["shared.txt"]})
         self.env["FAKE_SLOW_S"] = "0"
-        self.assertEqual(self.run_cli(self.args("--jobs", "1")).returncode, 0)
+        self.assertEqual(self.run_cli(self.args("--tools", "Read", "--jobs", "1")).returncode, 0)
         (self.out / "outputs" / "t0.json").unlink()           # only t0 reruns, and it is the slow one
         self.env["FAKE_SLOW_S"] = "3"
         before = len(self.calls())
-        proc = self.start_cli(self.args("--jobs", "1"))
+        proc = self.start_cli(self.args("--tools", "Read", "--jobs", "1"))
         try:
             self.assertTrue(wait_until(lambda: len(self.calls()) > before, 20))
             st = os.stat(sh)
@@ -548,7 +548,7 @@ class Validation(Case):
             "def validate(output, task):\n    return [] if task['files'] == ['page.txt'] and task['id'] == 't0' else ['bad task view']\n",
             encoding="utf-8")
         self.tasks(["a"], files={0: ["page.txt"]})
-        self.assertEqual(self.run_cli(self.args()).returncode, 0)
+        self.assertEqual(self.run_cli(self.args("--tools", "Read")).returncode, 0)
 
 
 class Money(Case):
@@ -604,9 +604,9 @@ class Resume(Case):
     def test_a_changed_file_reruns_its_task(self):
         (self.d / "page.txt").write_text("v1", encoding="utf-8")
         self.tasks(["a"], files={0: ["page.txt"]})
-        self.run_cli(self.args())
+        self.run_cli(self.args("--tools", "Read"))
         (self.d / "page.txt").write_text("v2", encoding="utf-8")
-        self.run_cli(self.args())
+        self.run_cli(self.args("--tools", "Read"))
         self.assertEqual(len(self.calls()), 2)
 
     def test_a_tightened_validator_reruns_its_tasks(self):
@@ -667,6 +667,48 @@ class Inputs(Case):
                 self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
                 self.assertNotIn("Traceback", r.stderr)
         self.assertEqual(self.calls(), [])
+
+    # 2026-11-06: files were listed, --tools was left at its default (none), and 2 tasks were charged $0.07 for
+    # schema-valid empty answers ("I have no tool to open the file"). Nothing in the plan line said so.
+    def test_files_without_a_tool_that_reads_them_are_refused_by_run_and_by_plan(self):
+        (self.d / "page.txt").write_text("data", encoding="utf-8")
+        self.tasks(["a", "b", "c", "d", "e"], files={i: ["page.txt"] for i in (0, 1, 2, 3)})
+        for tools in (None, "", "WebSearch,WebFetch", "Glob", "Bash"):    # Bash is denied without a grant
+            for cmd in ("run", "plan"):
+                with self.subTest(tools=tools, cmd=cmd):
+                    r = self.run_cli(self.args(*(("--tools", tools) if tools is not None else ()), cmd=cmd))
+                    self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                    self.assertNotIn("Traceback", r.stderr)
+                    self.assertIn("--tools Read", r.stderr)                 # says what to do
+                    self.assertIn("t0, t1, t2 and 1 more", r.stderr)        # names the tasks, three and a count
+                    self.assertNotIn("t4", r.stderr)                        # a task with no files is not blamed
+                    self.assertFalse(self.out.exists(), "a refused input must write nothing")
+        self.assertEqual(self.calls(), [])
+
+    def test_files_with_a_tool_that_can_read_them_are_accepted(self):
+        (self.d / "page.txt").write_text("data", encoding="utf-8")
+        self.tasks(["a"], files={0: ["page.txt"]})
+        # "default" and an exclusion are a tool set cleanrun cannot see through: not refused
+        for tools, grant in (("Read", None), ("Read,Glob", None), ("Grep", None), ("WebSearch Read", None),
+                             ("default", None), ("!WebFetch", None),
+                             ("Bash", "Bash"), ("Bash", "Bash(cat:*)"), ("Bash,Read", "Read")):
+            with self.subTest(tools=tools, grant=grant):
+                extra = ("--allowed-tools", grant) if grant else ()
+                r = self.run_cli(self.args("--tools", tools, *extra, cmd="plan"))
+                self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        # Bash with no grant, or with a grant for another tool, is denied by claude -p: the files stay unread
+        for tools, grant in (("Bash", None), ("Bash,WebSearch", "WebSearch")):
+            with self.subTest(refused=tools, grant=grant):
+                extra = ("--allowed-tools", grant) if grant else ()
+                r = self.run_cli(self.args("--tools", tools, *extra, cmd="plan"))
+                self.assertEqual(r.returncode, 2, r.stderr + r.stdout)
+                self.assertIn("--allowed-tools Bash", r.stderr)
+
+    def test_tasks_with_no_files_still_run_with_no_tools(self):
+        self.tasks(["a", "b"])
+        r = self.run_cli(self.args())
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        self.assertEqual(len(self.calls()), 2)
 
     def test_unreadable_inputs_are_usage_errors_not_tracebacks(self):
         self.tasks(["a"])
@@ -732,6 +774,11 @@ class KitPathEntries(Case):
         super().setUp()
         (self.d / "page.txt").write_text("1", encoding="utf-8")
         (self.d / "other.txt").write_text("2", encoding="utf-8")
+
+    def args(self, *extra, **kw):
+        # every task here lists files, which a run reads only with a tool that reads (check_files_readable);
+        # a test that names --tools itself comes later in the line and wins
+        return super().args("--tools", "Read", *extra, **kw)
 
     def saved_key(self, out, tid="t0"):
         return json.loads((out / "outputs" / f"{tid}.json").read_text(encoding="utf-8"))["key"]

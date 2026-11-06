@@ -18,7 +18,7 @@ its output can be checked in code. Otherwise use a Workflow.
 
 USAGE
   cleanrun.py run    --tasks T.jsonl --system-prompt RULES.md --schema S.json \
-                     --model claude-opus-5-5 --effort xhigh --out-dir DIR [options]
+                     --model claude-opus-5-5 --effort xhigh --tools Read --out-dir DIR [options]
   cleanrun.py plan   (same arguments)   what would run or resume, and the cost bound
   cleanrun.py status --out-dir DIR      the last run's summary and the ledger totals
 
@@ -39,6 +39,14 @@ USAGE
     a usage error before any launch, for plan as well as run. A kit that still cannot
     be built at run time (a full disk, the disk's own rules) fails that one task, with
     nothing launched and nothing spent, and the other tasks go on.
+  - `files` are only copied into the kit; the run sees them through a tool, and --tools
+    is empty by default. If any task lists `files` and --tools names neither Read nor Grep
+    (nor Bash together with --allowed-tools Bash, since claude -p cannot ask; nor "default"
+    or an exclusion such as "!WebFetch", which cleanrun cannot see through), run and plan
+    refuse before any launch and name the tasks: pass --tools Read.
+    (2026-11-06: two such tasks were charged for schema-valid empty answers, "I cannot
+    open the file".) cleanrun does not judge what an answer says; an empty result that
+    still fits the schema is a finished task unless the validator rejects it.
   - The validator's task lists each file by its kit path. The run key holds each
     file's kit path and content, so "as" with no directory ("x.md") keys exactly
     like the string entry "x.md", and changing "as" reruns the task.
@@ -381,6 +389,31 @@ def check_allowed_tools(allowed, tools):
                 raise UsageError(f"--allowed-tools lists {name!r}, which --tools does not list "
                                  f"(--tools {tools!r}); a tool the run is not given cannot be allowed")
     return ",".join(entries)
+
+
+READERS = {"Read", "Grep"}      # read-only tools: they show a run a file's contents without a permission grant
+
+
+def check_files_readable(tasks, tools, allowed=""):
+    """A task's files are only copied into its kit; the run sees them only through a tool. With --tools empty
+    (the default) or naming no tool that reads, every such task would run, be charged and answer 'I cannot
+    open the file', schema-valid and empty, so it is refused before any launch. Bash reads files too, but
+    `claude -p` cannot ask, so it counts only when --allowed-tools grants it. A tool set cleanrun cannot
+    see through ('default', an exclusion) is given the benefit of the doubt."""
+    with_files = [t["id"] for t in tasks if t["files"]]
+    if not with_files:
+        return
+    names = {e.split("(", 1)[0] for e in tool_entries(tools, "--tools")}
+    granted = {e.split("(", 1)[0] for e in tool_entries(allowed, "--allowed-tools")}
+    if names & READERS or ("Bash" in names and "Bash" in granted) or "default" in names or any(n.startswith("!") for n in names):
+        return
+    shown = ", ".join(with_files[:3]) + (f" and {len(with_files) - 3} more" if len(with_files) > 3 else "")
+    have = (f"--tools {tools!r} gives the run no tool that can read a file" + (
+        " (Bash needs --allowed-tools Bash, since claude -p cannot ask)" if "Bash" in names else "")) if names else \
+        "--tools is empty (the default), so the run has no tools at all"
+    raise UsageError(f"{len(with_files)} task(s) list files ({shown}) but {have}: it would be charged and could "
+                     f"not open them. Add --tools Read (and keep the prompt's files in `files`), or drop `files` "
+                     f"and put the text in the prompt")
 
 
 def check_kit_path(rel, where):
@@ -930,7 +963,9 @@ def build_cfg(a):
            "validator_source": vsource, "max_usd": a.max_usd, "per_run_usd": a.per_run_usd,
            "timeout": a.timeout, "retries": a.retries, "jobs": a.jobs, "usage_check": a.usage_check,
            "claude_argv": claude_argv}
-    return cfg, validate, load_tasks(a.tasks)
+    tasks = load_tasks(a.tasks)
+    check_files_readable(tasks, a.tools, allowed_tools)
+    return cfg, validate, tasks
 
 
 def to_run(cfg, validate, tasks, out):

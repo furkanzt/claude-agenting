@@ -161,6 +161,63 @@ Feature: Clean runs fan a set of self-contained tasks out as separate claude -p 
     And the output directory is not created, and no ledger.jsonl or summary.json is written
     And the same holds for a bad schema, a validator that does not import and a malformed tasks file
 
+  # ---------------------------------------------------------------- files need a tool that reads them
+
+  # 2026-11-06: tasks listed files, --tools stayed at its default (none), and two tasks were charged for
+  # schema-valid empty answers saying the file could not be opened.
+  # Backed by: tests/test_cleanrun.py::test_files_without_a_tool_that_reads_them_are_refused_by_run_and_by_plan
+  Scenario Outline: A task that lists files while --tools gives the run no tool to read them is a usage error for run and plan
+    Given a tasks file with five tasks, the first four listing the file "page.txt" and the fifth listing none
+    When I run cleanrun.py <command> with <tools>
+    Then the exit code is 2
+    And stderr says that the tasks list files, names "t0, t1, t2 and 1 more" and not "t4", and says to add "--tools Read"
+    And stderr has no traceback
+    And the output directory is not created
+    And claude is never launched
+
+    Examples:
+      | command | tools                          |
+      | run     | no --tools option (the default) |
+      | plan    | no --tools option (the default) |
+      | run     | "--tools ''"                   |
+      | plan    | "--tools WebSearch,WebFetch"   |
+      | run     | "--tools Glob"                 |
+      | plan    | "--tools Bash" and no --allowed-tools |
+
+  # Backed by: tests/test_cleanrun.py::test_files_with_a_tool_that_can_read_them_are_accepted
+  Scenario Outline: A task that lists files is accepted when --tools names a tool that reads, or one cleanrun cannot see through
+    Given a tasks file with one task listing the file "page.txt"
+    When I run cleanrun.py plan with "--tools <tools>"
+    Then the exit code is 0
+
+    Examples:
+      | tools          |
+      | Read           |
+      | Read,Glob      |
+      | Grep           |
+      | WebSearch Read |
+      | default        |
+      | !WebFetch      |
+
+  # Backed by: tests/test_cleanrun.py::test_files_with_a_tool_that_can_read_them_are_accepted
+  Scenario Outline: Bash reads a task's files only when --allowed-tools grants it, because claude -p cannot ask
+    Given a tasks file with one task listing the file "page.txt"
+    When I run cleanrun.py plan with "--tools Bash" and <grant>
+    Then the exit code is <code>
+
+    Examples:
+      | grant                        | code |
+      | "--allowed-tools Bash"       | 0    |
+      | "--allowed-tools Bash(cat:*)" | 0   |
+      | no --allowed-tools option    | 2    |
+
+  # Backed by: tests/test_cleanrun.py::test_tasks_with_no_files_still_run_with_no_tools
+  Scenario: Tasks that list no files still run with the default empty tool list
+    Given a tasks file with two tasks that list no files
+    When I run cleanrun.py run without a --tools option
+    Then the exit code is 0
+    And claude is launched twice
+
   # ---------------------------------------------------------------- tool permissions
 
   # Backed by: tests/test_cleanrun.py::test_the_list_is_passed_to_claude_as_its_allowed_tools_flag
@@ -383,7 +440,7 @@ Feature: Clean runs fan a set of self-contained tasks out as separate claude -p 
 
   # Backed by: tests/test_cleanrun.py::test_a_file_shared_by_several_tasks_resumes_and_reruns_them_all_when_it_changes
   Scenario: A shared input file resumes its tasks and a change to it reruns all of them
-    Given three tasks that list one file, finished
+    Given three tasks that list one file, finished with "--tools Read"
     When I run again with the file unchanged
     Then no new claude call is made
     When I run again after the file's content changed
@@ -391,7 +448,7 @@ Feature: Clean runs fan a set of self-contained tasks out as separate claude -p 
 
   # Backed by: tests/test_cleanrun.py::test_a_rewrite_with_the_mtime_put_back_during_a_run_is_seen_when_the_task_is_picked_up
   Scenario: A rewrite with the mtime put back during a run is seen when the task is picked up
-    Given a finished task whose input file is rewritten in place at the same size, with its mtime put back, while another task holds the only worker
+    Given a finished task (run with "--tools Read") whose input file is rewritten in place at the same size, with its mtime put back, while another task holds the only worker
     When the held-up task is picked up
     Then claude is launched for it again, with the new bytes in its kit
     And it is not resumed from the output made from the old bytes
@@ -437,7 +494,7 @@ Feature: Clean runs fan a set of self-contained tasks out as separate claude -p 
   Scenario: The validator is handed the task id and the names of its files
     Given a validator that accepts only the task id "t0" with the file list ["page.txt"]
     And a task "t0" that lists the file "page.txt"
-    When I run cleanrun.py run
+    When I run cleanrun.py run with "--tools Read"
     Then the exit code is 0
 
   @gap @wip
@@ -552,7 +609,7 @@ Feature: Clean runs fan a set of self-contained tasks out as separate claude -p 
 
   # Backed by: tests/test_cleanrun.py::test_a_changed_file_reruns_its_task
   Scenario: A changed input file reruns its task
-    Given a finished run of one task that lists "page.txt" containing "v1"
+    Given a finished run (with "--tools Read") of one task that lists "page.txt" containing "v1"
     When "page.txt" is changed to contain "v2" and I run again
     Then claude is launched a second time
 
@@ -674,7 +731,7 @@ Feature: Clean runs fan a set of self-contained tasks out as separate claude -p 
   # Backed by: tests/test_cleanrun.py::test_an_object_entry_lands_at_its_kit_path_and_claude_sees_it_there
   Scenario: An object entry is copied to its kit path and claude sees it there
     Given a task whose files are {"path": "src/report.bin", "as": "sub/dir/name.pdf"} and the string entry "page.txt"
-    When I run cleanrun.py run
+    When I run cleanrun.py run with "--tools Read"
     Then the exit code is 0
     And the working tree claude ran in holds exactly "sub/dir/name.pdf" with the bytes of src/report.bin and "page.txt" with the bytes of page.txt
     And its top level lists only "page.txt" and "sub"
@@ -683,14 +740,14 @@ Feature: Clean runs fan a set of self-contained tasks out as separate claude -p 
   Scenario: The validator is handed the kit path of an object entry and the base name of a string entry
     Given a validator that accepts only the file list ["sub/name.md", "page.txt"]
     And a task whose files are {"path": "other.txt", "as": "sub/name.md"} and "page.txt"
-    When I run cleanrun.py run
+    When I run cleanrun.py run with "--tools Read"
     Then the exit code is 0
 
   # Backed by: tests/test_cleanrun.py::test_two_files_with_the_same_base_name_are_accepted_at_different_kit_paths
   Scenario: Two files with the same base name are accepted when their kit paths differ
     Given a task whose files are {"path": "page.txt", "as": "a/page.txt"} and {"path": "x/page.txt", "as": "b/page.txt"}
     And a task whose files are the string entry "page.txt" and {"path": "x/page.txt", "as": "x/page.txt"}
-    When I run cleanrun.py run
+    When I run cleanrun.py run with "--tools Read"
     Then the exit code is 0
     And the first task's working tree holds "a/page.txt" and "b/page.txt", each with the bytes of its own source
     And the second task's working tree holds "page.txt" and "x/page.txt", each with the bytes of its own source
@@ -743,7 +800,7 @@ Feature: Clean runs fan a set of self-contained tasks out as separate claude -p 
   # Backed by: tests/test_cleanrun.py::test_a_kit_that_cannot_be_built_fails_its_task_and_not_the_fan_out
   Scenario: A kit that cannot be built fails its task and the other tasks still run
     Given two tasks, the first with an object entry whose copy fails at run time
-    When I run cleanrun.py run
+    When I run cleanrun.py run with "--tools Read"
     Then the exit code is 1, not an internal-error stop
     And the summary lists only the first task as failed, with "could not build the task's kit"
     And claude is launched once, for the second task
@@ -834,7 +891,7 @@ Feature: Clean runs fan a set of self-contained tasks out as separate claude -p 
 
   # Backed by: tests/test_cleanrun.py::test_a_changed_file_under_an_object_entry_reruns_its_task
   Scenario: A changed file under an object entry reruns its task
-    Given a finished run of one task with the entry {"path": "page.txt", "as": "in/page.txt"}
+    Given a finished run (with "--tools Read") of one task with the entry {"path": "page.txt", "as": "in/page.txt"}
     When I run cleanrun.py run again unchanged
     Then no new claude call is made
     When page.txt is changed and I run again

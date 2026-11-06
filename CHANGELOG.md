@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **`cleanrun.py` refuses tasks that list `files` when `--tools` gives the run nothing to read them with.**
+  `files` are only copied into a task's kit and `--tools` is empty by default, so such a run was launched,
+  charged, and answered with empty, schema-valid output ("I have no tool to open the file"), counted as done.
+  `plan` and `run` now stop with a usage error before any launch, naming the tasks and the fix (`--tools
+  Read`). Read and Grep count as readers, Bash only when `--allowed-tools` grants it (`claude -p` cannot ask);
+  `default` and an exclusion such as `!WebFetch` are given the benefit of the doubt. The worked example in `reference/fan-outs.md`, the skill's command and the script's
+  USAGE now carry `--tools Read`, and the docs say that the validator is the only check on what an answer
+  means. A tasks file with `files` run with the default tools now exits 2 where it used to run.
+
 ## 3.5.2 — 2026-11-03 (fan-out view: one key opens the pane)
 
 ### Changed

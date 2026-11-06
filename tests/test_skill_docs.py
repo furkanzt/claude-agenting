@@ -78,6 +78,7 @@ class ProcedureCleanRunStep(unittest.TestCase):
                        '{"path": "reports/q3.txt", "as": "q3/report.txt"}',
                        'python3 "<plugin>/scripts/cleanrun.py" plan --tasks tasks.jsonl --system-prompt rules.md '
                        '--schema schema.json --model <full id> --effort <effort> --validator check.py --out-dir out',
+                       "--out-dir out --tools Read",        # 2026-11-06: tasks with files need a reading tool
                        "run --max-usd N", "status --out-dir out",
                        "two levels above this skill's base directory", "reference/fan-outs.md"):
             with self.subTest(phrase=phrase):
@@ -124,6 +125,7 @@ class WorkedExample(unittest.TestCase):
             plan, run, status = done["plan"], done["run"], done["status"]
             self.assertEqual(plan.returncode, 0, plan.stdout + plan.stderr)
             self.assertIn("plan: 2 task(s), 0 resume, 2 to run", plan.stdout)
+            self.assertIn("tools 'Read'", plan.stdout)          # both tasks list files: the example must give Read
             self.assertIn("cost bound:", plan.stdout)
             # the stub answers {"answer": ...}, which the example's validator rightly rejects: what matters
             # here is that the written run line is accepted and runs (a usage error would be exit 2)

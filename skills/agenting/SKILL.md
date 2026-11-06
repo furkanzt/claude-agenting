@@ -148,8 +148,10 @@ Every tier here is a Claude model. Before proposing a non-Claude one, read
    `validate(output, task)` that returns a list of problems. From that folder:
    `python3 "<plugin>/scripts/cleanrun.py" plan --tasks tasks.jsonl
    --system-prompt rules.md --schema schema.json --model <full id> --effort
-   <effort> --validator check.py --out-dir out`, read its cost bound, then the
-   same with `run --max-usd N`, then `status --out-dir out`. `<plugin>` is two
+   <effort> --validator check.py --out-dir out --tools Read`, read its cost bound,
+   then the same with `run --max-usd N`, then `status --out-dir out`. A task that
+   lists `files` needs `--tools Read` to open them (without it `plan` and `run`
+   refuse). `<plugin>` is two
    levels above this skill's base directory. A complete example, with the files
    written out, is in [reference/fan-outs.md](reference/fan-outs.md).
 3. **Draft** the script. Done when every `agent()` call has `model` or

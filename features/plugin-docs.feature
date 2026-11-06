@@ -132,7 +132,7 @@ Feature: Plugin packaging, agent pins and doc invariants stay consistent, becaus
   # Backed by: tests/test_skill_docs.py::test_the_clean_run_step_shows_the_files_and_the_commands
   Scenario: The clean-run step shows the four files and the commands to type
     Given the "Clean run or Workflow?" step of the Procedure, line breaks read as spaces
-    When it is searched for the file names tasks.jsonl, rules.md, schema.json and check.py, the {"path", "as"} entry, the full plan command with its flags, "run --max-usd N", "status --out-dir out", "two levels above this skill's base directory" and "reference/fan-outs.md"
+    When it is searched for the file names tasks.jsonl, rules.md, schema.json and check.py, the {"path", "as"} entry, the full plan command with its flags, "--tools Read" (tasks that list files need a tool that reads them), "run --max-usd N", "status --out-dir out", "two levels above this skill's base directory" and "reference/fan-outs.md"
     Then every one of them is present
 
   # Backed by: tests/test_skill_docs.py::test_it_names_all_four_files_and_three_commands
@@ -151,7 +151,7 @@ Feature: Plugin packaging, agent pins and doc invariants stay consistent, becaus
   Scenario: The worked example's commands run as written against the stub
     Given a folder holding the example's four files, page.txt and reports/q3.txt, and the claude stub
     When the plan, run and status lines are run with the plugin's cleanrun.py in place of the plugin path
-    Then plan exits 0 and says "2 to run" with a cost bound, run is accepted and writes summary.json (exit 0 or 1, never a usage error), and status exits as run did and reports the last run
+    Then plan exits 0 and says "2 to run" and "tools 'Read'" with a cost bound, run is accepted and writes summary.json (exit 0 or 1, never a usage error), and status exits as run did and reports the last run
 
   # ---- list-price caveats and evidence discipline -----------------------------
 

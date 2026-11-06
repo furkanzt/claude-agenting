@@ -91,6 +91,15 @@ model that put the saving at 8 to 19% was too low. Method and numbers:
 - **Order of use:** `cleanrun.py plan` (what runs, what resumes, the cost bound), then
   `run`, then `status`. Its money rules (soft per-run cap, `--max-usd` for new
   launches only, unknown cost charged at the cap) are in its docstring.
+- **Files need `--tools Read`:** `files` are only copied into the task's working directory; the
+  run sees them through a tool, and `--tools` is empty by default. A task that lists `files` with
+  no reading tool (Read or Grep; Bash only together with `--allowed-tools Bash`, since `claude -p`
+  cannot ask) is refused before any launch, by `plan` too, naming the tasks and the fix. Before this check, two tasks ran, were charged, and answered with empty,
+  schema-valid output saying they could not open the file.
+- **The validator is the only check on meaning:** cleanrun checks the schema, the answering model
+  and the cost, not what the answer says. An answer that is schema-valid but empty (empty arrays, or
+  a free-text field saying the file could not be read) is a finished task unless `check.py` rejects
+  it, so make it fail empty results and "could not access" replies.
 - **Tools that need permission:** `claude -p` cannot ask, so a tool in `--tools` such as
   WebSearch, WebFetch or Bash is denied. `--allowed-tools "WebSearch,WebFetch"` passes
   claude's allowed-tools flag; every name must also be in `--tools`, and a non-empty
@@ -151,11 +160,12 @@ def validate(output, task):
 ```
 
 Run these from that folder. `<plugin>` is the plugin's folder, two levels above this
-skill's base directory; the model is a full id, never an alias.
+skill's base directory; the model is a full id, never an alias. Both tasks list files, so
+the run needs `--tools Read` to open them.
 
 ```
-python3 "<plugin>/scripts/cleanrun.py" plan --tasks tasks.jsonl --system-prompt rules.md --schema schema.json --model claude-opus-5-5 --effort xhigh --validator check.py --out-dir out
-python3 "<plugin>/scripts/cleanrun.py" run  --tasks tasks.jsonl --system-prompt rules.md --schema schema.json --model claude-opus-5-5 --effort xhigh --validator check.py --out-dir out --max-usd 5
+python3 "<plugin>/scripts/cleanrun.py" plan --tasks tasks.jsonl --system-prompt rules.md --schema schema.json --model claude-opus-5-5 --effort xhigh --tools Read --validator check.py --out-dir out
+python3 "<plugin>/scripts/cleanrun.py" run  --tasks tasks.jsonl --system-prompt rules.md --schema schema.json --model claude-opus-5-5 --effort xhigh --tools Read --validator check.py --out-dir out --max-usd 5
 python3 "<plugin>/scripts/cleanrun.py" status --out-dir out
 ```
 
