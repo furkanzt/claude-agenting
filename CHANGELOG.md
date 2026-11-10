@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 3.5.3 — 2026-11-10 (fan-out view: each chat shows only its own clean runs)
 
 ### Fixed
 - **The fan-out view shows a chat's own clean runs only.** `fanout_scan.py` read the whole machine's process

@@ -130,6 +130,11 @@ in Workflow scans.
   wraps beside a docked pane. A mod cannot ship a key binding; a person can add one themselves with
   `"ctrl+…": "command:fanouts"` in the Chat context of `~/.claude/keybindings.json` (a command binding runs the
   command as if typed; read from the 2.1.317 engine source, not yet tried on a screen).
+- **3.5.3 (2026-11-10):** fan-out view: a chat shows only the clean runs it started (by process parent, or the
+  `owner` that `cleanrun.py` writes to `summary.json`); `fanout_scan.py --all` lists the whole machine. Also
+  `cleanrun.py` refuses tasks that list `files` when `--tools` gives the run no reader. Both fixes were pushed
+  on 2026-11-06 without a version bump, so chats kept running the cached 3.5.2 and still showed every chat's
+  runs; the owner reported it again on 2026-11-10.
 
 ### Key facts to carry
 
@@ -286,7 +291,7 @@ verification (a bounded null), the classify narrowing, the clean-run usage-windo
 
 ## 4. Decisions waiting for the owner
 
-1. **Release.** 3.5.2 (2026-11-03) is the last pushed release (3.5.1 went out with it). A release is its own commit:
+1. **Release.** 3.5.3 (2026-11-10) is committed, not pushed; 3.5.2 (2026-11-03) is the last pushed release. A release is its own commit:
    bump `version` in `.claude-plugin/plugin.json` **and** `marketplace.json` together (`plugin.json` wins), move
    the CHANGELOG "Unreleased" entry under the new number, push, then on the owner's machine
    `claude plugin marketplace update agenting` and `claude plugin update agenting@agenting`, and
@@ -487,7 +492,7 @@ override; the classify rule written after nine-run data; dont-guess `balanced` h
 
 ## 9. Push plan (when the owner says push)
 
-Nothing unpushed as of 2026-11-03: 3.5.1 and 3.5.2 went out together in four bites. For the next push: group the unpushed commits into bites
+As of 2026-11-10 one commit is unpushed: the 3.5.3 release (its two fixes were pushed on 2026-11-06). A lone commit stays as it is. For the next push: group the unpushed commits into bites
 (consecutive runs belonging to one piece of work, one commit each, members folded into numbered paragraphs,
 never reordered), keep the version bump a separate commit after the bites, then
 `CLAUDE_SKIP_SQUASH_GUARD=1 git push`. Before pushing, check the net diff for `evals/private`, absolute local
