@@ -673,7 +673,7 @@
 | The plugin ships the two slash commands agenting-check and agenting-mode | @wip | `—` | 🔴 GAP |
 | Every agent definition starts with a frontmatter block that carries a description | @wip | `—` | 🔴 GAP |
 | Only the coordinator lists the WebFetch tool | @wip | `—` | 🔴 GAP |
-| The relative links in SKILL.md that leave skills/agenting resolve | @wip | `—` | 🔴 GAP |
+| The relative links in SKILL.md and reference/evidence.md that leave skills/agenting resolve | @wip | `—` | 🔴 GAP |
 | plugin.json declares the MIT license and the same homepage and repository | @wip | `—` | 🔴 GAP |
 | The skill describes the agent guard that hooks.json wires | — | `tests/test_skill_docs.py::test_the_skill_says_agent_starts_are_checked_and_the_hook_is_wired` | ✅ ARMED |
 | The bulk thresholds read the same in SKILL.md and reference/delegation.md | — | `tests/test_skill_docs.py::test_the_bulk_thresholds_are_the_same_in_the_skill_and_the_reference` | ✅ ARMED |
@@ -1342,7 +1342,7 @@
 - The plugin ships the two slash commands agenting-check and agenting-mode
 - Every agent definition starts with a frontmatter block that carries a description
 - Only the coordinator lists the WebFetch tool
-- The relative links in SKILL.md that leave skills/agenting resolve
+- The relative links in SKILL.md and reference/evidence.md that leave skills/agenting resolve
 - plugin.json declares the MIT license and the same homepage and repository
 
 ### `routing-guard.feature` — 28 gap(s)

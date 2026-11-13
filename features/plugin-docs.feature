@@ -314,9 +314,10 @@ Feature: Plugin packaging, agent pins and doc invariants stay consistent, becaus
 
   @gap @wip
   # Backed by: @gap
-  Scenario: The relative links in SKILL.md that leave skills/agenting resolve
-    Given the links in skills/agenting/SKILL.md to ../../evals/README.md, ../../evals/research/2026-10-06-sonnet-vs-opus-open-book.md and ../../evals/results/PREREGISTERED-2026-10-09.md
-    When each link is resolved from skills/agenting/
+  Scenario: The relative links in SKILL.md and reference/evidence.md that leave skills/agenting resolve
+    Given the link in skills/agenting/SKILL.md to ../../evals/README.md
+    And the links in skills/agenting/reference/evidence.md to ../../../evals/README.md, ../../../evals/research/2026-10-06-sonnet-vs-opus-open-book.md and ../../../evals/results/PREREGISTERED-2026-10-09.md
+    When each link is resolved from the folder of its file
     Then every target file exists
 
   @gap @wip
