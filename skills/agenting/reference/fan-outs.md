@@ -25,9 +25,12 @@ percent here is a list price; the usage-window effect was not measured.
 - **measured, a fact and not advice:** advisor iterations are billed on top at the
   advisor model's own rates and are absent from the top-level usage numbers (checked
   by hand on a sample of records). In the window they were 20% of the list-price
-  total, a floor: some advisor calls are not recorded. The only switch is
-  session-wide (`CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1`). Whether to change it is the
-  user's decision; do not raise it.
+  total, a floor: some advisor calls are not recorded. One Workflow, 2026-11-13:
+  eleven agents (eight Opus 5.5, three Sonnet 5.5) with Fable 5.2 as the advisor.
+  The Opus agents called it 19 times, the Sonnet agents never; the advisor was
+  $23.94 of the run's $58.01 at list price (41%). One run, not a rate. The only
+  switch is session-wide (`CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1`). Whether to change
+  it is the user's decision; do not raise it.
 
 ## Levers, in evidence order
 
