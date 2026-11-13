@@ -121,6 +121,78 @@ if guard:
           stage("// routing: inherit\nawait agent('x',{schema:S})") == "stage2")
     check("passes through non-Workflow tools", True)  # covered by matcher config
 
+# ------------------------------------------------------------ agent guard
+
+section("Agent guard — behaviour, not configuration")
+
+TEAMS_VAR = "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
+agent_guard = None
+for c in (PLUGIN_ROOT / "hooks" / "agent-routing-guard.py",
+          USER_CLAUDE / "hooks" / "agent-routing-guard.py"):
+    if c.exists():
+        agent_guard = c
+        break
+check("agent guard script found", agent_guard is not None,
+      "hooks/agent-routing-guard.py missing")
+
+if agent_guard:
+    def agent_guard_run(tool_input, teams=False):
+        """(stdout, exit code) of the Agent guard for one Agent start; None if it could not run.
+
+        The child's environment is the caller's, with the Agent Teams switch forced on or
+        removed, so the result does not depend on the caller's shell. AGENTING_STATE_DIR
+        stays as it is."""
+        env = dict(os.environ)
+        env.pop(TEAMS_VAR, None)
+        if teams:
+            env[TEAMS_VAR] = "1"
+        payload = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Agent",
+                              "tool_input": tool_input})
+        try:
+            r = subprocess.run([sys.executable, str(agent_guard)], input=payload,
+                               capture_output=True, text=True, timeout=20, env=env)
+        except Exception:
+            return None
+        return r.stdout.strip(), r.returncode
+
+    def agent_guard_reason(run):
+        """permissionDecisionReason of a deny, or None when the output is not a deny."""
+        try:
+            hso = json.loads(run[0])["hookSpecificOutput"]
+            return hso["permissionDecisionReason"] if hso["permissionDecision"] == "deny" else None
+        except Exception:
+            return None
+
+    base = {"description": "check", "prompt": "p"}
+    runs = {
+        "bare": agent_guard_run(dict(base)),
+        "routed": agent_guard_run(dict(base, model="sonnet", effort="low")),
+        "typed": agent_guard_run(dict(base, subagent_type="agenting:coder")),
+        "teammate": agent_guard_run(dict(base, name="t1", model="sonnet", effort="low"), teams=True),
+    }
+    check("an Agent start with no model and no effort is DENIED",
+          runs["bare"] is not None and agent_guard_reason(runs["bare"]) is not None,
+          (runs["bare"] or ("no output",))[0][:70])
+    check("an Agent start with model and effort passes silently",
+          runs["routed"] == ("", 0), str(runs["routed"])[:70])
+    check("an agenting: agent passes without model or effort on the call",
+          runs["typed"] == ("", 0), str(runs["typed"])[:70])
+    mate_reason = agent_guard_reason(runs["teammate"]) if runs["teammate"] else None
+    check("a named teammate with no agent file is DENIED even with model and effort",
+          mate_reason is not None and "only from an agent file" in mate_reason,
+          (runs["teammate"] or ("no output",))[0][:70])
+    check("the guard never emits allow",
+          all(r is not None and '"allow"' not in r[0] for r in runs.values()),
+          "an Agent guard output contains \"allow\"")
+    try:
+        garbage = subprocess.run([sys.executable, str(agent_guard)], input="[]",
+                                 capture_output=True, text=True, timeout=20)
+        check("garbage input exits 0 silently",
+              garbage.returncode == 0 and not garbage.stdout.strip(),
+              (garbage.stdout + garbage.stderr).strip()[:70])
+    except Exception as e:
+        check("garbage input exits 0 silently", False, str(e)[:60])
+
 # ------------------------------------------------------------ hook wiring
 
 section("Hook wiring")
@@ -155,6 +227,29 @@ check(
     "guard registered on PreToolUse",
     registered or plugin_declared,
     "via plugin hooks.json" if (plugin_declared and not registered) else ("via settings.json" if registered else "not registered anywhere"),
+)
+
+agent_registered = any(
+    isinstance(h, dict) and "agent-routing-guard" in as_type(h.get("command"), str)
+    for group in as_type(as_type(settings.get("hooks"), dict).get("PreToolUse"), list)
+    if as_type(group, dict).get("matcher") == "Agent"
+    for h in as_type(as_type(group, dict).get("hooks"), list)
+)
+agent_declared = False
+try:
+    plugin_hooks = json.loads((PLUGIN_ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+    agent_declared = any(
+        isinstance(h, dict) and "agent-routing-guard" in as_type(h.get("command"), str)
+        for group in as_type(as_type(as_type(plugin_hooks, dict).get("hooks"), dict).get("PreToolUse"), list)
+        if as_type(group, dict).get("matcher") == "Agent"
+        for h in as_type(as_type(group, dict).get("hooks"), list)
+    )
+except Exception:
+    pass
+check(
+    "agent guard registered on PreToolUse for Agent",
+    agent_registered or agent_declared,
+    "hooks.json and settings.json have no PreToolUse entry with matcher Agent naming agent-routing-guard.py",
 )
 
 if guard:
@@ -325,6 +420,36 @@ if continuity:
           clear_ctx is not None and "mode=auto" in clear_ctx and "workflows=not opted in" in clear_ctx,
           "a clear source should start a fresh continuum, not carry forward")
 
+# ------------------------------------------------ teammates and standing default
+
+section("Teammates and standing default")
+
+TEAMMATES_OFF_DETAIL = (
+    'Useful when 3-5 long-running workers must talk to each other. Turn on: add '
+    '"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1" under "env" in ~/.claude/settings.json '
+    "(experimental; uses more tokens than subagents)."
+)
+status_text = None
+if continuity:
+    try:
+        status_text = subprocess.run(
+            [sys.executable, str(continuity), "--status"],
+            capture_output=True, text=True, timeout=20,
+        ).stdout
+    except Exception:
+        status_text = None
+tm = re.search(r"teammates=(on|off)\b", status_text or "")
+sd = re.search(r"standing default: workflows=(on|off|unset)\b", status_text or "")
+if not (tm and sd):
+    check("teammates status readable", False,
+          "session-continuity.py --status did not print teammates= and standing default:")
+else:
+    if tm.group(1) == "on":
+        check("teammates: ON", True)
+    else:
+        check("teammates: OFF", False, TEAMMATES_OFF_DETAIL, warn=True)
+    check(f"standing Workflows default: {sd.group(1)}", True)
+
 # ------------------------------------------------- guard auto-mode bypass
 
 section("Guard — auto-mode Stage 2 bypass")
@@ -448,7 +573,8 @@ for p in scan_targets:
     if p.name in STALE_EXEMPT:
         continue
     try:
-        if STALE in p.read_text(encoding="utf-8", errors="ignore"):
+        # "agent-routing-guard" is the Agent guard hook's own name, not the old plugin id.
+        if STALE in p.read_text(encoding="utf-8", errors="ignore").replace("agent-routing-guard", ""):
             stale_hits.append(str(p.relative_to(PLUGIN_ROOT)))
     except Exception:
         continue
@@ -511,7 +637,9 @@ STALE_3_0 = (
     "semi-auto", "log.csv", "shape_key", "promotion-threshold", "matching-strictness",
     "suggestion-default", "--suggestion", "Learned Precedents", "~/.claude/agents",
 )
-STALE_3_0_EXEMPT = STALE_EXEMPT | {"session-continuity.py", "workflow-routing-guard.py"}
+# agent-routing-guard.py resolves a bare agent name in ~/.claude/agents on purpose.
+STALE_3_0_EXEMPT = STALE_EXEMPT | {"session-continuity.py", "workflow-routing-guard.py",
+                                   "agent-routing-guard.py"}
 stale_3_0_hits = []
 for p in scan_targets:
     if p.name in STALE_3_0_EXEMPT:

@@ -422,6 +422,66 @@ Feature: The plugin health check runs the hooks end to end and reports PASS, WAR
     Then it contains the absolute path of the guard that ran
     And it does not contain "~/.claude/hooks/workflow-routing-guard.py --approve"
 
+  # --- The Agent guard section, teammates and the standing default ---------
+
+  # Backed by: tests/test_check_setup.py::test_should_pass_every_agent_guard_check_on_this_repo
+  Scenario: The Agent guard section passes all seven checks on a complete plugin root
+    Given CLAUDE_PLUGIN_ROOT is this repo and CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS is "0" in the caller's shell
+    When "python3 scripts/check-setup.py" runs
+    Then "agent guard script found" is PASS
+    And an Agent start with no model and no effort is denied, "model sonnet, effort low" passes with empty stdout, and "agenting:coder" with neither passes with empty stdout
+    And a start with name "t1", model sonnet and effort low, run with the Agent Teams variable set to 1 in the child, is denied with "only from an agent file" in the reason
+    And "the guard never emits allow" and "garbage input exits 0 silently" (stdin "[]") are PASS
+
+  # Backed by: tests/test_check_setup.py::test_should_fail_the_wiring_check_when_hooks_json_has_no_agent_entry
+  Scenario: Hook wiring fails when hooks.json has no PreToolUse entry with matcher Agent
+    Given CLAUDE_PLUGIN_ROOT/hooks/hooks.json has a PreToolUse entry with matcher "Workflow" and none with matcher "Agent"
+    And the home directory has no settings.json
+    When "python3 scripts/check-setup.py" runs
+    Then the check "agent guard registered on PreToolUse for Agent" is FAIL
+    And the exit code is 1
+
+  # Backed by: tests/test_check_setup.py::test_should_not_flag_the_agent_guard_name_as_the_old_plugin_id_or_old_vocabulary
+  Scenario: The text "agent-routing-guard" and the agent guard's ~/.claude/agents lookup do not trip the rename checks
+    Given hooks/agent-routing-guard.py and hooks/hooks.json contain "agent-routing-guard"
+    And hooks/agent-routing-guard.py contains "~/.claude/agents"
+    When "python3 scripts/check-setup.py" runs
+    Then the check 'no stale "agent-routing" string survives the rename' is PASS
+    And the check "no pre-3.0.0 semi-auto / suggestion / log.csv vocabulary survives" is PASS
+
+  # Backed by: tests/test_check_setup.py::test_should_pass_teammates_on_when_the_variable_is_1
+  Scenario: Teammates on is reported as a PASS
+    Given CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS is "1" in the environment
+    When "python3 scripts/check-setup.py" runs
+    Then the check "teammates: ON" is PASS
+    And there is no check named "teammates: OFF"
+
+  # Backed by: tests/test_check_setup.py::test_should_warn_teammates_off_with_the_turn_on_text_when_the_variable_is_absent
+  Scenario: Teammates off is a WARN that carries the turn-on instruction
+    Given CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS is not set and the home directory has no settings.json
+    When "python3 scripts/check-setup.py" runs
+    Then the check "teammates: OFF" is WARN
+    And its detail is 'Useful when 3-5 long-running workers must talk to each other. Turn on: add "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1" under "env" in ~/.claude/settings.json (experimental; uses more tokens than subagents).'
+
+  # Backed by: tests/test_check_setup.py::test_should_keep_exit_code_0_when_only_the_teammates_warning_fires
+  Scenario: The teammates warning does not change the exit code
+    Given CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS is not set and no other check fails
+    When "python3 scripts/check-setup.py" runs
+    Then the output has no FAIL line
+    And the exit code is 0
+
+  # Backed by: tests/test_check_setup.py::test_should_show_standing_default_on_after_it_was_recorded
+  Scenario: A recorded standing Workflows default of on is shown
+    Given "session-continuity.py --record-default --workflows on" was run with AGENTING_STATE_DIR set to the temporary state directory
+    When "python3 scripts/check-setup.py" runs
+    Then the check "standing Workflows default: on" is PASS
+
+  # Backed by: tests/test_check_setup.py::test_should_show_standing_default_unset_when_nothing_was_recorded
+  Scenario: With no standing default recorded the check shows unset
+    Given AGENTING_STATE_DIR points at an empty temporary directory
+    When "python3 scripts/check-setup.py" runs
+    Then the check "standing Workflows default: unset" is PASS
+
   # --- The /agenting-check command -----------------------------------------
 
   @gap @wip

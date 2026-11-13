@@ -17,5 +17,7 @@ Report the result above to the user, concisely.
   this plugin, so treat it as urgent.
 - WARN lines are advisory: a missing cheap tier or a single-tier setup means the
   routing exists but buys nothing. Mention them, don't alarm.
+- A `teammates: OFF` warning is advisory: relay its one-line "turn on" instruction once
+  and do not alarm.
 
 Do not re-run the script; the output is already above.

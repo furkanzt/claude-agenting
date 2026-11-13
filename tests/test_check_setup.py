@@ -25,6 +25,9 @@ class CheckSetupCase(unittest.TestCase):
 
     SETTINGS = SETTINGS_MISSING
     EMPTY_PLUGIN_ROOT = False
+    TEAMS = None             # value of CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS in the child; None removes it
+    RECORD_DEFAULT = None    # "on"/"off": record the standing Workflows default first
+    PLUGIN_HOOKS_JSON = None  # text of hooks/hooks.json in a temp plugin root (implies EMPTY_PLUGIN_ROOT)
 
     @classmethod
     def setUpClass(cls):
@@ -37,10 +40,21 @@ class CheckSetupCase(unittest.TestCase):
             d.mkdir(parents=True)
         if cls.SETTINGS is not SETTINGS_MISSING:
             (home / ".claude" / "settings.json").write_text(cls.SETTINGS, encoding="utf-8")
+        if cls.PLUGIN_HOOKS_JSON is not None:
+            (plugin / "hooks").mkdir()
+            (plugin / "hooks" / "hooks.json").write_text(cls.PLUGIN_HOOKS_JSON, encoding="utf-8")
         env = dict(os.environ, HOME=str(home), AGENTING_STATE_DIR=str(state),
-                   CLAUDE_PLUGIN_ROOT=str(plugin if cls.EMPTY_PLUGIN_ROOT else ROOT))
+                   CLAUDE_PLUGIN_ROOT=str(plugin if cls.EMPTY_PLUGIN_ROOT or cls.PLUGIN_HOOKS_JSON is not None else ROOT))
+        env.pop("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", None)
+        if cls.TEAMS is not None:
+            env["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] = cls.TEAMS
+        if cls.RECORD_DEFAULT:
+            subprocess.run([sys.executable, str(ROOT / "hooks" / "session-continuity.py"),
+                            "--record-default", "--workflows", cls.RECORD_DEFAULT],
+                           capture_output=True, text=True, timeout=20, env=env, cwd=str(tmp))
+        # cwd is the temp dir, so no project .claude/settings.json of this repo is read
         cls.result = subprocess.run([sys.executable, str(SCRIPT)], capture_output=True,
-                                    text=True, timeout=120, env=env)
+                                    text=True, timeout=120, env=env, cwd=str(tmp))
 
     @classmethod
     def tearDownClass(cls):
@@ -153,6 +167,83 @@ class TestWellFormedEntryRegistersTheGuard(CheckSetupCase):
     def test_should_register_the_guard_when_a_valid_entry_sits_beside_bad_ones(self):
         self.assertCheck("guard registered on PreToolUse", "PASS")
         self.assertRanToTheEnd()
+
+
+AGENT_GUARD_CHECKS = (
+    "agent guard script found",
+    "an Agent start with no model and no effort is DENIED",
+    "an Agent start with model and effort passes silently",
+    "an agenting: agent passes without model or effort on the call",
+    "a named teammate with no agent file is DENIED even with model and effort",
+    "the guard never emits allow",
+    "garbage input exits 0 silently",
+)
+WIRING = "agent guard registered on PreToolUse for Agent"
+OFF_DETAIL = ('Useful when 3-5 long-running workers must talk to each other. Turn on: add '
+              '"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1" under "env" in ~/.claude/settings.json '
+              "(experimental; uses more tokens than subagents).")
+
+
+class TestAgentGuardSection(CheckSetupCase):
+    TEAMS = "0"  # the section must not depend on the caller's shell
+
+    def test_should_pass_every_agent_guard_check_on_this_repo(self):
+        for name in AGENT_GUARD_CHECKS:
+            self.assertCheck(name, "PASS")
+        self.assertCheck(WIRING, "PASS")
+        self.assertRanToTheEnd()
+
+
+class TestAgentEntryMissingFromHooksJson(CheckSetupCase):
+    PLUGIN_HOOKS_JSON = json.dumps({"hooks": {"PreToolUse": [
+        {"matcher": "Workflow", "hooks": [
+            {"type": "command", "command": "python3 x/workflow-routing-guard.py"}]},
+    ]}})
+
+    def test_should_fail_the_wiring_check_when_hooks_json_has_no_agent_entry(self):
+        self.assertCheck(WIRING, "FAIL")
+        self.assertRanToTheEnd()
+        self.assertEqual(self.result.returncode, 1)
+
+
+class TestTeammatesOn(CheckSetupCase):
+    TEAMS = "1"
+
+    def test_should_pass_teammates_on_when_the_variable_is_1(self):
+        self.assertCheck("teammates: ON", "PASS")
+        self.assertIsNone(self.line("teammates: OFF"))
+
+
+class TestTeammatesOff(CheckSetupCase):
+    def test_should_warn_teammates_off_with_the_turn_on_text_when_the_variable_is_absent(self):
+        self.assertCheck("teammates: OFF", "WARN")
+        self.assertIn(OFF_DETAIL, self.line("teammates: OFF"))
+        self.assertIsNone(self.line("teammates: ON"))
+
+    def test_should_keep_exit_code_0_when_only_the_teammates_warning_fires(self):
+        self.assertRanToTheEnd()
+        self.assertNotIn("FAIL]", self.result.stdout)
+        self.assertEqual(self.result.returncode, 0)
+
+
+class TestStandingDefaultRecorded(CheckSetupCase):
+    RECORD_DEFAULT = "on"
+
+    def test_should_show_standing_default_on_after_it_was_recorded(self):
+        self.assertCheck("standing Workflows default: on", "PASS")
+
+
+class TestStandingDefaultUnset(CheckSetupCase):
+    def test_should_show_standing_default_unset_when_nothing_was_recorded(self):
+        self.assertCheck("standing Workflows default: unset", "PASS")
+
+
+class TestAgentGuardNameIsNotTheOldPluginId(CheckSetupCase):
+    """hooks/agent-routing-guard.py and hooks.json carry "agent-routing-guard" in their text."""
+
+    def test_should_not_flag_the_agent_guard_name_as_the_old_plugin_id_or_old_vocabulary(self):
+        self.assertCheck('no stale "agent-routing" string survives the rename', "PASS")
+        self.assertCheck("no pre-3.0.0 semi-auto / suggestion / log.csv vocabulary survives", "PASS")
 
 
 if __name__ == "__main__":
