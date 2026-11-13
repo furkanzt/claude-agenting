@@ -202,3 +202,48 @@ point says how a rule above is carried out; none changes a threshold.
    under that judge plus its failed slots; a failed slot counts under both judges. A cell with any
    fail under either judge is out of rules Q, B and `fast`. A disposition is reported only when
    every cell that could still take it has all 12 slots decided.
+
+## Addendum 2, 2026-11-13T15:05Z: deviations found before the first run, and what they cost the test
+
+Written after the tasks were built and reviewed, before any task was installed and before any model
+output existed for these rows. Three things did not go as sections 2 and 3 say.
+
+1. **A Fable model advised the builders.** Section 2 says no Fable model builds a task, reviews a
+   task or writes a checklist. The builders, refuters and finishers were Opus 5.5 agents and the
+   verifiers Sonnet 5.5 agents, as stated. But Workflow agents carry an advisor tool, and in this
+   install the advisor is `claude-fable-5-2`. The transcripts show 19 advisor calls: 7 by the three
+   builders, 3 by the two refuters, 9 by the three finishers, none by the three Sonnet agents. The
+   advice itself is not readable. So the model under test had a say in its own tasks and briefs.
+2. **Who found the pitfalls.** Section 3 asks for problems that really happened after the decision.
+   In `design-01`, four of the five P items come from one commit, 26 minutes after the decision and
+   before any deploy, whose message says an advisor pass found them; the fifth was reported by the
+   owner. In `design-02` the six P items come from an audit and from later fix commits, on a
+   feature that was live. All eleven are real defects of the decisions as built. But most were
+   first noticed by AI review passes, some of them by an advisor model, so the checklists lean
+   toward what such a reviewer notices.
+3. **Material size.** Section 3 says 20k to 70k tokens. Measured with one counting call each, the
+   material is about 93k tokens (`design-01`) and 84k tokens (`design-02`); the builders estimated
+   at 4 bytes per token and the real ratio is about 2.6. The tasks are kept as built: every file
+   left carries an anchor of the checklist.
+
+**What follows for row `design-decision`.** Points 1 and 2 can only help a Fable cell. So:
+
+- If no Fable cell satisfies rule Q or B, the result stands as written: the row is `opus-5-5@xhigh`
+  and the table says "Fable 5.2 measured, not adopted".
+- If a Fable cell does satisfy rule Q or B, the result is recorded as **provisional** and the row
+  does not move. It would move only after the same rule holds on two fresh tasks whose P items
+  come from field reports and that are built with no Fable model in the loop, the advisor included.
+- The `fast` rule compares two non-Fable cells and is not affected.
+
+**What follows for row `ux-design`.** A Fable advisor was consulted by the brief builder and the
+brief finisher (5 of the 19 calls). The briefs are descriptions of what the owner wants, both
+designers get the same one, and the judge is the owner, blind. The checklist condition can only hold
+Fable back. Rules UQ, UB and UD stand as written.
+
+**Checked for the same reason.** A run in the harness cannot read outside its working directory:
+a Read of an absolute path outside it was refused and logged (`--restricted`, Claude Code 2.1.323).
+So the paths to the live repositories that the material mentions cannot leak later history.
+
+**Order and budget.** The `ux-design` runs go first, then stage 1 of `design-decision`; stage 2
+runs only as far as the ceiling of section 2 allows. Spent before the first run: about $61 at list
+price ($58 for building and reviewing the tasks, $24 of it advisor calls; $3 for device checks).
