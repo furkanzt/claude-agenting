@@ -275,3 +275,41 @@ before any `design-decision` run. None of these points changes a threshold.
 5. **Stage 2 within the ceiling.** The `fast` candidates come first, because only they can still
    change a cell: under addendum 2 a Fable result can be provisional at most. Stage 2 for a Fable
    cell is put to the owner before it is run.
+
+## Addendum 4, 2026-11-13T17:55Z: limits in the pilot, and outages
+
+Written after the 36 designs and 41 of the 48 pages of `ux-design` were stored, before any checklist
+call, before the owner saw any page and before any `design-decision` run. None of these points
+changes a threshold. Points 1 to 3 close a gap in addendum 3, point 4.
+
+1. **A limit is not part of a run's identity.** A run id is made of the harness version, the task,
+   the task's fingerprint, the cell and the repeat number. Raising the time limit or the per-run
+   cost cap keeps every stored run.
+2. **When a limit is raised.** The pilot is one run per cell on `design-01`. A limit is doubled for
+   every cell of the row (1200 s to 2400 s, $6 to $12) when any pilot attempt ended at that limit,
+   or when any valid pilot run used more than three quarters of it (900 s, $4.50). The cost cap is
+   treated exactly like the time limit. After the pilot the limits are frozen for the row.
+3. **A pilot attempt that ended at a limit** counts as one of its slot's three attempts, like any
+   invalid attempt. The slot keeps its two other attempts under the raised limit.
+4. **What happened.** On 2026-11-13 at about 17:40Z, during the page builds, four builder processes
+   stopped making progress at the same time: each had run for 16 minutes where the same kind of
+   build had taken 6 to 7, each used almost no CPU, and their connections had been reopened
+   together. The operator interrupted the batch before the time limit. The tool does not log an
+   interrupted attempt, so nothing was counted and the four pages are built again. The builder is
+   not a model under test. No log of the interruption itself exists; this is the reason for point 5.
+5. **Outage evidence, from now on, for both rows.** The harness cannot tell a dead connection from
+   a slow model: it would log a timeout, and addendum 3 says a timeout keeps its meaning. So:
+   - while a paid batch runs, a watchdog logs every 20 s whether a TCP connection to the API host
+     opens (it sends no data), and the system's own sleep log is kept;
+   - a batch starts only after a check passes; `design-decision` runs go in batches of at most 8;
+   - after each batch every invalid attempt is looked at before the next batch starts;
+   - an invalid attempt **that has no answer** (a timeout, or an error ending) is an infrastructure
+     error in the sense of addendum 3, point 1, when its time window contains a system sleep, a
+     failed watchdog check, or a gap in the watchdog log of more than 60 s. The tools cannot see
+     this themselves, so the attempt's line is moved, unedited, from the log to a set-aside file,
+     the slot is run again, and the report lists every such line with its evidence. This is decided
+     from the time window and the logs alone;
+   - a timeout with no such evidence counts as before, and a run with a valid answer is never set
+     aside;
+   - the operator may interrupt a batch only on the same evidence (a failed check, a gap or a
+     sleep) and only when every running process has stopped making progress.
