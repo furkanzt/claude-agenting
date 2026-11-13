@@ -16,6 +16,7 @@ Feature: The Agent routing guard denies an agent that would start on the main ch
     And the reason contains 'Agent start "trace it" has no model and no effort'
     And the reason contains 'model: "sonnet", effort: "low"' and '"routing: inherit"'
     And systemMessage is "agenting: an agent start had no model or effort; Claude is retrying with both set"
+    And the reason says "Do not work around this by inheriting." and offers "routing: inherit" only when the user asked
 
   # Backed by: tests/test_agent_guard.py::test_effort_only_missing_is_denied
   Scenario: An Agent call with a model but no effort is denied for the effort

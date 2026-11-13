@@ -68,6 +68,9 @@ class Ordinary(AgentGuardCase):
         self.assertIn('Agent start "trace it" has no model and no effort', reason)
         self.assertIn('model: "sonnet", effort: "low"', reason)
         self.assertIn('"routing: inherit"', reason)
+        # the escape is offered only for an explicit wish of the user, not as the way past the denial
+        self.assertIn("Do not work around this by inheriting.", reason)
+        self.assertIn("Only when the user asked", reason)
         self.assertEqual(out["systemMessage"],
                          "agenting: an agent start had no model or effort; Claude is retrying with both set")
 

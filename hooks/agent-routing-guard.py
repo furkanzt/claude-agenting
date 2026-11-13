@@ -213,7 +213,10 @@ def note(context: str) -> int:
     return 0
 
 
-INHERIT_HINT = 'To inherit on purpose, put a line "routing: inherit" in the prompt.'
+# The escape is for an explicit wish of the user, never the easy way past a denial: an end-to-end
+# check on 2026-11-13 showed a model reaching for it as soon as the reason offered it freely.
+INHERIT_HINT = ('Do not work around this by inheriting. Only when the user asked for this agent to run on the '
+                'chat\'s own tier, put a line "routing: inherit" in the prompt.')
 AGENT_HINT = "or use an agenting: agent, which sets them itself."
 
 
