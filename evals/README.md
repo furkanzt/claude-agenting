@@ -31,6 +31,7 @@ evals/
   rows.json            the seven rows: tier, baseline cell, grid, task ids
   tasks.json           PUBLIC manifest of tasks (id, row, grading, task hash). Generated.
   evalkit.py           the CLI (plan, run, judge, grade, report, decide, selfcheck, manifest, status, sanitize)
+                       `judge --judge-cell <cell>` judges with that cell for one invocation (a second judge, stored as `judge:<cell>:...` beside the pinned judge's scores; `harness.json` is not edited and status, report, decide and grade ignore it)
   research/            dated research notes (primary-source facts)
   results/
     runs.jsonl         PUBLIC, append-only: one line per run (cost, tokens, model verified). No content.

@@ -5,11 +5,11 @@
       "id": "scan",
       "plugin_row": "List files, count pages, run a script, collect output",
       "tier": "silent_damage",
-      "baseline": "haiku-4-5",
+      "baseline": "haiku-5-5@medium",
       "grid": [
         {
           "cell": "haiku-4-5",
-          "role": "baseline"
+          "role": "prior_baseline"
         },
         {
           "cell": "sonnet-5-5@low",
@@ -29,7 +29,7 @@
         },
         {
           "cell": "haiku-5-5@medium",
-          "role": "new_generation"
+          "role": "baseline"
         },
         {
           "cell": "haiku-5-5@high",
@@ -45,7 +45,8 @@
         "scan-02",
         "scan-03"
       ],
-      "tier_note": "Reclassified from noticed on 2026-10-06 after the sweep: every Sonnet failure on scan-01 was one silently omitted list item, which looks like a complete inventory."
+      "tier_note": "Reclassified from noticed on 2026-10-06 after the sweep: every Sonnet failure on scan-01 was one silently omitted list item, which looks like a complete inventory.",
+      "baseline_note": "Moved from haiku-4-5 to haiku-5-5@medium on 2026-11-13 to match the routing table (REPORT-2026-10-09)."
     },
     {
       "id": "cleanup",
@@ -87,11 +88,11 @@
       "id": "read-report",
       "plugin_row": "Read code / prose and report what it does",
       "tier": "noticed",
-      "baseline": "sonnet-5-5@medium",
+      "baseline": "haiku-5-5@medium",
       "grid": [
         {
           "cell": "sonnet-5-5@medium",
-          "role": "baseline"
+          "role": "prior_baseline"
         },
         {
           "cell": "sonnet-5-5@low",
@@ -115,7 +116,7 @@
         },
         {
           "cell": "haiku-5-5@medium",
-          "role": "new_generation"
+          "role": "baseline"
         },
         {
           "cell": "haiku-5-5@high",
@@ -130,7 +131,8 @@
         "read-report-01",
         "read-report-02",
         "read-report-03"
-      ]
+      ],
+      "baseline_note": "Moved from sonnet-5-5@medium to haiku-5-5@medium on 2026-11-13 to match the routing table (REPORT-2026-10-09)."
     },
     {
       "id": "classify",

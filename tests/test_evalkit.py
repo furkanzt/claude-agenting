@@ -608,6 +608,65 @@ class Judging(EvalTestCase):
         self.assertEqual(self.calls(), [])
         self.assertEqual([s["score"] for s in self.scores()], [0.0, 0.0])
 
+    # -- a second judge: --judge-cell ---------------------------------------
+
+    FAILING = '===ANSWER===\n{"score": 0.1, "points": 0}\n===END==='
+
+    def with_second_judge(self):
+        self.set_cells(lambda c: c.update({"judge2": {
+            "model_id": "claude-test-judge2", "effort": "high", "price": {"input": 1.0, "output": 1.0}}}))
+
+    def rubric_sha8(self):
+        rubric = (self.root / "private" / "tasks" / "j-1" / "rubric.md").read_bytes()
+        return hashlib.sha256(rubric).hexdigest()[:8]
+
+    def test_judge_cell_option_stores_scores_under_the_other_judges_grader_id(self):
+        self.with_second_judge()
+        rid = self.subject()
+        self.log.unlink()
+        self.cli("judge", "--judge-cell", "judge2", FAKE_CLAUDE_ANSWER=self.JUDGMENT)
+        calls = self.calls()
+        self.assertEqual([c["model"] for c in calls], ["claude-test-judge2"] * 2)
+        judged = [s for s in self.scores() if s["run_id"] == rid]
+        prefix = f"judge:judge2:{self.rubric_sha8()}:"
+        self.assertEqual(sorted(s["grader_id"] for s in judged), [prefix + "0", prefix + "1"])
+        self.assertEqual({s["details"]["judge_cell"] for s in judged}, {"judge2"})
+
+    def test_judge_cell_option_leaves_the_pinned_judges_passes_to_do(self):
+        self.with_second_judge()
+        self.subject()
+        self.cli("judge", "--judge-cell", "judge2", FAKE_CLAUDE_ANSWER=self.JUDGMENT)
+        r = self.cli("judge", FAKE_CLAUDE_ANSWER=self.JUDGMENT)
+        self.assertIn("2 judge pass(es) to do", r.stdout)       # the pinned judge has not scored yet
+        pinned = f"judge:judge:{self.rubric_sha8()}:"
+        self.assertEqual(sorted(s["grader_id"] for s in self.scores() if s["grader_id"].startswith(pinned)),
+                         [pinned + "0", pinned + "1"])
+        self.assertEqual(len(self.scores()), 4)                 # both judges' passes sit side by side
+
+    def test_status_report_and_decide_ignore_the_other_judges_scores(self):
+        self.with_second_judge()
+        rid = self.subject()
+        self.cli("judge", "--judge-cell", "judge2", FAKE_CLAUDE_ANSWER=self.FAILING)
+        out = self.cli("status").stdout
+        self.assertRegex(out, r"judge-row\s+1/1\s+2\s+1\s+0\s+0\s+1")    # the run is still ungraded
+        self.assertEqual(self.decide("judge-row")["recommendation"], "INSUFFICIENT_DATA")
+        ctx, task = self.ctx(), ev.load_tasks(self.ctx())["j-1"]
+        self.assertIsNone(ev.effective(ctx, task, rid, ev.scores_by_run(ctx)))
+        self.cli("judge", FAKE_CLAUDE_ANSWER=self.JUDGMENT)     # now the pinned judge scores 0.9
+        score, passed = ev.effective(ctx, task, rid, ev.scores_by_run(ctx))
+        self.assertAlmostEqual(score, 0.9)                      # not the mean with the other judge's 0.1
+        self.assertTrue(passed)
+        self.assertRegex(self.cli("report", "--rows", "judge-row").stdout, r"cheap\s+effort_down\s+1\s+1\s+1\s+100\.0%\s+0\.900")
+
+    def test_judge_cell_option_with_an_unknown_cell_exits_2_and_writes_nothing(self):
+        self.subject()
+        self.log.unlink()
+        r = self.cli("judge", "--judge-cell", "no-such-cell", check=False, FAKE_CLAUDE_ANSWER=self.JUDGMENT)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("unknown --judge-cell: no-such-cell", r.stderr)
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(self.scores(), [])
+
 
 class ReportAndStatus(EvalTestCase):
     def test_report_numbers_on_a_synthetic_dataset(self):

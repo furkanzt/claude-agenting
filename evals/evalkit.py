@@ -12,6 +12,7 @@ contract is evals/README.md; this file implements it.
   run         execute the plan: one `claude -p` process per run, graded at once
   grade       re-grade stored answers of code tasks whose grader changed
   judge       judge-graded tasks: pinned judge cell scores every valid run
+              (--judge-cell <cell>: a second judge, stored beside the pinned one's scores)
   report      per-row table: pass rate, mean score, mean cost, thinking tokens
               (--phase screening|confirmation|all, default screening)
   decide      apply the README decision bar per row (provisional when a candidate is incomplete)
@@ -308,10 +309,11 @@ def row_tasks(tasks, row_id, phases=PHASES):
                   key=lambda t: t["id"])
 
 
-def grader_prefix(ctx, task):
-    """Id (code) or id prefix (judge) of the task's CURRENT grader."""
+def grader_prefix(ctx, task, judge_cell=None):
+    """Id (code) or id prefix (judge) of the task's CURRENT grader. `judge_cell` names a
+    second judge (`judge --judge-cell`); every other caller gets the pinned one."""
     if task["grading_type"] == "judge":
-        cell = ctx.harness["judge"]["cell"]
+        cell = judge_cell or ctx.harness["judge"]["cell"]
         if "dir" in task:
             return f"judge:{cell}:{sha8(read_bytes_or_empty(task['dir'] / 'rubric.md'))}:"
         return f"judge:{cell}:"
@@ -936,14 +938,25 @@ def parse_judgment(text, markers):
     return obj if isinstance(obj, dict) else None
 
 
-def judge_units(ctx, tasks, args):
+def judge_cell_of(ctx, args):
+    """The cell this `judge` invocation uses: --judge-cell if given, else the pinned judge.
+    harness.json is never edited: the cell id is part of every stored grader id."""
+    cell = getattr(args, "judge_cell", None)
+    if cell is None:
+        return ctx.harness["judge"]["cell"]
+    if cell not in ctx.cells:
+        raise EvalError(f"unknown --judge-cell: {cell} (known: {', '.join(sorted(ctx.cells))})")
+    return cell
+
+
+def judge_units(ctx, tasks, args, judge_cell=None):
     """(task, run, k) triples still lacking a judge score under the current rubric."""
     scores, units = scores_by_run(ctx), []
     reps = ctx.harness["judge"]["repeats"]
     for t, run in valid_current_runs(ctx, tasks, args):
         if t["grading_type"] != "judge":
             continue
-        prefix = grader_prefix(ctx, t)
+        prefix = grader_prefix(ctx, t, judge_cell)
         have = {s["grader_id"] for s in scores.get(run["run_id"], [])}
         units += [(t, run, k) for k in range(reps) if f"{prefix}{k}" not in have]
     return units
@@ -980,12 +993,13 @@ def judge_attempt(ctx, task, block, cell, budget, stop):
         return "fault", str(e), cost
 
 
-def judge_one(ctx, unit, budget, stop, faults=None):
+def judge_one(ctx, unit, budget, stop, faults=None, judge_cell=None):
     """One judge pass. A format fault is retried up to JUDGE_FORMAT_RETRIES more times; if
     still bad the pass stays missing (nothing appended) and is reported through `faults`."""
     task, run, k = unit
     judge = ctx.harness["judge"]
-    gid = f"{grader_prefix(ctx, task)}{k}"
+    judge_cell = judge_cell or judge["cell"]
+    gid = f"{grader_prefix(ctx, task, judge_cell)}{k}"
     label = f"{task['id']} {run['run_id']}#{k}"
     ans = ctx.answers_dir / f"{run['run_id']}.json"
     if not ans.exists():
@@ -995,7 +1009,7 @@ def judge_one(ctx, unit, budget, stop, faults=None):
         append_jsonl(ctx.scores_path, score_line(run["run_id"], gid,
                      {"score": 0.0, "passed": False, "details": {"no_block": True}}))
         return f"{label} no answer block -> 0"
-    cell, spent, why, unknown = ctx.cells[judge["cell"]], 0.0, "", False
+    cell, spent, why, unknown = ctx.cells[judge_cell], 0.0, "", False
     for attempt in range(1, JUDGE_FORMAT_RETRIES + 2):
         if budget.exhausted() or stop.event.is_set():
             return None
@@ -1006,7 +1020,7 @@ def judge_one(ctx, unit, budget, stop, faults=None):
             return None
         if kind == "ok":
             append_jsonl(ctx.scores_path, score_line(run["run_id"], gid, payload, {
-                "judge_cost_usd": spent, "judge_cell": judge["cell"], "judge_attempts": attempt,
+                "judge_cost_usd": spent, "judge_cell": judge_cell, "judge_attempts": attempt,
                 "cli_version": ctx.cli_version, **({"judge_cost_unknown": True} if unknown else {})}))
             return f"{label} score {payload['score']:.2f}" + (f" (attempt {attempt})" if attempt > 1 else "")
         why = payload
@@ -1020,13 +1034,14 @@ def judge_one(ctx, unit, budget, stop, faults=None):
 
 
 def cmd_judge(ctx, args):
+    judge_cell = judge_cell_of(ctx, args)
     require_private(ctx)
-    units = judge_units(ctx, load_tasks(ctx), args)
+    units = judge_units(ctx, load_tasks(ctx), args, judge_cell)
     print(f"{len(units)} judge pass(es) to do")
     if units:
         ctx.cli_version = claude_version(ctx)
     budget, faults = Budget(args.max_usd, ctx.harness["runner"]["max_budget_usd_per_run"]), []
-    code = run_pool(ctx, units, lambda u, stop: judge_one(ctx, u, budget, stop, faults),
+    code = run_pool(ctx, units, lambda u, stop: judge_one(ctx, u, budget, stop, faults, judge_cell),
                     args.jobs or ctx.harness["runner"]["jobs"], "judge")
     print(f"judge cost ${budget.spent:.4f}" +
           (f" ({budget.unknown} call(s) with unknown cost charged at the per-run cap)"
@@ -1533,6 +1548,9 @@ def build_parser():
     add_filter_args(sp, with_repeats=False)
     sp.add_argument("--jobs", type=int)
     sp.add_argument("--max-usd", type=float)
+    sp.add_argument("--judge-cell", help="judge with this cell for this invocation only (a second "
+                    "judge): its scores are stored under judge:<cell>:..., and status, report, "
+                    "decide and grade keep using the pinned judge")
     sp = add("report", cmd_report, "per-row table of pass rate, score, cost and thinking tokens")
     sp.add_argument("--rows")
     sp.add_argument("--phase", choices=("screening", "confirmation", "all"), default="screening",

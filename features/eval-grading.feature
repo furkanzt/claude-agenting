@@ -212,6 +212,36 @@ Feature: The evalkit grades runs in a sandboxed child process, judges with a bli
     When judge task "j-1" is run and judged
     Then both judge score lines have details.cli_version "9.9.9 (Fake)"
 
+  # Backed by: tests/test_evalkit.py::test_judge_cell_option_stores_scores_under_the_other_judges_grader_id
+  Scenario: Judge --judge-cell scores the runs with the named cell and stores them under that cell's grader id
+    Given a valid run of judge task "j-1" on cell "cheap" and a second judge cell "judge2" with model "claude-test-judge2" in cells.json
+    When I run "evalkit.py judge --judge-cell judge2" and the judge replies with score 0.9
+    Then claude is launched twice with model "claude-test-judge2"
+    And the two score lines carry grader ids "judge:judge2:<sha8 of rubric.md>:0" and ":1"
+    And both score lines have details.judge_cell "judge2"
+
+  # Backed by: tests/test_evalkit.py::test_judge_cell_option_leaves_the_pinned_judges_passes_to_do
+  Scenario: Judging with a second judge leaves the pinned judge's passes still to do
+    Given the run of judge task "j-1" was judged with "evalkit.py judge --judge-cell judge2"
+    When I run "evalkit.py judge" with the pinned judge "judge"
+    Then stdout contains "2 judge pass(es) to do"
+    And scores.jsonl then holds 4 lines, two under "judge:judge:<sha8 of rubric.md>:" and two under "judge:judge2:<sha8 of rubric.md>:"
+
+  # Backed by: tests/test_evalkit.py::test_status_report_and_decide_ignore_the_other_judges_scores
+  Scenario: Status, report and decide count only the pinned judge's scores
+    Given the run of judge task "j-1" was judged by "judge2" with score 0.1 and has no pinned-judge score
+    Then status shows the run as valid, scored 0 and ungraded 1 and decide for "judge-row" is INSUFFICIENT_DATA
+    When the pinned judge then scores it 0.9
+    Then the run's effective score is 0.9 and passed, and report shows pass rate 100.0% and mean score 0.900
+
+  # Backed by: tests/test_evalkit.py::test_judge_cell_option_with_an_unknown_cell_exits_2_and_writes_nothing
+  Scenario: Judge --judge-cell with a cell that is not in cells.json exits 2 and does nothing
+    Given a valid run of judge task "j-1"
+    When I run "evalkit.py judge --judge-cell no-such-cell"
+    Then the exit code is 2
+    And stderr contains "unknown --judge-cell: no-such-cell"
+    And claude is launched zero times and scores.jsonl gains no line
+
   @gap @wip
   # Backed by: @gap
   Scenario: A judge grader that times out is not retried

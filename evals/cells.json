@@ -1,5 +1,5 @@
 {
-  "_note": "Prices are list $/MTok, verified 2026-10-05 against the Anthropic pricing page (research/2026-10-05-models.md); the Haiku 5.5 cells were added and priced on 2026-10-09 from the same page. Decisions use measured cost_usd per run, not these. A cell's identity for caching is its cell_hash: sha8 of {cell_id, model_id, effort, system_append}; changing any of them re-runs that cell only.",
+  "_note": "Prices are list $/MTok, verified 2026-10-05 against the Anthropic pricing page (research/2026-10-05-models.md); the Haiku 5.5 cells were added and priced on 2026-10-09 from the same page. Decisions use measured cost_usd per run, not these. A cell's identity for caching is its cell_hash: sha8 of {cell_id, model_id, effort, system_append}; changing any of them re-runs that cell only. The three fable-5-2 cells were added on 2026-11-13 and priced at $8 / $40 per MTok from the Anthropic pricing page the same day; the fable-5-1 cells are untouched because fable-5-1@high is the pinned judge and has stored runs.",
   "cells": {
     "fable-5-1@high": {
       "model_id": "claude-fable-5-1",
@@ -19,6 +19,36 @@
         "input": 10.0,
         "output": 50.0,
         "as_of": "2026-10-05"
+      }
+    },
+    "fable-5-2@low": {
+      "model_id": "claude-fable-5-2",
+      "alias": "fable",
+      "effort": "low",
+      "price": {
+        "input": 8.0,
+        "output": 40.0,
+        "as_of": "2026-11-13"
+      }
+    },
+    "fable-5-2@medium": {
+      "model_id": "claude-fable-5-2",
+      "alias": "fable",
+      "effort": "medium",
+      "price": {
+        "input": 8.0,
+        "output": 40.0,
+        "as_of": "2026-11-13"
+      }
+    },
+    "fable-5-2@high": {
+      "model_id": "claude-fable-5-2",
+      "alias": "fable",
+      "effort": "high",
+      "price": {
+        "input": 8.0,
+        "output": 40.0,
+        "as_of": "2026-11-13"
       }
     },
     "haiku-4-5": {
