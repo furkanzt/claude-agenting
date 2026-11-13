@@ -126,6 +126,12 @@ Claude Code 2.1.323, list prices.
   stored in October report one model each too; they predate Fable 5.2, and October's versions of
   Claude Code were not re-tested. The harness now switches the advisor off for every run. What an advisor does to worker
   agents in real sessions, and the rule that follows: [delegation.md](delegation.md).
+- **A cheaper worker with an advisor: measured once, not adopted.** Sonnet 5.5 `xhigh` with a Fable
+  5.2 advisor on the three synthesis tasks (rule committed first, 8 valid runs). A run in which the
+  advisor was called cost $3.19, $2.00 of it the advisor; Opus `xhigh` alone costs $2.38. The
+  advisor was called in 4 of 8 runs although the prompt asked for it every time, and never on the
+  one task where Sonnet alone misses an item that Opus finds, so no gain was shown. No cell of the
+  table depends on an advisor.
 - **Limits.** Two decision tasks and four briefs, all from one owner's projects; twelve runs or
   twelve pairs show a large gap only; both judge models come from one vendor; a clean read-only run
   is not a design agent inside a session.

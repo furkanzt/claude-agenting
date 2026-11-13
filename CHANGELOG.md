@@ -140,6 +140,12 @@
 - **On the harder of the two decision tasks no cell was reliable:** the best passed 2 runs in 6, and one designer
   alone missed two or more of six foreseeable pitfalls in 18 of 21 runs. This is one task, not a rule.
 
+- **A cheaper worker with an advisor, measured once and not adopted.** Sonnet 5.5 `xhigh` with a Fable 5.2
+  advisor against Opus 5.5 `xhigh` alone on the three synthesis tasks, by a rule committed first. A run in which
+  the advisor was called cost $3.19 ($2.00 of it the advisor) against $2.38 for Opus alone. The advisor was
+  called in 4 of 8 runs, never on the one task where Sonnet alone misses an item, so no gain was shown. The
+  routing table has no cell that depends on an advisor.
+
 ### Added (skill and roster)
 - **"Think first?", the third step of "Where the work runs".** It is the owner's procedure of 2026-11-13; the
   round above measured only which model takes it. One model decides before the builders start when

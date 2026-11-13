@@ -166,7 +166,9 @@ rule for `advisor`, and the `--disallowedTools` flag. Neither stopped the call.
 - Split-pane teammates (`teammateMode` other than in-process) were not probed; the docs say they
   ignore an agent file's `effort`.
 - The advisor test used one task and at most 5 agents per arm, each started once.
-- No quality comparison was run between a worker with an advisor and one without.
+- One comparison of a worker with an advisor against a stronger worker alone was run (Sonnet `xhigh`
+  with a Fable advisor against Opus `xhigh` on synthesis): not cheaper, no gain shown
+  ([evidence.md](evidence.md)). No other pairing, row or instruction was measured.
 - The sentence was not tested on teammates, or on the built-in Explore and Plan agents.
 - An advisor given only on the command line (the `--advisor` flag, or `--settings` with inline JSON)
   is not seen by the hooks, which read the environment variable and the settings files only.

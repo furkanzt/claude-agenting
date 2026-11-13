@@ -231,7 +231,7 @@ python3 -m pytest tests          # or, without pytest:
 python3 -m unittest discover -s tests
 ```
 
-909 tests; the whole suite takes about 2 minutes 20 seconds. `pytest.ini` limits a bare `pytest` to `tests/`, so it never walks into `evals/` (a test runner once left `.pyc` files in a gitignored task's material and silently changed its hash; `evalkit.py selfcheck` now reports such caches).
+995 tests; the whole suite takes about 2 minutes 30 seconds. `pytest.ini` limits a bare `pytest` to `tests/`, so it never walks into `evals/` (a test runner once left `.pyc` files in a gitignored task's material and silently changed its hash; `evalkit.py selfcheck` now reports such caches).
 
 The fan-out view's hooks module has its own tests, run by Claude Code's plugin test kit (no model is called): `python3 scripts/quality/run_plugin_tests.py`.
 

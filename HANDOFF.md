@@ -1,167 +1,93 @@
 # HANDOFF: start here
 
-> **PAUSED on 2026-11-13, in the middle of the work.** Section P is the live state; read it first.
-> Sections 0 to 9 below describe October. Their history is right, their counts (tests, commits) are old.
+> **State on 2026-11-14.** Section P is the live state; read it first. Sections 0 to 9 below describe
+> October. Their history is right, their counts (tests, commits) are old.
 
-## P. Paused work, 2026-11-13: Fable 5.2, think-first, where the work runs
+## P. After the Fable 5.2 round and the advisor work (2026-11-13 and 14)
 
-**Nothing is running.** The owner paused the session before a flight. No model process, no browser and
-no background task was left behind; the page build was stopped with an interrupt, which the tool does
-not count as an attempt. To continue: resume the same chat and say "continue", or open a fresh chat,
-read this section and start at P.4.
+**Nothing is running and nothing is half done.** Release 3.6.0 is committed and not pushed.
 
-### P.1 What was agreed (a grill with the owner, 21 decisions)
+### P.1 What was found
 
-- **Fable 5.2 is not a worker.** It costs twice Opus 5.5 per token ($8/$40 against $4/$20, price page
-  read 2026-11-13), and Opus already passes every "doing" task here. Scan, cleanup, classify, synthesis,
-  verify and coding stay on Haiku, Sonnet and Opus and were not re-run with Fable.
-- **Fable 5.2 is tested as the one who thinks first**, on two jobs only: an architecture or approach
-  decision (`design-decision` row) and a UI/UX design pass before a prototype is built (`ux-design`).
-  Never in `fast`. Thresholds, judges and stop rules were committed before any task existed:
-  [`evals/results/PREREGISTERED-2026-11-13-think-first.md`](evals/results/PREREGISTERED-2026-11-13-think-first.md)
-  and its three addenda.
-- **Where the work runs.** Bulk work leaves the main chat, quick fixes and look-and-steer loops stay
-  (shipped: `skills/agenting/reference/delegation.md`). In `auto` mode it moves without asking and says
-  one line; in `manual` it is proposed first.
-- **Every agent start is gated**, teammates included: no model or effort means a denial with the fix.
-- **Teammates:** a tip when they are off, in the chat once and in `/agenting-check` and the README.
-- **Spend ceiling $300** (list price). **One release at the end, 3.6.0.** No push.
+Full account: [`evals/results/REPORT-2026-11-13.md`](evals/results/REPORT-2026-11-13.md), audited by two
+independent reviewers before it was committed. Rules, five addenda and an erratum:
+[`evals/results/PREREGISTERED-2026-11-13-think-first.md`](evals/results/PREREGISTERED-2026-11-13-think-first.md).
+What Anthropic's own sources say: [`evals/research/2026-11-13-fable-5-2.md`](evals/research/2026-11-13-fable-5-2.md).
 
-### P.2 Done and committed (22 commits after `68c02a4`, none pushed)
+- **Fable 5.2 takes no row of the routing table.** As a worker it was not run: twice Opus 5.5's price, on
+  tasks Opus already passes. As the one who decides or designs first it was tested on two jobs and won
+  neither. Architecture decision: on the harder of two tasks it passed 0 of 9 runs, Opus `xhigh` 2 of 6,
+  Sonnet `xhigh` 1 of 3. UI/UX design: the owner, blind, preferred Opus's design 8 times in 12.
+- **Two new rows, both `opus`/`xhigh` in every disposition** (architecture or approach decision; UI/UX
+  design before a build). The skill has a "Think first?" step and the roster an `agenting:ux-designer`.
+- **A design pass before a UI prototype is on request, not a default:** 9 of 12 against a bar of 10, and
+  that was Fable's design pass. Opus's design pass against none was not compared.
+- **Workers work alone; the advisor is for the decider.** A session's advisor is inherited by every agent
+  it starts and no agent file can switch it off. Measured: 8 of 8 Opus agents without an instruction
+  called it (about $0.60 a call, against $0.33 for the agent's own work), 0 of 8 with one sentence in the
+  agent file or prompt, 0 of 3 Sonnet agents. So every worker agent file carries the sentence, both
+  guards deny a worker that is not told (only while the session has an advisor), the session line shows
+  `advisor=...`, and clean runs and harness runs switch the advisor off by environment variable.
+- **The routing table was measured with models working alone.** No stored run shows a sign of an advisor
+  call (report, section 6, point 4).
+- **A cheaper worker with an advisor was measured once and not adopted** (report, section 12): Sonnet
+  `xhigh` with a Fable advisor cost $3.19 a run when the advisor was called, against $2.38 for Opus `xhigh`
+  alone, and showed no gain on synthesis. No cell of the table depends on an advisor.
 
-Run `git log --oneline 68c02a4^..HEAD`. By theme: prices for Fable 5.2 and the Sonnet 5.5 cache read;
-the session line (teammates status, a standing Workflows default); the agent guard
-(`hooks/agent-routing-guard.py`, 34 tests); the skill's "Where the work runs" section and
-`reference/delegation.md`; `check-setup.py` sections for the guard and teammates; the eval tools
-(`evalkit` second judge, stop reasons, API errors that do not use up a retry; `think_first_analysis.py`;
-`ux_blind.py`; `scripts/quality/check_ux_pages.py`); the pre-registration and addenda; the measurement
-record moved to `reference/evidence.md`.
+### P.2 What 3.6.0 holds
 
-Measured on this Mac on 2026-11-13 (Claude Code 2.1.323) and already in the docs: a teammate applies
-the call's model and ignores the call's effort (effort comes only from an agent file); a Workflow
-`agent()` call applied both in 9 of 9 probes.
+`git log --oneline origin/main..HEAD` (the repository has no tags). By theme:
+prices for Fable 5.2 and Sonnet 5.5 cache reads; the agent guard (model and effort on every `Agent`
+start, teammates included); "Where the work runs" with its three steps; teammates status and a standing
+Workflows default in the session line; the advisor rule (agent files, both guards, session line, health
+check, clean runs, eval harness); the eval tools for the round (second judge, stop reasons, API errors
+that use no retry, the rule checker, the blind-comparison tool, the render check, advisor cells); the
+report, the research note and the two pre-registrations.
 
-### P.3 Stored but not finished (all under the gitignored `evals/private/`)
+### P.3 Decisions waiting for the owner
 
-| Thing | State |
-|---|---|
-| UI/UX designs | 36 of 36 stored (24 Fable 5.2 `high`, 12 Opus 5.5 `xhigh`), no refusal, no retry, $37.56 |
-| Prototype pages (builder Sonnet 5.5 `medium`) | **37 of 48 built**, 0 failed attempts, $13.95; 11 missing, all in the fourth brief |
-| Render check, checklist judges, blind page | not started |
-| `design-decision` runs | not started (two tasks installed, the rule checker committed) |
-| Scratch notes from the session | copied to `evals/private/session-2026-11-13/` (research notes, the docs notes on agent teams, the commit helper, probe scripts) |
+1. **Push.** Squash into bites first. Two things to respect when building them:
+   - `9da8208` to `300a520` must end up in one bite: the first two carry an earlier `evals/tasks.json`
+     whose task titles were too specific, and `300a520` made them neutral.
+   - Three messages carry small errors that a bite's message should not repeat: `3dc7da2` ("six per cell
+     and task combination" is three; "all valid on the first attempt" holds for the decision runs only),
+     and `286130c` (it names a network interruption; the cause was not established).
+2. **Install 3.6.0.** The new hooks reach a chat only after the plugin is updated to the new version.
+   Until then chats run 3.5.3: no agent guard, no advisor rule.
+3. **The advisor setting.** The owner's settings name no advisor since 2026-11-13 17:36Z. With 3.6.0
+   installed it can be named again: the main chat gets its advisor back and the workers are told to work
+   alone. An advisor given only on the command line (`--advisor`, or inline `--settings`) is not seen by
+   the hooks.
+4. **`/agenting-mode workflows always`**, if every chat should be opted in to Workflows.
+5. **Next measurements**, in the report's section 11: a second look after a design (one designer alone
+   was unreliable on the harder task); Opus's design pass against none, 12 blind pairs; a third decision
+   task that separates cells, built with no Fable model in the loop.
+6. Still open from October: whether `fast` moves don't-guess to Haiku `xhigh` (section 4, decision 2).
 
-**Spend so far, list price: about $113 of $300.** The build Workflow $58.01 (of which the Fable advisor
-that the worker agents called 19 times was $23.94), an effort probe $2.03, designs $37.56, page builds
-$13.95, small probes about $1. Four builders were interrupted at the pause; their tokens were not
-recorded, at most about $1.50 more. Still to come: 11 builds about $4, checklist judges about $13,
-`design-decision` stage 1 about $132. Stage 2 only if it fits under the ceiling.
-
-**Uncommitted in the tree:** `README.md` and `CHANGELOG.md` carry a docs agent's draft for 3.6.0
-(the doc tests pass; the lead has not reviewed it; the test results are not in it yet). `.gitignore`
-has a change that is not from this work: never stage it.
-
-### P.4 Next steps, in order
-
-`ux_blind.py` and `evalkit.py` share one lock, so they do not run at the same time. Check each
-command's `--help` before the first paid run; `plan` and `status` are free.
-
-1. `python3 evals/probes/ux_blind.py plan` (expect `builds: 11 missing of 48`), then
-   `python3 evals/probes/ux_blind.py build --max-usd 8`. About 4 minutes a page, four at a time. If it
-   exits 3 (an API error), run it again; nothing is lost.
-2. Render check, headless and muted (the `browser-check` skill's rules):
-   `python3 scripts/quality/check_ux_pages.py --root evals/private/ux --json --out evals/private/ux/render-check.json`.
-   A failing page: `ux_blind.py reject --page <id> --reason "<why>"`, `build` again, check again.
-3. `python3 evals/probes/ux_blind.py checklist --max-usd 15`, then
-   `python3 evals/probes/ux_blind.py page --out evals/private/ux/blind.html` (it refuses without a fresh
-   passing render check). Verify the page in code before showing it.
-4. **The owner judges 24 blind pairs.** Tell them it is ready, split the message into "the script does"
-   and "you do", wait for "go", open the page in the front Chrome window. The page downloads
-   `ux-blind-results.json`; move it into `evals/private/ux/` and run
-   `python3 evals/probes/ux_blind.py verdict --results evals/private/ux/ux-blind-results.json`.
-5. `design-decision` stage 1, in the order of addendum 3: one run per cell on `design-01` first
-   (`python3 evals/evalkit.py run --phase all --rows design-decision --tasks design-01 --repeats 1`,
-   with a `--max-usd`), compare the durations with the 1200 s timeout and the $6 per-run cap; then the
-   12 Opus `xhigh` runs and both judges (`evalkit.py judge --rows design-decision`, and again with
-   `--judge-cell opus-5-5@high`); then the other cells. `python3 evals/probes/think_first_analysis.py`
-   prints the verdict and the stage-2 commands. Stage 2: the `fast` candidates first; a Fable stage 2 is
-   put to the owner. Stop and report at $300.
-6. Write `evals/results/REPORT-2026-11-13.md` (results, method, limits, deviations, the spend table),
-   have two independent reviewers audit it (tell them not to call the advisor), and write
-   `evals/research/2026-11-13-fable-5-2.md` from the research notes after re-checking its key claims.
-7. Skill pass 2 (P.5), the two new routing rows and `reference/modes.md` rows as the results say, a
-   `agents/ux-designer.md` only if the UI/UX test gives the job a tier, a 2026-11-13 block in
-   `reference/evidence.md`, the advisor cost as a data point in `reference/fan-outs.md`, with scenarios
-   and red-proofed tests.
-8. Review and commit `README.md` and `CHANGELOG.md` with the results, rewrite this section as the final
-   handoff, then the 3.6.0 version commit on its own. Run the whole suite, `check-setup.py` and
-   `evalkit.py selfcheck` first. No push.
-
-### P.5 Rule texts the owner approved, still to be written into the skill
-
-**Think first** (goes before the builders start):
-
-> THINK FIRST when all three are true: 1. later work is built on the choice (data model, API shape,
-> game rule, a screen's layout and flow); 2. at least two options would work, and the files do not
-> settle which; 3. a wrong choice is expensive to undo (about a day of rework, or it reaches players or
-> production). Otherwise: just build.
-> WHO THINKS FIRST: the main chat, if it already runs on the model the table names for the job; else
-> ONE design agent on that model. It returns the decision, reasons, rejected options and risks; the user
-> gets the decision in 2 to 3 lines; then the builders start (manual mode: after the user's yes).
-
-**UI prototype** (becomes a default only if rule UD passes in the blind test):
-
-> THINK FIRST ALSO FOR A UI PROTOTYPE when a prototype, new screen or new flow is built from a
-> description and has 3 or more UI/UX choices that depend on each other. The table's UI/UX designer
-> writes a short brief: screens, flow, every state, words, main action, assumptions made. Builders
-> (Sonnet or Opus) follow it. Small steering stays in the main chat. A rejected direction goes back to
-> the designer.
-
-**Is Fable needed** (the main chat applies it and says in one line what it counted):
-
-> A. UI/UX DESIGN (a prototype, new screen or flow with chained choices): the table's UI/UX designer
-> designs first (Fable if it wins the blind test, otherwise Opus).
-> B. ARCHITECTURE OR APPROACH DECISION: count the signals: 1. nothing in the repo to follow; 2. three or
-> more conflicting rules, written in different places; 3. hard to take back (stored data, money or
-> rewards, security, a contract others depend on). Fable when 2 or 3 are true.
-> C. ALWAYS: an earlier design for the same choice was rejected, reverted or failed review; or the user
-> asks for Fable.
-> Otherwise the cheaper designer (Opus today).
-
-Fable gets a job only where the test gave it the place. The design step is a normal agent, not a new
-vehicle.
-
-### P.6 Things a fresh chat would otherwise get wrong
-
-- **The architecture test is one-sided** (addendum 2). The worker agents that built the two tasks
-  consulted a Fable 5.2 advisor, the pitfalls were first found by AI reviews, and the material is about
-  93k and 84k tokens. So a Fable win on `design-decision` is "provisional" and moves no row until it is
-  repeated on two fresh tasks with pitfalls from the field and no Fable in the loop. A Fable loss
-  stands. The UI/UX rules are not affected. Say this again when the pairs are handed to the owner.
-- **Before any push, squash `9da8208..300a520` into one bite.** The first two of those commits carry
-  an earlier `evals/tasks.json` with task titles that were too specific; `300a520` made them neutral.
-- **A refusal is a failed run; an API error is not** (addenda 1 and 3). A slot lost to API errors is
-  "not run", and the tools exit 3 at the first one.
-- **A Workflow's worker agents can call the session's advisor model.** With the owner's settings that
-  was Fable 5.2 and 41% of one Workflow's cost. `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` switches it off for
-  a whole session. Clean task-building for a later experiment needs it off or headless builders.
-- **Named `Agent` starts are teammates while teams are on**, and they ignore the call's effort. Start
-  one-off helpers without a name.
-- **Open decisions for the owner at the end:** push (with the squash above); whether to run
-  `/agenting-mode workflows always`; later experiments (a planning job, two clean architecture tasks,
-  asking a cheap clean run whether Fable is needed, measuring the other Opus agents); the October
-  question of Haiku `xhigh` for don't-guess in `fast` is still open (section 4).
-
-### P.7 Verify the state (free)
+### P.4 Verify the state (free)
 
 ```
-git status --short                      # expect: M .gitignore, M CHANGELOG.md, M README.md
-git log origin/main..HEAD --oneline     # expect 23 unpushed commits
-python3 -m pytest tests -q              # expect 909 passed
-python3 scripts/check-setup.py          # expect 47 passed, 0 failed
+git status --short                      # expect only: M .gitignore (not from this work; never stage it)
+git log origin/main..HEAD --oneline     # expect 45 unpushed commits
+python3 -m pytest tests -q              # expect 995 passed (about 2.5 minutes)
+python3 scripts/check-setup.py          # expect 53 passed, 0 failed
 python3 evals/evalkit.py selfcheck      # expect 29 tasks, 0 problems
-python3 evals/probes/ux_blind.py plan   # expect designs 0 missing, builds 11 missing of 48
+python3 evals/probes/think_first_analysis.py   # prints the round's verdict again
 ```
+
+### P.5 Things a fresh chat would otherwise get wrong
+
+- **A named `Agent` start is a teammate while agent teams are on,** and a teammate ignores an effort
+  written on its call. Start one-off helpers without a name.
+- **Never write a clock time into a pre-registration from memory.** Four headings of the rules file carry
+  estimated times; read the clock (`date -u`) first.
+- **`ux_blind.py` and `evalkit.py` share one lock.** They do not run at the same time, and a harness
+  file is not edited while a round is running.
+- **A stalled batch is not a slow model.** Addendum 4 says what counts as outage evidence; the watchdog
+  is `evals/private/session-2026-11-13/link_watch.py`.
+- **Private leftovers of the session** are under `evals/private/session-2026-11-13/` (the advisor
+  test's logs, the end-to-end logs, the research notes, backups of the run logs). The owner's 24 blind
+  choices are in `evals/private/ux/results/`.
 
 ---
 
