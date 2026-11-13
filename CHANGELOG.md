@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 3.6.0 — 2026-11-14 (agent guard, where the work runs, workers work alone; Fable 5.2 measured, not adopted)
 
 ### Added
 - **Workers work alone: the advisor is for the decider.** Claude Code's advisor is a server-side tool, and
