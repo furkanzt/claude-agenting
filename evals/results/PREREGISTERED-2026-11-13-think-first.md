@@ -328,3 +328,34 @@ The headings themselves are left as written.
 Note added at 18:21Z, read from the clock: the time in the erratum's own heading was again an
 estimate. The erratum was committed at 18:21Z (`299df3c`), three minutes after the pilot started at
 18:18Z. From here on every time written into this file is read from the clock first.
+
+## Addendum 5, 2026-11-13T18:45Z: the advisor could be reached from harness runs until 17:36Z; no run called it
+
+Written while batch A of `design-decision` (five `opus-5-5@xhigh` runs) was running and while the
+owner was judging the pairs; no `design-decision` answer had been judged or read. The time above
+was read from the clock. Nothing here changes a threshold.
+
+1. **What was found.** Until 17:36:27Z on 2026-11-13 the owner's Claude Code settings named
+   Fable 5.2 as the advisor model. A probe showed that a harness run (`claude -p --restricted
+   --tools Read,Grep,Glob`) started under such settings can call a server-side advisor although it
+   is not in the run's tool list. So the 36 designer runs and the first 41 page builds of
+   `ux-design` could have called it. Addendum 2 knew this of Workflow agents only.
+2. **No stored run did.** Two things show it, both checked on the probe:
+   - a run that calls the advisor reports the advisor's model in its model usage. Every stored
+     attempt of every stage reports exactly its own cell's model, and the harness rejects a run
+     that reports a second model. This rules it out for every Opus and Sonnet run;
+   - an advisor call is billed as uncached input of the whole forwarded conversation (6,283 tokens
+     in the probe, for a conversation of two lines). All 24 designer runs of `fable-5-2@high`
+     record 6 uncached input tokens each. This rules it out for the Fable runs, where the first
+     check cannot see it.
+3. **Since 17:36:27Z the settings name no advisor.** That is before the first checklist call
+   (18:09Z) and before the first `design-decision` run (18:18Z). Both checks of point 2 are applied
+   to every `design-decision` run and reported.
+4. **The stalled builders of addendum 4, point 4.** The four processes had started between 17:34:42Z
+   and 17:35:46Z, so the settings changed 40 to 105 seconds into their runs. The cause of the stall
+   is therefore not established: the settings change and the network are both candidates (the
+   watchdog, started at 17:52Z, logged one failed check at 17:54:24Z). The commit message of
+   addendum 4 names a network interruption; that was an inference.
+5. **Settings changes, from now on.** The modification time of the settings file is noted before
+   and after each batch. A change during a batch counts as evidence in the sense of addendum 4,
+   point 5, exactly like a failed watchdog check.
