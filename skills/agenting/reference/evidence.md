@@ -80,3 +80,52 @@ and judgment overrides changed five of the six:
   Sonnet baseline runs #1 to 3 from an older CLI, the adopted cell is the best of four
   efforts, and prompts stayed far below the 100k tier. 36 of 36 bounds a per-run failure
   below about 8% but counts runs, not tasks. `evals/results/REPORT-2026-10-09.md`.
+
+## Think-first round, 2026-11-13
+
+Claude Fable 5.2 (`claude-fable-5-2`, $8 / $40 per MTok, twice Opus 5.5) was not tested as a worker:
+Opus 5.5 already passes every stored run where the table uses it. It was tested where a model
+decides or designs first and cheaper models build. The rules were committed before any task existed
+([`evals/results/PREREGISTERED-2026-11-13-think-first.md`](../../../evals/results/PREREGISTERED-2026-11-13-think-first.md));
+the full account is [`evals/results/REPORT-2026-11-13.md`](../../../evals/results/REPORT-2026-11-13.md).
+Claude Code 2.1.323, list prices.
+
+- **Architecture or approach decision: stays `opus`/`xhigh`, in every disposition.** Two real
+  decisions from the owner's projects, each with a checklist of binding constraints and of pitfalls
+  that really followed. A run passes when it violates no constraint and misses at most one pitfall.
+  Two judge models (Fable 5.1 `high`, Opus 5.5 `high`), two passes each, agreed on every count.
+
+  | Cell | Easier task, runs passed | Harder task, runs passed | Mean cost per run |
+  |---|---|---|---|
+  | `fable-5-2` `low` | 3 of 3 | 0 of 3 | $2.63 |
+  | `fable-5-2` `medium` | 3 of 3 | 0 of 3 | $2.86 |
+  | `fable-5-2` `high` | 3 of 3 | 0 of 3 | $3.51 |
+  | `opus-5-5` `xhigh` | 6 of 6 | 2 of 6 | $2.31 |
+  | `opus-5-5` `high` | 3 of 3 | 0 of 3 | $1.34 |
+  | `sonnet-5-5` `xhigh` | 3 of 3 | 1 of 3 | $1.02 |
+
+  "Passed" means not failed by both passes of a judge. No Fable cell was free of failures and Opus
+  `xhigh` had four, the case the rules call "both fail" and mark "no cell passed these tasks": no
+  cell reached zero failures over both tasks, and the easier task separated nothing. So nothing
+  moved, in `quality` and in `balanced`. Neither cheaper cell was clean, so `fast` stays
+  `opus`/`xhigh` too. A Fable advisor had helped build the tasks; that could only help Fable, and
+  Fable still did not pass the harder task. On that one task no cell was reliable: one designer
+  alone missed two or more of six foreseeable pitfalls in 18 of 21 runs. One task is not a rule.
+- **UI/UX design before a build: `opus`/`xhigh`, and a design pass is not the default.** Four briefs
+  from the owner's games; Sonnet 5.5 `medium` built every page; the owner chose blind between two
+  pages per pair, 24 pairs. Design by Fable 5.2 `high` against design by Opus 5.5 `xhigh`: the owner
+  preferred Fable's page in 4 of 12 pairs (the bar was 10). Design by Fable against no design pass:
+  the designed page in 9 of 12 (the bar was 10), so a design pass is on request. On the checklist two judge models scored Fable's
+  designs 0.875 and Opus's 0.802. The choices cluster by brief (one brief went 3 to 0 for Fable, three
+  went to Opus), so this is closer to four observations than to twelve. An Opus design pass against
+  no design pass was not compared.
+- **No stored run shows a sign of an advisor call.** A harness run could reach a configured advisor
+  until 2026-11-13 (it is a server-side tool that no tool list removes). A run that calls it reports
+  a second model and thousands of uncached input tokens (checked on one probe). Every run of this
+  round reports one model, and its Fable runs record 6 to 26 uncached input tokens. The 1,167 runs
+  stored in October report one model each too; they predate Fable 5.2, and October's versions of
+  Claude Code were not re-tested. The harness now switches the advisor off for every run. What an advisor does to worker
+  agents in real sessions, and the rule that follows: [delegation.md](delegation.md).
+- **Limits.** Two decision tasks and four briefs, all from one owner's projects; twelve runs or
+  twelve pairs show a large gap only; both judge models come from one vendor; a clean read-only run
+  is not a design agent inside a session.

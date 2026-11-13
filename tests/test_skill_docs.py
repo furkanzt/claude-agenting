@@ -307,3 +307,84 @@ class AdvisorDocs(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ThinkFirstDocs(unittest.TestCase):
+    """The think-first step, its two routing rows and the agent roster, as the 2026-11-13 round left them.
+    The expected cells are written here from the report, not read from the files under test."""
+
+    NEW_ROWS = ("Decide an architecture or approach that later work is built on",
+                "Design a UI/UX solution before a prototype, screen or flow is built")
+    MODES_ROWS = ("Architecture or approach decision", "UI/UX design before a build")
+
+    def setUp(self):
+        self.skill = SKILL.read_text(encoding="utf-8")
+        self.modes = (ROOT / "skills" / "agenting" / "reference" / "modes.md").read_text(encoding="utf-8")
+        self.readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    def section(self, text, start, end):
+        a = text.index(start)
+        return text[a:text.index(end, a)]
+
+    def test_the_think_first_step_states_its_three_conditions_and_its_two_design_agents(self):
+        step = self.section(self.skill, "**3. Think first?**", "## The advisor is for the decider")
+        for needle in ("later work is built on the choice", "at least two options would work",
+                       "expensive to undo", "Otherwise just build",
+                       "`agenting:system-architect`", "`agenting:ux-designer`",
+                       "it is not the default", "only when the user asks for it"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, step)
+        self.assertLess(self.skill.index("**2. Which vehicle?**"), self.skill.index("**3. Think first?**"))
+
+    def test_both_think_first_rows_are_opus_xhigh_in_the_table_and_in_every_disposition(self):
+        table = self.section(self.skill, "## Routing table", "**How the cells were measured.**")
+        for row in self.NEW_ROWS:
+            with self.subTest(row=row):
+                line = next(ln for ln in table.splitlines() if ln.startswith(f"| {row} |"))
+                self.assertEqual([c.strip() for c in line.split("|")[2:4]], ["`opus`", "`xhigh`"])
+        for row in self.MODES_ROWS:
+            with self.subTest(row=row):
+                line = next(ln for ln in self.modes.splitlines() if ln.startswith(f"| {row} |"))
+                self.assertEqual([c.strip() for c in line.split("|")[2:5]], ["`opus`/`xhigh`"] * 3)
+
+    def test_no_cell_of_the_routing_table_or_the_disposition_table_names_fable(self):
+        table = self.section(self.skill, "## Routing table", "**How the cells were measured.**")
+        rows = [ln for ln in table.splitlines() if ln.startswith("| ")]
+        rows += [ln for ln in self.modes.splitlines() if ln.startswith("| ") and "`/`" in ln]
+        self.assertGreater(len(rows), 15)
+        for ln in rows:
+            with self.subTest(row=ln[:40]):
+                self.assertNotIn("fable", ln.lower())
+
+    def tier_table(self, text, sep):
+        """{agent name: "model/effort"} from a tier table whose rows look like | `opus`<sep>`xhigh` | `a`, `b` |."""
+        out = {}
+        for m in re.finditer(rf"^\| `(\w+)`{re.escape(sep)}`(\w+)` \| (.+?) \|$", text, re.M):
+            for name in re.findall(r"`([a-z-]+)`", m.group(3)):
+                self.assertNotIn(name, out, f"{name} is listed twice")
+                out[name] = f"{m.group(1)}/{m.group(2)}"
+        return out
+
+    def test_the_agent_tables_list_every_agent_file_once_at_the_tier_its_front_matter_pins(self):
+        files = {}
+        for f in sorted((ROOT / "agents").glob("*.md")):
+            fm = re.match(r"^---\n(.*?)\n---\n", f.read_text(encoding="utf-8"), re.S).group(1)
+            files[f.stem] = "{}/{}".format(re.search(r"^model:\s*(\S+)", fm, re.M).group(1),
+                                           re.search(r"^effort:\s*(\S+)", fm, re.M).group(1))
+        self.assertIn("ux-designer", files)
+        agents_part = self.section(self.skill, "| Tier | Agents (`agenting:<name>`) |", "Every tier here is a Claude model")
+        self.assertEqual(self.tier_table(agents_part, "/"), files)
+        self.assertEqual(self.tier_table(self.readme, " / "), files)
+        self.assertIn(f"**{len(files)} tiered agent definitions**", self.readme)
+
+    def test_the_ux_designer_is_read_only_on_opus_xhigh_and_returns_the_six_part_brief(self):
+        text = (ROOT / "agents" / "ux-designer.md").read_text(encoding="utf-8")
+        fm = re.match(r"^---\n(.*?)\n---\n", text, re.S).group(1)
+        self.assertRegex(fm, r"(?m)^model: opus$")
+        self.assertRegex(fm, r"(?m)^effort: xhigh$")
+        self.assertRegex(fm, r"(?m)^tools: Read, Grep, Glob$")
+        for part in ("**Screens:**", "**Flow:**", "**States:**", "**Words:**", "**Main action:**", "**Assumptions:**"):
+            with self.subTest(part=part):
+                self.assertIn(part, text)
+        self.assertIn("write no code", text)
+

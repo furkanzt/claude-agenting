@@ -71,6 +71,8 @@ Baseline per disposition:
 | Synthesize across many files | `opus`/`high` | `opus`/`xhigh` | `opus`/`xhigh` |
 | Decide under BELİRSİZ | `sonnet`/`xhigh` | `sonnet`/`xhigh` | `opus`/`xhigh` |
 | Adversarial verify/refute | `sonnet`/`high` | `sonnet`/`high` | `opus`/`high` |
+| Architecture or approach decision | `opus`/`xhigh` | `opus`/`xhigh` | `opus`/`xhigh` |
+| UI/UX design before a build | `opus`/`xhigh` | `opus`/`xhigh` | `opus`/`xhigh` |
 
 `fast` and `balanced` are the measured cells (2026-10-06 and 2026-10-09, `evals/`).
 For verification and BELİRSİZ `fast` and `balanced` use Sonnet: on the first round's items it matched
@@ -95,6 +97,13 @@ synthesis Sonnet does not match Opus (it missed a subtle planted item in 3 of 3
 runs on one task), so `balanced` and `quality` keep `opus`/`xhigh`; `fast` uses
 `opus`/`high`, which saves about a third and missed one planted item in 2 of 9
 runs.
+
+The two think-first rows are `opus`/`xhigh` in all three dispositions (2026-11-13,
+`evals/results/REPORT-2026-11-13.md`). On the architecture row every cell passed the easier task in
+every run, and on the harder one Fable 5.2 passed 0 of 9 runs, Opus `xhigh` 2 of 6, Sonnet `xhigh`
+1 of 3 and Opus `high` 0 of 3, so no cheaper cell earned `fast` and Fable 5.2 was not adopted. On the
+UI/UX row the owner, blind, preferred the page built from Opus's design to the one from Fable 5.2's
+in 8 of 12 pairs. No designer below Opus `xhigh` was tested for that row.
 
 Deviate from the baseline per task, silently and in either direction, whenever
 that task's own stakes call for it, including a different model rather than

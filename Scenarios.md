@@ -2,7 +2,7 @@
 
 Index to `features/*.feature`, this project's executable behaviour catalogue, governed by [TDD.md](TDD.md) and [BDD.md](BDD.md).
 
-**1190 scenarios** across 18 domains — **941 ARMED**, **249 GAP**. Full breakdown: [docs/scenarios/coverage-matrix.md](docs/scenarios/coverage-matrix.md).
+**1195 scenarios** across 18 domains — **946 ARMED**, **249 GAP**. Full breakdown: [docs/scenarios/coverage-matrix.md](docs/scenarios/coverage-matrix.md).
 
 | Feature | Scenarios | ARMED | GAP | What it pins |
 |---|--:|--:|--:|---|
@@ -17,7 +17,7 @@ Index to `features/*.feature`, this project's executable behaviour catalogue, go
 | [`eval-runs.feature`](features/eval-runs.feature) | 92 | 75 | 17 |  |
 | [`fanout-view.feature`](features/fanout-view.feature) | 98 | 98 | 0 |  |
 | [`finish-check.feature`](features/finish-check.feature) | 30 | 14 | 16 |  |
-| [`plugin-docs.feature`](features/plugin-docs.feature) | 57 | 27 | 30 |  |
+| [`plugin-docs.feature`](features/plugin-docs.feature) | 62 | 32 | 30 |  |
 | [`routing-guard.feature`](features/routing-guard.feature) | 159 | 131 | 28 |  |
 | [`session-continuity.feature`](features/session-continuity.feature) | 68 | 42 | 26 |  |
 | [`setup-check.feature`](features/setup-check.feature) | 64 | 18 | 46 |  |

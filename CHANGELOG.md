@@ -57,7 +57,7 @@
   an unrouted start is denied, a routed one and an `agenting:` agent pass silently, a named teammate with no agent
   file is denied with the "only from an agent file" reason, nothing contains "allow", garbage input exits 0. It
   checks the `Agent` wiring, and reports teammates (`ON` passes; `OFF` is a warning that never changes the exit
-  code). `/agenting-check` relays that warning once. The script reports 47 checks.
+  code). `/agenting-check` relays that warning once. With the advisor checks added later in this release the script reports 53 checks.
 - **Eval harness: Fable 5.2 and the think-first rows.** `cells.json` gains `fable-5-2@low`, `@medium` and `@high`
   ($8 / $40 per MTok). `judge --judge-cell <cell>` uses another judge for one invocation, so a second judge's
   scores sit beside the pinned judge's without orphaning the 120 stored ones. `rows.json` gains the
@@ -100,6 +100,14 @@
   `fable-5-2` now sits ahead of `fable`; (2) the meter had no row for `claude-fable-5-2`, so a chat on it was not
   priced; added at $8 / $40 with $0.20 cache reads; (3) the meter priced Sonnet 5.5 cache reads at $0.20 where
   the page says $0.10, so every Sonnet session's cache-read cost was doubled.
+- **A harness run can no longer call the advisor unless its cell names one.** `evals/evalkit.py` starts every
+  model run and judge call (and so every designer, builder and checklist call of `ux_blind.py`) with
+  `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1`. A cell in `cells.json` may name an advisor (`"advisor": {"setting",
+  "model_id"}`): its runs get that advisor through `--settings`, are valid with the cell's model alone or with the
+  advisor's as well, and record `advisor_called` and `advisor_cost_usd`. The advisor is part of a cell's identity
+  only when the cell has one, so every stored run id is unchanged (three hashes are pinned in a test). The first
+  such cell, `sonnet-5-5@xhigh+fable-advisor`, sits in the synthesis row for the test pre-registered in
+  `evals/results/PREREGISTERED-2026-11-13-advisor-pairing.md`.
 - **A clean run can no longer call the advisor.** A `claude -p` process can call a server-side advisor when the
   user's settings name one; it is not in the process's tool list, so `--tools Read` did not prevent it (probed on
   2026-11-13, Claude Code 2.1.323). The call is billed at the advisor model's rate, and it puts a second model
@@ -115,7 +123,32 @@
   old plugin id "agent-routing" and it reads `~/.claude/agents` on purpose; both checks exempt that one name, and
   a test pins the exemption.
 
-Results of the 2026-11-13 think-first evals: to be added.
+### Measured (2026-11-13, [`evals/results/REPORT-2026-11-13.md`](evals/results/REPORT-2026-11-13.md))
+- **Fable 5.2 takes no row of the routing table.** It was tested where a model decides or designs first and
+  cheaper models build, by rules committed before any task existed. Architecture or approach decision: every
+  cell passed the easier of two tasks in every run; on the harder one Fable 5.2 passed 0 of 9 runs (three
+  efforts), Opus 5.5 `xhigh` 2 of 6, Sonnet 5.5 `xhigh` 1 of 3 and Opus 5.5 `high` 0 of 3, with two judge models
+  agreeing on every count. UI/UX design: in 12 blind pairs the owner preferred the page built from Opus's design
+  to the page from Fable's 8 times. As a worker Fable was not run: it costs twice Opus 5.5 per token and Opus
+  already passes every stored run where the table uses it.
+- **Two new rows, both `opus`/`xhigh` in every disposition:** "Decide an architecture or approach that later work
+  is built on" and "Design a UI/UX solution before a prototype, screen or flow is built". No cheaper cell earned
+  `fast` on the first, and none was tested on the second.
+- **A design pass before a UI prototype is on request, not a default.** The owner preferred the page with a
+  design pass by Fable 5.2 to the one built straight from the description in 9 of 12 blind pairs; the bar was 10.
+  A design pass by Opus against none was not compared.
+- **On the harder of the two decision tasks no cell was reliable:** the best passed 2 runs in 6, and one designer
+  alone missed two or more of six foreseeable pitfalls in 18 of 21 runs. This is one task, not a rule.
+
+### Added (skill and roster)
+- **"Think first?", the third step of "Where the work runs".** It is the owner's procedure of 2026-11-13; the
+  round above measured only which model takes it. One model decides before the builders start when
+  later work is built on the choice, at least two options would work and the files do not settle which, and a
+  wrong choice is expensive to undo. It is the main chat when that already runs on the table's model for the
+  job, otherwise one design agent. Fable 5.2 thinks first only when the user asks for it.
+- **`agenting:ux-designer`** (Opus `xhigh`): writes the design brief the blind test used (screens, flow, states,
+  words, main action, assumptions) and no code. It works alone, like every agent but `system-architect`. The
+  roster has 21 agents.
 
 ## 3.5.3 — 2026-11-10 (fan-out view: each chat shows only its own clean runs)
 

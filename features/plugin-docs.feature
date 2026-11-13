@@ -402,3 +402,44 @@ Feature: Plugin packaging, agent pins and doc invariants stay consistent, becaus
     Given skills/agenting/SKILL.md, skills/agenting/reference/delegation.md and README.md
     When the docs test searches each
     Then none contains "/Users/"
+
+  # ---------------------------------------------------------------- think first (2026-11-13)
+
+  # Backed by: tests/test_skill_docs.py::test_the_think_first_step_states_its_three_conditions_and_its_two_design_agents
+  Scenario: The skill's third step says when one model decides before the builders start, and who
+    Given the step "3. Think first?" of skills/agenting/SKILL.md, which follows "2. Which vehicle?"
+    When the docs test reads it
+    Then it states the three conditions: later work is built on the choice, at least two options would work, and a wrong choice is expensive to undo
+    And it says "Otherwise just build"
+    And it names "agenting:system-architect" and "agenting:ux-designer" as the design agents
+    And it says a design pass for a UI prototype "is not the default" and that Fable 5.2 thinks first "only when the user asks for it"
+
+  # Backed by: tests/test_skill_docs.py::test_both_think_first_rows_are_opus_xhigh_in_the_table_and_in_every_disposition
+  Scenario: Both think-first rows are opus at xhigh in the routing table and in all three dispositions
+    Given the routing table of SKILL.md and the disposition table of reference/modes.md
+    When the docs test reads the rows for the architecture decision and the UI/UX design
+    Then each row of the routing table has the model "opus" and the effort "xhigh"
+    And each row of the disposition table has "opus/xhigh" under fast, balanced and quality
+
+  # Backed by: tests/test_skill_docs.py::test_no_cell_of_the_routing_table_or_the_disposition_table_names_fable
+  Scenario: No cell of the routing table or of the disposition table names Fable
+    Given every row of the routing table of SKILL.md and of the disposition table of reference/modes.md
+    When the docs test searches each row
+    Then none contains "fable"
+
+  # Backed by: tests/test_skill_docs.py::test_the_agent_tables_list_every_agent_file_once_at_the_tier_its_front_matter_pins
+  Scenario: The skill's and the README's agent tables list every agent file once, at the tier its front matter pins
+    Given every file in agents/ with the model and effort of its front matter
+    When the docs test reads the agent table of SKILL.md and the roster table of README.md
+    Then each table lists exactly those agents, each once, under its own model and effort
+    And "ux-designer" is among them
+    And the README states the number of agent definitions that the folder holds
+
+  # Backed by: tests/test_skill_docs.py::test_the_ux_designer_is_read_only_on_opus_xhigh_and_returns_the_six_part_brief
+  Scenario: The ux-designer agent is read-only, runs on opus at xhigh and returns the six-part brief
+    Given agents/ux-designer.md
+    When the docs test reads its front matter and body
+    Then the model is "opus", the effort is "xhigh" and the tools are "Read, Grep, Glob"
+    And the body names the sections Screens, Flow, States, Words, Main action and Assumptions
+    And it says "write no code"
+

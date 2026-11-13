@@ -42,6 +42,31 @@ mode propose it and wait.
 | Workflow | Many items or stages that need tools or the web, or a later stage that depends on an earlier one |
 | Teammates (`Agent` with a `name`) | 3 to 5 long-running workers that must talk to each other or be steered while they work |
 
+**3. Think first?** One model decides before the builders start, when all three
+hold:
+
+1. later work is built on the choice (a data model, an API shape, a game rule, a
+   screen's layout and flow);
+2. at least two options would work, and the files do not settle which;
+3. a wrong choice is expensive to undo (about a day of rework, or it reaches
+   players or production).
+
+Otherwise just build. The one who thinks first is the main chat, when it already
+runs on the model the routing table names for that job; otherwise ONE design
+agent on that model: `agenting:system-architect` for an architecture or approach
+decision, `agenting:ux-designer` for a UI/UX design. It returns the decision, the
+reasons, the rejected options and the risks. Give the user the decision in 2 to 3
+lines; then the builders start (`manual` mode: after the user's yes).
+
+- **A UI prototype** is cheap to redo, so condition 3 fails and it gets no design
+  pass by this rule; an extra rule that would have given it one fell short of its
+  bar. Run a design pass for it when the user asks for one: it is not the default.
+  Then the designer writes a brief (screens, flow, every state, the words, the
+  main action, the assumptions), the builders follow it, small steering stays in
+  the main chat, and a rejected direction goes back to the designer.
+- **Fable 5.2 thinks first only when the user asks for it.** It was measured on
+  both jobs and took neither row.
+
 Examples, what each vehicle costs and the teammate rules:
 [reference/delegation.md](reference/delegation.md).
 
@@ -79,15 +104,18 @@ workers work alone.
 | Synthesize across a whole document or many files | `opus` | `xhigh` | Must relate things that are far apart |
 | Decide under a "don't guess" constraint (BELİRSİZ) | `sonnet` | `xhigh` | **Calibration is the product** |
 | Adversarial verify / refute a finding | `sonnet` | `high` | A confident wrong answer is expensive |
+| Decide an architecture or approach that later work is built on | `opus` | `xhigh` | "Think first?" holds, and the choice is a structure |
+| Design a UI/UX solution before a prototype, screen or flow is built | `opus` | `xhigh` | "Think first?" holds, and the choice is what the user sees |
 
 **How the cells were measured.** [`evals/`](../../evals/README.md) ran every
 cell of each row on real tasks and compared measured cost per run: a first sweep
-on 2026-10-06 and a re-check with Haiku 5.5 on 2026-10-09. The numbers behind
-each row, what changed and the limits are in
+on 2026-10-06, a re-check with Haiku 5.5 on 2026-10-09, and a round on the two
+think-first rows on 2026-11-13, where Fable 5.2 was measured and not adopted.
+The numbers behind each row, what changed and the limits are in
 [reference/evidence.md](reference/evidence.md); read it before changing a cell
-or citing a number. Two limits to carry: three tasks per row show large gaps
-only, and the architecture, security, incident and orchestration agents were not
-measured and keep their pins. `quality` keeps Opus on rows 5 to 7 and `fast` uses
+or citing a number. Two limits to carry: two or three tasks per row show large
+gaps only, and the security, incident and orchestration agents were not measured
+and keep their pins. `quality` keeps Opus on rows 5 to 7 and `fast` uses
 Opus `high` for synthesis: [reference/modes.md](reference/modes.md).
 
 Two questions settle almost every case:
@@ -110,7 +138,7 @@ research on the web use `agentType: 'general-purpose'` at the same model and eff
 | `sonnet`/`medium` | `researcher`, `frontend-dev`, `cicd-engineer`, `performance-engineer`, `tester-tdd` |
 | `sonnet`/`high` | `coder-ts`, `database-architect`, `ml-developer`, `refactoring-specialist` |
 | `opus`/`high` | `coordinator`, `swarm-coordinator` |
-| `opus`/`xhigh` | `reviewer`, `security-architect`, `system-architect`, `incident-responder` |
+| `opus`/`xhigh` | `reviewer`, `security-architect`, `system-architect`, `ux-designer`, `incident-responder` |
 
 Every tier here is a Claude model. Before proposing a non-Claude one, read
 [external-model-options.md](external-model-options.md).

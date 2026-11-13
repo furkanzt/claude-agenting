@@ -168,5 +168,9 @@ rule for `advisor`, and the `--disallowedTools` flag. Neither stopped the call.
 - The advisor test used one task and at most 5 agents per arm, each started once.
 - No quality comparison was run between a worker with an advisor and one without.
 - The sentence was not tested on teammates, or on the built-in Explore and Plan agents.
-- A session started with the `--advisor` flag is not seen by the hooks, which read the environment
-  variable and the settings files only. The session line then says `advisor=off` although one is on.
+- An advisor given only on the command line (the `--advisor` flag, or `--settings` with inline JSON)
+  is not seen by the hooks, which read the environment variable and the settings files only.
+  Measured 2026-11-13 in a real session started with inline settings: the line said `advisor=off`
+  and a bare agent start passed. With the advisor named in a settings file, the same session's line
+  said `advisor=fable`, the bare start was denied, and the model added the sentence and succeeded
+  without asking the user.
