@@ -9,7 +9,7 @@ Python scripts, an eval harness, agent definitions and skill docs. There is no s
 
 | Layer | Location | What it proves |
 |---|---|---|
-| Hook pipe tests | `tests/test_routing_guard.py`, `tests/test_session_continuity.py`, `tests/test_finish_check.py` | Each hook runs as a subprocess with JSON on stdin, the way Claude Code runs it, and its stdout JSON / exit code is asserted |
+| Hook pipe tests | `tests/test_routing_guard.py`, `tests/test_agent_guard.py`, `tests/test_session_continuity.py`, `tests/test_finish_check.py` | Each hook runs as a subprocess with JSON on stdin, the way Claude Code runs it, and its stdout JSON / exit code is asserted |
 | Script tests | `tests/test_tokenomics.py` (meter and the cache tripwire's prices), `tests/test_cleanrun.py`, `tests/test_evalkit.py` | The CLIs' behaviour with `claude -p` replaced by a stub |
 | Hooks-module tests | `tests/fanouts.test.tsx` | The fan-out view's band and pane, drawn through Claude Code's plugin test kit (`claude-code/testing`) with the engine stubbed beneath the plugin; no model, no network |
 | Fan-out scanner | `tests/test_fanout_scan.py` | `scripts/fanout_scan.py` against run folders built in a temp dir and a fake process table |

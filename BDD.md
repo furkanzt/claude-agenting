@@ -11,6 +11,9 @@ test by a citation that a machine checks. See [TDD.md](TDD.md) for how the tests
 | routing | The model and effort an `agent()` call runs with |
 | routing guard | `hooks/workflow-routing-guard.py`, a PreToolUse hook on `Workflow` |
 | Stage 1 / Stage 2 | Guard stages: Stage 1 denies a call with no `model`/`agentType` or no `effort`; Stage 2 handles plan approval |
+| agent guard | `hooks/agent-routing-guard.py`, a PreToolUse hook on `Agent`: denies a start with no model or effort |
+| teammate | An `Agent` call with a `name` while agent teams are on; its effort comes only from an agent file |
+| standing default | The Workflows opt-in recorded once for every chat (`--record-default`) |
 | mode | `auto` (decide and run) or `manual` (ask the user, then `--approve`) |
 | disposition | `fast`, `balanced` or `quality`: how auto mode leans |
 | workflows opt-in | `on`/`off`, whether Workflows run without asking in this chat |
@@ -81,6 +84,7 @@ harness by tests with a stub `claude`; none of them calls a real model.
 | File | Source under test | Main tests |
 |---|---|---|
 | `routing-guard.feature` | `hooks/workflow-routing-guard.py` | `tests/test_routing_guard.py` |
+| `agent-guard.feature` | `hooks/agent-routing-guard.py` | `tests/test_agent_guard.py` |
 | `session-continuity.feature` | `hooks/session-continuity.py` | `tests/test_session_continuity.py` |
 | `finish-check.feature` | `hooks/workflow-finish-check.py` | `tests/test_finish_check.py` |
 | `cache-tripwire.feature` | `hooks/cache-tripwire.py` | `tests/test_tokenomics.py` (prices) |

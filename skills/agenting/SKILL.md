@@ -1,6 +1,6 @@
 ---
 name: agenting
-description: Use when writing or editing a Workflow script, planning a fan-out of many agents, choosing a model or effort for an agent() or Agent call, when the user switches agenting mode (auto/manual) or disposition (fast/balanced/quality) or opts in to workflows for this chat, or when a project has agenting/AGENTING.md. Routing table and launch procedure.
+description: Use when deciding whether bulk work leaves the main chat, starting a teammate, writing or editing a Workflow script, planning a fan-out of many agents, choosing a model or effort for an agent() or Agent call, when the user switches agenting mode (auto/manual) or disposition (fast/balanced/quality) or opts in to workflows for this chat, or when a project has agenting/AGENTING.md. Routing and delegation rules.
 ---
 
 # Agenting
@@ -9,6 +9,41 @@ An `agent()` call with no `model`/`effort` inherits the main session's tier:
 wasted spend when the session is expensive, an under-powered agent when it is
 cheap. Subagents are the only way one session runs several tiers at once, so
 route every call by the reasoning it needs, and look in both directions.
+
+The main chat is the **decider**: it keeps the decisions and the conversation,
+hands bulk work to cheaper workers, and gives each worker a tier from the table
+below. Two questions come before any routing.
+
+## Where the work runs
+
+**1. Main chat, or off it?** Work stays in the main chat when any of these
+holds: a quick fix (about 1 to 3 files, under 50 lines); rapid prototyping, or
+any loop where the user looks at the result and steers the next step; each step
+depends on the one before; the main chat needs the details afterwards, not only
+the result; one long command (run it in the background, it needs no agent).
+Work leaves only when all three hold:
+
+1. it can be briefed in one message, with no question to the user on the way;
+2. the main chat needs only the result (a summary, a list, the changed files);
+3. it is big in at least one way: about 5 or more similar items; or reading of
+   about 10 or more files or 20k or more tokens that the main chat will not
+   need again; or 2 or more independent parts that can run at once.
+
+Time alone never decides, and in doubt the work stays. In `auto` mode start
+off-chat work without asking and say in one line what runs where; in `manual`
+mode propose it and wait.
+
+**2. Which vehicle?** The cheapest that fits:
+
+| Vehicle | Fits when |
+|---|---|
+| One agent (`Agent`, no `name`) | One question or one piece of work; only its summary returns |
+| Clean run (`scripts/cleanrun.py`) | Many similar items, each self-contained, read-only, output checkable in code |
+| Workflow | Many items or stages that need tools or the web, or a later stage that depends on an earlier one |
+| Teammates (`Agent` with a `name`) | 3 to 5 long-running workers that must talk to each other or be steered while they work |
+
+Examples, what each vehicle costs and the teammate rules:
+[reference/delegation.md](reference/delegation.md).
 
 ## Routing table
 
@@ -220,22 +255,40 @@ await agent("Hardest synthesis step; wants whatever the session is on", { schema
 ```
 
 Mark calls one at a time. Ask the user before marking several: blanket
-inheritance switches Stage 1 off.
+inheritance switches Stage 1 off. For an `Agent` call the mark is a line
+`routing: inherit` in the prompt.
 
-## Single Agent calls: judgment, not a gate
+## Agent starts: what the agent guard denies
 
-The `Agent` tool is not gated: every `agenting:` agent pins its model and
-effort, and one agent is bounded. Spawn it as `subagent_type: "agenting:<name>"`.
-Ask before spawning when the tier and the task disagree:
+`agent-routing-guard.py` runs before every `Agent` call and denies a start that
+would take its tier by accident. Fix the call and retry; the user is not asked.
+
+- **A one-off agent** (no `name`) needs a `model` and an `effort`, on the call
+  or pinned by its agent file. Every `agenting:` agent pins both: spawn it as
+  `subagent_type: "agenting:<name>"`.
+- **A teammate** (a `name`, while agent teams are on) takes its model from the
+  call or its agent file, and its effort **only from an agent file**: an
+  `effort` written on a teammate's call is ignored (measured on Claude Code
+  2.1.323). Start it from the `agenting:` agent whose tier fits its role, or
+  drop the name to start a one-off agent. Shut each teammate down (`TaskStop`
+  with its name) when its part is done.
+- **A fork** passes: it copies the main chat on purpose.
+
+The guard checks that a tier is set, not that it fits. These are the usual
+mismatches:
 
 - `agenting:scanner` (haiku/medium) for something that needs a decision, not a count
 - `agenting:researcher` (sonnet/medium) for synthesis that needs opus
 - a task where a confident wrong answer would propagate silently
 - the session is on a cheap tier and this call is the hard part of the work
 
-Frame it as a tier question: *"This is really synthesis. Want
-`agenting:system-architect` (opus/xhigh) instead of `agenting:researcher`
-(sonnet/medium)?"*
+In `auto` mode pick the agent that fits. In `manual` mode ask it as a tier
+question: *"This is really synthesis. Want `agenting:system-architect`
+(opus/xhigh) instead of `agenting:researcher` (sonnet/medium)?"*
+
+When the `[agenting]` line says `teammates=off` and a job fits teammates, run
+it as a Workflow and tell the user once in this chat how to turn them on; the
+wording is in [reference/delegation.md](reference/delegation.md).
 
 ## Fan-outs: what each agent costs to start
 
@@ -262,9 +315,11 @@ inside a subagent may not deliver it).
 
 Three values carried per session by the SessionStart hook: mode
 (`auto`|`manual`), disposition (`fast`|`balanced`|`quality`) and the workflows
-opt-in (`on`|`off`). When the user changes any of them, in words or with
-`/agenting-mode`, read [reference/modes.md](reference/modes.md) and record the
-change before replying.
+opt-in (`on`|`off`, seeded from the standing default when the user set one).
+When the user changes any of them, in words or with `/agenting-mode`, read
+[reference/modes.md](reference/modes.md) and record the change before replying.
+The same line reports `teammates=on|off`, read from the environment, which the
+user changes in their settings and not through this plugin.
 
 ## When the finish check fires
 

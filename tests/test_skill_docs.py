@@ -192,5 +192,69 @@ class FanOutGuidance(unittest.TestCase):
             self.assertNotIn("/private/", text)
 
 
+DELEGATION = ROOT / "skills" / "agenting" / "reference" / "delegation.md"
+MODES = ROOT / "skills" / "agenting" / "reference" / "modes.md"
+HOOKS_JSON = ROOT / "hooks" / "hooks.json"
+TEAMS_VAR = "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
+
+
+class DelegationRules(unittest.TestCase):
+    """The skill's rules for where work runs must agree with the hooks that enforce them."""
+
+    def setUp(self):
+        self.skill = SKILL.read_text(encoding="utf-8")
+        self.delegation = DELEGATION.read_text(encoding="utf-8")
+        self.modes = MODES.read_text(encoding="utf-8")
+
+    def test_the_skill_says_agent_starts_are_checked_and_the_hook_is_wired(self):
+        self.assertIn("agent-routing-guard.py", self.skill)
+        self.assertNotIn("is not gated", self.skill)
+        entries = json.loads(HOOKS_JSON.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+        wired = [e for e in entries if e.get("matcher") == "Agent"
+                 and any("agent-routing-guard.py" in h.get("command", "") for h in e.get("hooks", []))]
+        self.assertEqual(len(wired), 1)
+
+    def test_the_bulk_thresholds_are_the_same_in_the_skill_and_the_reference(self):
+        # the owner fixed these on 2026-11-13; a pin keeps one file from drifting away from the other
+        section = " ".join(self.skill.split("## Where the work runs", 1)[1].split("\n## ", 1)[0].split())
+        reference = " ".join(self.delegation.split())
+        for phrase in ("about 5 or more similar items",
+                       "about 10 or more files or 20k or more tokens",
+                       "2 or more independent parts",
+                       "Time alone never decides"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, section)
+                self.assertIn(phrase, reference)
+
+    def test_the_four_vehicles_are_named_in_the_same_order_in_both_files(self):
+        order = ["One agent", "Clean run", "Workflow", "Teammates"]
+        for name, text in (("SKILL.md", self.skill.split("## Where the work runs", 1)[1].split("\n## ", 1)[0]),
+                           ("delegation.md", self.delegation.split("## The four vehicles", 1)[1].split("\n## ", 1)[0])):
+            with self.subTest(doc=name):
+                rows = [line.split("|")[1].strip().strip("*") for line in text.splitlines()
+                        if line.startswith("|") and not line.startswith("|---") and "Vehicle" not in line]
+                self.assertEqual([next(o for o in order if r.startswith(o)) for r in rows], order)
+
+    def test_the_teammates_switch_has_one_name_in_the_docs_and_the_hooks(self):
+        for path in (DELEGATION, ROOT / "hooks" / "session-continuity.py", ROOT / "hooks" / "agent-routing-guard.py"):
+            with self.subTest(file=path.name):
+                self.assertIn(TEAMS_VAR, path.read_text(encoding="utf-8"))
+
+    def test_the_teammate_effort_rule_is_stated_where_a_teammate_is_started(self):
+        section = " ".join(self.skill.split("## Agent starts", 1)[1].split("\n## ", 1)[0].split())
+        self.assertIn("its effort **only from an agent file**", section)
+        self.assertIn("TaskStop", section)
+        self.assertIn("effort only from an agent file", " ".join(self.delegation.replace("*", "").split()))
+
+    def test_the_standing_default_is_documented_with_the_flag_the_recorder_accepts(self):
+        self.assertIn("--record-default --workflows on", self.modes)
+        recorder = (ROOT / "hooks" / "session-continuity.py").read_text(encoding="utf-8")
+        self.assertIn('"--record-default"', recorder)
+
+    def test_the_delegation_reference_has_no_local_paths(self):
+        self.assertNotIn("/Users/", self.delegation)
+        self.assertNotIn("/private/", self.delegation)
+
+
 if __name__ == "__main__":
     unittest.main()

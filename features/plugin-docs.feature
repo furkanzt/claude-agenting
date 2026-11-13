@@ -325,3 +325,49 @@ Feature: Plugin packaging, agent pins and doc invariants stay consistent, becaus
     Given .claude-plugin/plugin.json
     When its "license", "homepage" and "repository" fields are read
     Then the license is "MIT" and homepage and repository both equal "https://github.com/furkanzt/claude-agenting"
+
+  # --- Where the work runs: the skill's delegation rules agree with the hooks ---
+
+  # Backed by: tests/test_skill_docs.py::test_the_skill_says_agent_starts_are_checked_and_the_hook_is_wired
+  Scenario: The skill describes the agent guard that hooks.json wires
+    Given skills/agenting/SKILL.md and hooks/hooks.json
+    When the docs test reads them
+    Then SKILL.md names "agent-routing-guard.py" and does not say "is not gated"
+    And hooks.json has exactly 1 PreToolUse entry with matcher "Agent" running agent-routing-guard.py
+
+  # Backed by: tests/test_skill_docs.py::test_the_bulk_thresholds_are_the_same_in_the_skill_and_the_reference
+  Scenario: The bulk thresholds read the same in SKILL.md and reference/delegation.md
+    Given the "Where the work runs" section of SKILL.md and reference/delegation.md
+    When the docs test compares them
+    Then both contain "about 5 or more similar items", "about 10 or more files or 20k or more tokens" and "2 or more independent parts"
+    And both contain "Time alone never decides"
+
+  # Backed by: tests/test_skill_docs.py::test_the_four_vehicles_are_named_in_the_same_order_in_both_files
+  Scenario: The four vehicles are listed cheapest first in both files
+    Given the vehicle tables of SKILL.md and reference/delegation.md
+    When the docs test reads their first column
+    Then each lists One agent, Clean run, Workflow, Teammates in that order
+
+  # Backed by: tests/test_skill_docs.py::test_the_teammates_switch_has_one_name_in_the_docs_and_the_hooks
+  Scenario: The teammates switch has one name in the docs and the hooks
+    Given reference/delegation.md, hooks/session-continuity.py and hooks/agent-routing-guard.py
+    When the docs test searches them
+    Then each contains "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
+
+  # Backed by: tests/test_skill_docs.py::test_the_teammate_effort_rule_is_stated_where_a_teammate_is_started
+  Scenario: The skill states that a teammate takes its effort only from an agent file
+    Given the "Agent starts" section of SKILL.md
+    When the docs test reads it
+    Then it contains "its effort **only from an agent file**" and "TaskStop"
+
+  # Backed by: tests/test_skill_docs.py::test_the_standing_default_is_documented_with_the_flag_the_recorder_accepts
+  Scenario: reference/modes.md documents the standing default with the recorder's own flag
+    Given reference/modes.md and hooks/session-continuity.py
+    When the docs test reads them
+    Then modes.md contains "--record-default --workflows on" and the recorder defines "--record-default"
+
+  # Backed by: tests/test_skill_docs.py::test_the_delegation_reference_has_no_local_paths
+  Scenario: reference/delegation.md carries no local path
+    Given reference/delegation.md
+    When the docs test searches it
+    Then it contains neither "/Users/" nor "/private/"

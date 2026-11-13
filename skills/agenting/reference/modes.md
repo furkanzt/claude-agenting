@@ -2,8 +2,11 @@
 
 All three belong to one chat continuum. They are keyed on `session_id`, which
 survives compaction; a new conversation or `/clear` starts from the defaults
-(`auto`, `balanced`, not opted in). On every SessionStart the hook prints them
-in one `[agenting]` line together with the recorder path and the session id.
+(`auto`, `balanced`, and the workflows opt-in the standing default names, else
+not opted in). On every SessionStart the hook prints them in one `[agenting]`
+line together with the recorder path and the session id. The same line carries
+`teammates=on|off`: a fact read from the environment and the settings files, not
+a value this plugin records.
 
 ## Recording a change
 
@@ -21,10 +24,13 @@ command you type yourself.
 
 ## Mode: auto | manual
 
-| Mode | Who resolves the routing plan | What the guard does at Stage 2 |
-|---|---|---|
-| `auto` (default) | You, from the table, disposition and project Rules | Steps aside with a system message. It never emits an allow, so the user's own permission settings for Workflow still apply. |
-| `manual` | The user, via AskUserQuestion | Denies until the approve command it printed has been run |
+| Mode | Who resolves the routing plan | What the guard does at Stage 2 | Work that fits "off the main chat" |
+|---|---|---|---|
+| `auto` (default) | You, from the table, disposition and project Rules | Steps aside with a system message. It never emits an allow, so the user's own permission settings for Workflow still apply. | Start it without asking; say in one line what runs where and on which tier |
+| `manual` | The user, via AskUserQuestion | Denies until the approve command it printed has been run | Propose it and wait for the user's yes |
+
+When work leaves the main chat, and by which vehicle, is in
+[delegation.md](delegation.md). The mode only decides whether you ask first.
 
 The user changes it in words ("switch to manual", "stop deciding for me",
 "decide it yourself") or with `/agenting-mode auto|manual`.
@@ -118,3 +124,14 @@ leaves routing unchanged.
 - Record `on` only from the user's own words. A one-off "use a workflow for
   this" covers that task alone and is not recorded; a task that merely looks
   workflow-shaped is not an opt-in.
+- **Standing default.** When the user asks for Workflows in every chat
+  ("always use workflows", `/agenting-mode workflows always`), record it once
+  with `--record-default --workflows on` (no `--session`). Every chat that
+  starts afterwards is seeded with it and its `[agenting]` line reads
+  `workflows=on (standing: ...)`. `--record-default --workflows unset`
+  (`/agenting-mode workflows never-default`) removes it. A chat that already
+  has a record keeps its own value, and a per-chat `--workflows on|off` wins
+  for that chat.
+- Only a Workflow needs the opt-in. One agent, a clean run and teammates start
+  under the mode alone. Without an opt-in, use those and say once that a
+  Workflow would fit.

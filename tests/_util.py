@@ -20,6 +20,7 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 CONTINUITY = HOOKS / "session-continuity.py"
 GUARD = HOOKS / "workflow-routing-guard.py"
 FINISH = HOOKS / "workflow-finish-check.py"
+AGENT_GUARD = HOOKS / "agent-routing-guard.py"
 
 
 class HookTestCase(unittest.TestCase):

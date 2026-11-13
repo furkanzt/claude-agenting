@@ -20,8 +20,8 @@ Feature: Session continuity carries mode, disposition and workflows opt-in acros
     And it contains "(session 11111111-2222-3333-4444-555555555555)"
     And it contains python3 "<absolute path of session-continuity.py>" --record --session 11111111-2222-3333-4444-555555555555
     And it contains "[--workflows on|off]"
-    And it contains "Load the agenting skill before authoring a Workflow."
-    And everything except the script path and the two session ids is shorter than 300 characters
+    And it contains "Load the agenting skill before moving bulk work off this chat or starting an agent, teammate or Workflow."
+    And everything except the script path and the two session ids is shorter than 450 characters
 
   # Backed by: tests/test_session_continuity.py::test_message_never_asks
   Scenario: The [agenting] line never asks the user anything
@@ -364,3 +364,109 @@ Feature: Session continuity carries mode, disposition and workflows opt-in acros
     Given the state file holds session "old" with mode "manual" and updated "2026-01-01T00:00:00Z"
     When SessionStart fires for session "old" with source "resume"
     Then the session record for "old" still has updated "2026-01-01T00:00:00Z"
+
+  # ---- teammates status and the standing Workflows default ----
+
+  # Backed by: tests/test_session_continuity.py::test_teammates_on_from_the_environment
+  Scenario: The line says teammates=on when the environment variable is true
+    Given CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS is "TRUE" in the hook's environment
+    When SessionStart fires for session "11111111-2222-3333-4444-555555555555" with source "startup"
+    Then the additionalContext contains " · teammates=on (session"
+    And it does not contain "teammates=off"
+
+  # Backed by: tests/test_session_continuity.py::test_teammates_off_when_absent_everywhere
+  Scenario: The line says teammates=off when no environment variable or settings file names it
+    Given CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS is absent from the environment and from the user, project and local settings files
+    When SessionStart fires for a new session with source "startup"
+    Then the additionalContext contains "teammates=off"
+    And it does not contain "teammates=on"
+
+  # Backed by: tests/test_session_continuity.py::test_teammates_off_note_text
+  Scenario: The teammates=off note tells Claude to explain once how to turn teammates on
+    Given teammates are off
+    When SessionStart fires for session "11111111-2222-3333-4444-555555555555" with source "startup"
+    Then the additionalContext contains "workflows=not opted in · teammates=off (when a job fits teammates, tell the user once in this chat how to turn them on; see the skill's teammates section) (session 11111111-2222-3333-4444-555555555555)"
+    And it has no newline and does not contain "?"
+
+  # Backed by: tests/test_session_continuity.py::test_teammates_on_from_the_user_settings_file
+  Scenario: Teammates are on when only ~/.claude/settings.json sets the variable to 1 in its env object
+    Given the environment lacks CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS and $HOME/.claude/settings.json has {"env": {"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"}}
+    When SessionStart fires for a new session with source "startup"
+    Then the additionalContext contains " · teammates=on (session"
+
+  # Backed by: tests/test_session_continuity.py::test_teammates_on_from_the_project_local_settings_file
+  Scenario: Teammates are on when only the project's .claude/settings.local.json sets the variable
+    Given the environment lacks the variable and <cwd>/.claude/settings.local.json has {"env": {"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "true"}}
+    When SessionStart fires with that cwd
+    Then the additionalContext contains " · teammates=on (session"
+
+  # Backed by: tests/test_session_continuity.py::test_environment_variable_beats_the_settings_files
+  Scenario: A present environment variable decides even when a settings file says otherwise
+    Given the environment variable is "0" and $HOME/.claude/settings.json sets it to "1"
+    When SessionStart fires for a new session with source "startup"
+    Then the additionalContext contains "teammates=off"
+
+  # Backed by: tests/test_session_continuity.py::test_non_object_settings_file_counts_as_absent
+  Scenario: An unreadable or non-object settings file is ignored
+    Given the environment lacks the variable, the user settings file holds a JSON list, the project settings file is not JSON and the local settings file has an env that is a list
+    When SessionStart fires for a new session with source "startup"
+    Then the exit code is 0
+    And the additionalContext contains "teammates=off"
+
+  # Backed by: tests/test_session_continuity.py::test_status_prints_the_teammates_value
+  Scenario: --status prints the teammates value
+    Given the variable is absent from every source
+    When --status is run for a session
+    Then the output contains "teammates=off"
+    And with the variable set to "1" in the environment it contains "teammates=on"
+
+  # Backed by: tests/test_session_continuity.py::test_default_is_recorded_and_shown_by_status
+  Scenario: --record-default stores the standing Workflows default under _defaults and --status shows it
+    Given an empty state directory
+    When --record-default --workflows on is run with no --session
+    Then the state file key "_defaults" is {"workflows": "on"}
+    And --status with and without --session prints "standing default: workflows=on"
+
+  # Backed by: tests/test_session_continuity.py::test_new_session_is_seeded_from_the_default_and_labelled_standing
+  Scenario: A session seen for the first time takes the standing default and the line labels it standing
+    Given the standing default is workflows on
+    When SessionStart fires for a new session with source "startup"
+    Then the session record has workflows "on" and workflows_source "default"
+    And the additionalContext contains "workflows=on (standing: the user set this for all chats; run Workflows for substantive tasks without re-asking)"
+    And a later compact SessionStart prints the same standing text
+
+  # Backed by: tests/test_session_continuity.py::test_existing_session_is_untouched_by_a_later_default
+  Scenario: A session that already has a record is never changed by a later default
+    Given session "11111111-2222-3333-4444-555555555555" has a record with workflows null
+    When --record-default --workflows on is run
+    Then that record still has workflows null
+    And a resume SessionStart prints "workflows=not opted in" without "standing"
+
+  # Backed by: tests/test_session_continuity.py::test_per_chat_record_clears_the_standing_mark
+  Scenario: --record --workflows in a seeded session clears the standing mark
+    Given the standing default is workflows on and a session was seeded from it
+    When --record --session <id> --workflows off is run
+    Then the session record has workflows "off" and no workflows_source key
+    And the next SessionStart line does not contain "standing"
+
+  # Backed by: tests/test_session_continuity.py::test_unset_removes_the_default
+  Scenario: --record-default --workflows unset removes the standing default
+    Given the standing default is workflows on
+    When --record-default --workflows unset is run
+    Then the state file has no "_defaults" key
+    And --status prints "standing default: workflows=unset"
+    And a new session is seeded with "workflows=not opted in"
+
+  # Backed by: tests/test_session_continuity.py::test_defaults_key_survives_pruning_and_is_not_a_session
+  Scenario: The _defaults key survives pruning and is not counted as a session
+    Given the standing default is workflows on
+    When --record is run for 25 distinct sessions
+    Then the state file still has "_defaults" {"workflows": "on"}
+    And it has exactly 20 other entries
+
+  # Backed by: tests/test_session_continuity.py::test_record_default_needs_no_session_and_rejects_bad_values
+  Scenario: The standing default accepts only on, off or unset, and unset is not a per-chat value
+    When --record-default --workflows maybe is run
+    Then the exit code is not 0
+    And --record-default with no --workflows also exits non-zero and writes no state file
+    And --record --session <id> --workflows unset also exits non-zero
