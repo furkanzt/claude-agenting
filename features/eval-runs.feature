@@ -533,3 +533,9 @@ Feature: The evalkit runner plans only the missing runs, executes each as its ow
     When a run of each starts
     Then the files task work directory holds "sub/deep.txt"
     And the inline task work directory is empty
+
+  # Backed by: tests/test_evalkit.py::test_runs_record_the_stop_reason_and_safety_stops_of_valid_and_invalid_attempts
+  Scenario: Every run line records the CLI's stop_reason and safety_stops, null and 0 when the JSON did not parse
+    Given claude answers with stop_reason "refusal" and safety_stops 2, then with stop_reason "end_turn" and no safety_stops, then with is_error, stop_reason "refusal" and safety_stops 1, then with output that is not JSON
+    When I run evalkit.py run for "n-1" on cell "cheap" for repeats 1 to 3 and on cell "up" repeat 1
+    Then the four runs.jsonl lines carry ("refusal", 2) valid, ("end_turn", 0) valid, ("refusal", 1) invalid and (null, 0) invalid

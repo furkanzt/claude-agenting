@@ -1433,6 +1433,23 @@ class CliVersion(EvalTestCase):
                                    "--repeats", "2", FAKE_CLAUDE_VERSION="11.0.0").stdout)
         self.assertEqual(plan["items"], [])                              # a new CLI version re-plans nothing
 
+    def test_runs_record_the_stop_reason_and_safety_stops_of_valid_and_invalid_attempts(self):
+        self.cli("run", "--rows", "noticed-row", "--cells", "cheap", "--repeats", "1",
+                 FAKE_CLAUDE_STOP_REASON="refusal", FAKE_CLAUDE_SAFETY_STOPS="2")
+        self.cli("run", "--rows", "noticed-row", "--cells", "cheap", "--repeats", "2")        # stub default: stop_reason end_turn, no safety_stops
+        self.cli("run", "--rows", "noticed-row", "--cells", "cheap", "--repeats", "3", mode="error",
+                 FAKE_CLAUDE_STOP_REASON="refusal", FAKE_CLAUDE_SAFETY_STOPS="1")
+        self.cli("run", "--rows", "noticed-row", "--cells", "up", "--repeats", "1", mode="bad_json")
+        by_repeat = {r["repeat"]: r for r in self.runs() if r["task_id"] == "n-1" and r["cell_id"] == "cheap"}
+        unparsed = next(r for r in self.runs() if r["cell_id"] == "up")
+        self.assertEqual((by_repeat[1]["valid"], by_repeat[1]["stop_reason"], by_repeat[1]["safety_stops"]),
+                         (True, "refusal", 2))
+        self.assertEqual((by_repeat[2]["stop_reason"], by_repeat[2]["safety_stops"]), ("end_turn", 0))   # absent: 0
+        self.assertEqual((by_repeat[3]["valid"], by_repeat[3]["stop_reason"], by_repeat[3]["safety_stops"]),
+                         (False, "refusal", 1))                 # an invalid attempt keeps them too
+        self.assertEqual((unparsed["valid"], unparsed["stop_reason"], unparsed["safety_stops"]),
+                         (False, None, 0))                      # JSON did not parse: null and 0
+
     def test_judge_scores_carry_the_version(self):
         self.cli("run", "--tasks", "j-1", "--cells", "cheap", "--repeats", "1")
         self.cli("judge", FAKE_CLAUDE_ANSWER=Judging.JUDGMENT)

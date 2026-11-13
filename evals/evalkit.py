@@ -753,6 +753,15 @@ def prepare_workdir(ctx, task, rid):
     return wd
 
 
+def stop_fields(data):
+    """The CLI's top-level `stop_reason` (string or None) and `safety_stops` (int, 0 when absent or not a
+    number), for any attempt whose JSON parsed. A safety-classifier refusal shows up in one of the two."""
+    data = data if isinstance(data, dict) else {}
+    reason, stops = data.get("stop_reason"), data.get("safety_stops")
+    return {"stop_reason": reason[:DETAIL_STR_MAX] if isinstance(reason, str) else None,
+            "safety_stops": stops if isinstance(stops, int) and not isinstance(stops, bool) else 0}
+
+
 def run_record(ctx, item, call, valid, reason, data):
     cell, model = ctx.cells[item["cell"]], ctx.model_id(item["cell"])
     cost, unknown = call_cost(call, data)
@@ -763,7 +772,7 @@ def run_record(ctx, item, call, valid, reason, data):
             "valid": valid, "invalid_reason": reason, "effort": cell.get("effort"),
             **usage_of(data, model), "cost_usd": cost, **({"cost_unknown": True} if unknown else {}),
             "duration_ms": (data or {}).get("duration_ms"), "num_turns": (data or {}).get("num_turns"),
-            "cli_version": ctx.cli_version, "ts": now()}
+            **stop_fields(data), "cli_version": ctx.cli_version, "ts": now()}
 
 
 def claude_version(ctx):

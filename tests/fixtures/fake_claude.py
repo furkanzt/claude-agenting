@@ -17,6 +17,8 @@ Other env: FAKE_CLAUDE_SEQ (a JSON list of answer texts) with FAKE_CLAUDE_STATE 
 file): call n answers with SEQ[min(n, len-1)], so one test can script "garbage, then good".
 FAKE_CLAUDE_COST (default 0.01), FAKE_CLAUDE_THINKING (default 100),
 FAKE_CLAUDE_LOG (append one JSON line per call: argv, cwd, files, prompt).
+FAKE_CLAUDE_STOP_REASON and FAKE_CLAUDE_SAFETY_STOPS, when set, add the top-level `stop_reason` and
+`safety_stops` fields to the result JSON (the real CLI always has them); unset, the output is unchanged.
 
 `--version` prints FAKE_CLAUDE_VERSION (default "9.9.9 (Fake)") and exits 0 before anything
 else happens: no stdin read, no FAKE_CLAUDE_LOG line. FAKE_CLAUDE_VERSION_LOG, if set, gets
@@ -66,6 +68,15 @@ def result_json(model, text, cost, thinking, is_error=False):
             "usage": usage, "modelUsage": {model: {
                 "inputTokens": 2, "outputTokens": thinking + 3, "cacheReadInputTokens": 0,
                 "cacheCreationInputTokens": 550, "costUSD": cost, "thinkingTokens": thinking}}}
+
+
+def with_stop_fields(result):
+    """Add `stop_reason` and `safety_stops` from the environment, when set (see the module docstring)."""
+    if os.environ.get("FAKE_CLAUDE_STOP_REASON") is not None:
+        result["stop_reason"] = os.environ["FAKE_CLAUDE_STOP_REASON"]
+    if os.environ.get("FAKE_CLAUDE_SAFETY_STOPS") is not None:
+        result["safety_stops"] = int(os.environ["FAKE_CLAUDE_SAFETY_STOPS"])
+    return result
 
 
 def next_in_sequence():
@@ -119,9 +130,9 @@ def main():
     elif mode == "no_block":
         text = "I think the answer is 42."
     elif mode == "error":
-        print(json.dumps(result_json(model, "API Error: overloaded", 0.0, 0, is_error=True)))
+        print(json.dumps(with_stop_fields(result_json(model, "API Error: overloaded", 0.0, 0, is_error=True))))
         return 1
-    print(json.dumps(result_json(model, text, cost, thinking)))
+    print(json.dumps(with_stop_fields(result_json(model, text, cost, thinking))))
     return 0
 
 

@@ -118,12 +118,13 @@ Thresholds are set **before** any run and recorded in `task.json`.
 {"run_id","harness_version","task_id","task_hash","cell_id","cell_hash","repeat",
  "model_id_expected","model_id_observed","valid","invalid_reason",
  "effort","input_tokens","output_tokens","thinking_tokens","cache_read_tokens",
- "cost_usd","duration_ms","num_turns","cli_version","ts"}
+ "cost_usd","duration_ms","num_turns","stop_reason","safety_stops","cli_version","ts"}
 ```
 
 `cost_usd` is `null` with `"cost_unknown": true` when a run was killed or its output
 could not be parsed (it is then charged to `--max-usd` at the per-run cap, never
 counted as free). `cli_version` is `claude --version` at the time of the run.
+`stop_reason` (string or null) and `safety_stops` (integer, 0 when absent) are the CLI result JSON's top-level fields of the same name, kept for valid and invalid attempts whose JSON parsed; a safety-classifier refusal shows up as `stop_reason` `"refusal"` or `safety_stops` above 0, which tells it apart from a rate limit. Lines written before 2026-11-13 lack both fields: read them as null and 0.
 
 `run_id = sha1("{harness_version}|{task_id}|{task_hash}|{cell_hash}|{repeat}")[:16]`, where `cell_hash` is the sha8 of the canonical JSON of `{cell_id, model_id, effort, system_append}`. Changing any of those re-runs that cell only; a new prompt-variant cell (e.g. `sonnet-5-5@low+think`) is just another cell.
 
