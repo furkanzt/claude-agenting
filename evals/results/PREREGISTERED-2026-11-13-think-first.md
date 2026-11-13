@@ -313,3 +313,14 @@ changes a threshold. Points 1 to 3 close a gap in addendum 3, point 4.
      aside;
    - the operator may interrupt a batch only on the same evidence (a failed check, a gap or a
      sleep) and only when every running process has stopped making progress.
+
+## Erratum, 2026-11-13T18:25Z: the clock times in the headings of addenda 1 to 3
+
+Written while the pilot of `design-decision` was running, before any of its output was read. It
+corrects three times and changes no rule. The headings of addenda 1, 2 and 3 say 13:35Z, 15:05Z and
+15:40Z. Those times were estimated, not read from a clock, and they are wrong. The commits that
+carry the addenda are the record: addendum 1 at 13:21Z (`5d38e1e`), addendum 2 at 13:57Z (`4e2f1cc`),
+addendum 3 at 14:15Z (`300a520`). The order each addendum claims is right and can be checked: the
+tasks were installed at 14:00Z (`9da8208`), the designer runs of `ux-design` ran from 14:06Z to
+14:42Z, the first page was built at 14:45Z, and the first `design-decision` run started at 18:18Z.
+The headings themselves are left as written.
