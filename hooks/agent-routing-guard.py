@@ -50,6 +50,26 @@ DECISION ORDER
   8. Otherwise DENY, with a reason that names what is missing and the chat's own tier
      (read from the last main-thread assistant record of the transcript).
 
+WORKERS WORK ALONE (a second rule, only while the session has an advisor)
+------------------------------------------------------------------------
+Claude Code's advisor is a server-side tool and every subagent and teammate of the session
+inherits it. A call re-reads the agent's whole conversation at the advisor model's price
+(2026-11-13: 8 of 8 Opus reviewers called it, 0.60 dollars a call, against 0.33 dollars for an
+agent's own work; with the sentence below 0 of 8 did). The owner's rule: workers work alone, the
+advisor is for the decider. So when the advisor state is not "off", a start is DENIED when it is not
+a fork, its subagent_type does not start with `agenting:`, its prompt does not carry the work-alone
+sentence (a line holding "work alone." and, within 40 characters after it, the word "advisor"),
+and its prompt has no line `advisor: allowed` (like `routing: inherit`, a whole line, optional
+leading `//` or `#`; for a deliberate exception the user or the skill's design step asked for).
+Built-in types and teammates fall under it. A start with a routing gap too gets ONE denial that
+lists both, routing first. The `routing: inherit` line escapes the routing check only. With the
+advisor off nothing changes: no new text.
+Advisor state, the same definition as hooks/session-continuity.py: "off" when
+CLAUDE_CODE_DISABLE_ADVISOR_TOOL is 1/true/yes in the hook's environment; else the first non-empty
+string under the top-level key "advisorModel" in <cwd>/.claude/settings.local.json,
+<cwd>/.claude/settings.json, ~/.claude/settings.json; else "off". An --advisor flag given at launch
+cannot be seen from a hook.
+
 The `agenting:` agents are exempt only because every agents/*.md of this plugin pins both
 model and effort; tests/test_agent_guard.py checks that.
 """
@@ -64,6 +84,11 @@ SYNTHETIC_MODEL = "<synthetic>"
 TEAMS_ENV = "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
 PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INHERIT_LINE = re.compile(r"^[ \t]*(?://|#)?[ \t]*routing:[ \t]*inherit[ \t]*$", re.IGNORECASE | re.MULTILINE)
+ADVISOR_OFF_VAR = "CLAUDE_CODE_DISABLE_ADVISOR_TOOL"
+ADVISOR_LINE = re.compile(r"^[ \t]*(?://|#)?[ \t]*advisor:[ \t]*allowed[ \t]*$", re.IGNORECASE | re.MULTILINE)
+ALONE_RE = re.compile(r"work alone\.[^\n\r\u2028\u2029]{0,40}advisor", re.IGNORECASE)
+ALONE_SENTENCE = ("Work alone. The `advisor` tool belongs to the lead that started you, so do not call it: "
+                  "decide from the brief and the files, and when something blocks you, say so in your result.")
 AGENT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 # Built-in agent types that run on their own model, measured 2026-11-13 on Claude Code 2.1.323 from a
 # claude-fable-5-2/xhigh chat with no model on the call: claude-code-guide ran on Haiku 5.5 and
@@ -82,6 +107,58 @@ def text_of(value):
 
 def teams_on() -> bool:
     return os.environ.get(TEAMS_ENV, "").strip().lower() in ("1", "true")
+
+
+def advisor_state(cwd) -> str:
+    """The session's advisor model, or "off" (same definition as hooks/session-continuity.py). The
+    environment switch wins; then the first non-empty string under "advisorModel" in the local, project
+    and user settings. A file that is missing, unreadable or not JSON, or a value that is not a
+    non-empty string, is skipped."""
+    if str(os.environ.get(ADVISOR_OFF_VAR, "")).strip().lower() in ("1", "true", "yes"):
+        return "off"
+    paths = []
+    if isinstance(cwd, str) and cwd:
+        paths += [os.path.join(cwd, ".claude", "settings.local.json"),
+                  os.path.join(cwd, ".claude", "settings.json")]
+    paths.append(os.path.expanduser("~/.claude/settings.json"))
+    for path in paths:
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            model = data.get("advisorModel") if isinstance(data, dict) else None
+            if isinstance(model, str) and model.strip():
+                return model.strip()
+        except Exception:
+            continue
+    return "off"
+
+
+def advisor_reason(subject, model) -> str:
+    return (
+        f"[agenting] {subject} would inherit this session's advisor ({model}) and has no work-alone sentence. "
+        "Each advisor call re-reads the agent's whole conversation at the advisor's price, and workers work "
+        "alone: the advisor is for the lead. Add this sentence to the prompt: "
+        f'"{ALONE_SENTENCE}" '
+        'Only when the user, or the skill\'s design step, asked for this agent to consult the advisor, put a '
+        'line "advisor: allowed" in the prompt.'
+    )
+
+
+def advisor_problem(tool_input, cwd) -> str:
+    """The advisor model when this start must be denied for the advisor rule, else "". Never raises."""
+    try:
+        kind = tool_input.get("subagent_type")
+        if isinstance(kind, str) and kind.startswith("agenting:"):
+            return ""
+        model = advisor_state(cwd)
+        if model == "off":
+            return ""
+        prompt = tool_input.get("prompt")
+        if isinstance(prompt, str) and (ALONE_RE.search(prompt) or ADVISOR_LINE.search(prompt)):
+            return ""
+        return model
+    except Exception:
+        return ""
 
 
 def frontmatter_pins(path):
@@ -252,6 +329,21 @@ def ordinary_reason(subject, model_missing, effort_missing, model, effort):
     )
 
 
+def start_subject(tool_input, name, teammate) -> str:
+    if teammate:
+        return f'Teammate "{name}"'
+    description = " ".join(text_of(tool_input.get("description")).split())[:60]
+    return f'Agent start "{description}"'
+
+
+def advisor_denial(tool_input, name, teammate, advisor) -> int:
+    return deny(
+        advisor_reason(start_subject(tool_input, name, teammate), advisor),
+        "agenting: an agent start had no work-alone sentence while the session has an advisor; "
+        "Claude is retrying with it",
+    )
+
+
 # ------------------------------------------------------------------------- main
 
 
@@ -269,7 +361,9 @@ def run_hook() -> int:
     if tool_input.get("subagent_type") == "fork":
         return 0
     prompt = tool_input.get("prompt")
-    if isinstance(prompt, str) and INHERIT_LINE.search(prompt):
+    inherit = isinstance(prompt, str) and bool(INHERIT_LINE.search(prompt))
+    advisor = advisor_problem(tool_input, payload.get("cwd"))
+    if inherit and not advisor:
         return 0
 
     file_model, file_effort = agent_file_pins(tool_input.get("subagent_type"), payload.get("cwd"))
@@ -278,10 +372,12 @@ def run_hook() -> int:
     name = text_of(tool_input.get("name"))
     teammate = bool(name) and teams_on() and not tool_input.get("isolation")
 
-    model_ok = bool(call_model or file_model)
-    effort_ok = bool(file_effort) if teammate else bool(call_effort or file_effort)
+    model_ok = inherit or bool(call_model or file_model)
+    effort_ok = inherit or (bool(file_effort) if teammate else bool(call_effort or file_effort))
 
     if model_ok and effort_ok:
+        if advisor:
+            return advisor_denial(tool_input, name, teammate, advisor)
         if teammate and call_effort and call_effort != file_effort:
             return note(
                 f'[agenting] Teammate "{name}": the effort "{call_effort}" written on the call is ignored for a '
@@ -289,11 +385,7 @@ def run_hook() -> int:
             )
         return 0
 
-    if teammate:
-        subject = f'Teammate "{name}"'
-    else:
-        description = " ".join(text_of(tool_input.get("description")).split())[:60]
-        subject = f'Agent start "{description}"'
+    subject = start_subject(tool_input, name, teammate)
     model, effort = chat_tier(payload.get("transcript_path"))
 
     if teammate and not effort_ok:
@@ -302,6 +394,9 @@ def run_hook() -> int:
     else:
         reason = ordinary_reason(subject, not model_ok, not effort_ok, model, effort)
         system_msg = "agenting: an agent start had no model or effort; Claude is retrying with both set"
+    if advisor:
+        reason += "\n\nSECOND PROBLEM: " + advisor_reason(subject, advisor)
+        system_msg += "; it also needs the work-alone sentence"
     return deny(reason, system_msg)
 
 

@@ -8,6 +8,8 @@ effort: medium
 
 # TDD Tester — London School
 
+Work alone. The `advisor` tool belongs to the lead that started you, so do not call it: decide from the brief and the files, and when something blocks you, say so in your result.
+
 ## Approach: London School TDD
 - Write the test first, implementation after
 - Use mocks aggressively (isolate dependencies)

@@ -2,11 +2,12 @@
 
 Index to `features/*.feature`, this project's executable behaviour catalogue, governed by [TDD.md](TDD.md) and [BDD.md](BDD.md).
 
-**1118 scenarios** across 17 domains — **869 ARMED**, **249 GAP**. Full breakdown: [docs/scenarios/coverage-matrix.md](docs/scenarios/coverage-matrix.md).
+**1175 scenarios** across 18 domains — **926 ARMED**, **249 GAP**. Full breakdown: [docs/scenarios/coverage-matrix.md](docs/scenarios/coverage-matrix.md).
 
 | Feature | Scenarios | ARMED | GAP | What it pins |
 |---|--:|--:|--:|---|
-| [`agent-guard.feature`](features/agent-guard.feature) | 34 | 34 | 0 |  |
+| [`advisor.feature`](features/advisor.feature) | 5 | 5 | 0 |  |
+| [`agent-guard.feature`](features/agent-guard.feature) | 51 | 51 | 0 |  |
 | [`cache-tripwire.feature`](features/cache-tripwire.feature) | 47 | 15 | 32 |  |
 | [`cleanrun.feature`](features/cleanrun.feature) | 106 | 87 | 19 |  |
 | [`e1-analysis.feature`](features/e1-analysis.feature) | 11 | 11 | 0 |  |
@@ -16,10 +17,10 @@ Index to `features/*.feature`, this project's executable behaviour catalogue, go
 | [`eval-runs.feature`](features/eval-runs.feature) | 78 | 61 | 17 |  |
 | [`fanout-view.feature`](features/fanout-view.feature) | 98 | 98 | 0 |  |
 | [`finish-check.feature`](features/finish-check.feature) | 30 | 14 | 16 |  |
-| [`plugin-docs.feature`](features/plugin-docs.feature) | 53 | 23 | 30 |  |
-| [`routing-guard.feature`](features/routing-guard.feature) | 139 | 111 | 28 |  |
-| [`session-continuity.feature`](features/session-continuity.feature) | 61 | 35 | 26 |  |
-| [`setup-check.feature`](features/setup-check.feature) | 60 | 14 | 46 |  |
+| [`plugin-docs.feature`](features/plugin-docs.feature) | 57 | 27 | 30 |  |
+| [`routing-guard.feature`](features/routing-guard.feature) | 159 | 131 | 28 |  |
+| [`session-continuity.feature`](features/session-continuity.feature) | 68 | 42 | 26 |  |
+| [`setup-check.feature`](features/setup-check.feature) | 64 | 18 | 46 |  |
 | [`think-first-analysis.feature`](features/think-first-analysis.feature) | 48 | 48 | 0 |  |
 | [`tokenomics.feature`](features/tokenomics.feature) | 68 | 56 | 12 |  |
 | [`ux-blind.feature`](features/ux-blind.feature) | 139 | 139 | 0 |  |

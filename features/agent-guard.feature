@@ -248,3 +248,118 @@ Feature: The Agent routing guard denies an agent that would start on the main ch
     Then exactly one entry has matcher "Agent"
     And its command runs python3 on "${CLAUDE_PLUGIN_ROOT}/hooks/agent-routing-guard.py" with timeout 10
     And exactly one entry still has matcher "Workflow"
+
+  # ---------------------------------------------------------------- workers work alone (advisor)
+
+  # Backed by: tests/test_agent_guard.py::test_advisor_off_leaves_every_output_unchanged
+  Scenario: With the advisor off the agent guard's output is byte for byte what it was
+    Given CLAUDE_CODE_DISABLE_ADVISOR_TOOL is "1" and the local, project and user settings each name an advisorModel
+    And a general-purpose start, an unrouted start, a teammate start, a routing: inherit start and an Explore start
+    When the agent routing guard runs with and without those settings files
+    Then both runs print the same stdout
+    And stdout does not contain "advisor"
+
+  # Backed by: tests/test_agent_guard.py::test_each_settings_file_turns_the_rule_on_in_the_order_local_project_user
+  Scenario: The settings files turn the rule on in the order local, project, user
+    Given the user file names "user-model", then the project file "project-model", then the local file "local-model"
+    When the agent routing guard runs on a routed general-purpose start with no sentence after each file is added
+    Then the reason names "user-model", then "project-model", then "local-model"
+
+  # Backed by: tests/test_agent_guard.py::test_a_bad_settings_file_is_skipped_for_the_next_one
+  Scenario: A settings file that is not JSON or holds no usable advisorModel is skipped
+    Given the local file is "{not json", the project file holds an empty string or a list, and the user file names "user-model"
+    When the agent routing guard runs on a routed general-purpose start with no sentence
+    Then the reason names "user-model"
+
+  # Backed by: tests/test_agent_guard.py::test_the_environment_switch_wins_over_the_settings_files
+  Scenario: CLAUDE_CODE_DISABLE_ADVISOR_TOOL wins over every settings file
+    Given all three settings files name an advisorModel
+    When the environment switch is "1", "true" or "YES" the agent routing guard runs on a routed general-purpose start
+    Then stdout is empty
+    And with the switch "0" the start is denied for the advisor
+
+  # Backed by: tests/test_agent_guard.py::test_without_any_settings_file_the_advisor_is_off
+  Scenario: With no advisor setting anywhere a routed start passes
+    Given the environment switch is not set and no settings file names an advisorModel
+    When the agent routing guard runs on a routed general-purpose start
+    Then stdout is empty
+
+  # Backed by: tests/test_agent_guard.py::test_general_purpose_and_explore_without_the_sentence_are_denied_with_the_fix
+  Scenario: A built-in or untyped start with no work-alone sentence is denied with the exact sentence
+    Given the session has advisorModel "claude-fable-5-2"
+    And a routed start of type general-purpose, Explore, Plan, claude-code-guide, statusline-setup or no type, with no sentence
+    When the agent routing guard runs
+    Then permissionDecision is "deny"
+    And the reason contains "advisor (claude-fable-5-2)" and the sentence with its backticks around advisor
+    And the reason names "advisor: allowed" and says the user, or the skill's design step, asked for it
+    And the reason does not mention a missing model or effort
+
+  # Backed by: tests/test_agent_guard.py::test_the_denial_has_its_own_system_message
+  Scenario: The advisor denial carries its own system message
+    Given the session has an advisor and a routed general-purpose start with no sentence
+    When the agent routing guard runs
+    Then systemMessage is "agenting: an agent start had no work-alone sentence while the session has an advisor; Claude is retrying with it"
+
+  # Backed by: tests/test_agent_guard.py::test_a_prompt_with_the_sentence_passes
+  Scenario: A prompt that carries the sentence passes
+    Given the session has an advisor
+    When the agent routing guard runs on a routed general-purpose start whose prompt holds the sentence, the sentence without backticks, or "WORK ALONE. the Advisor ..."
+    Then stdout is empty
+
+  # Backed by: tests/test_agent_guard.py::test_a_sentence_with_the_advisor_word_too_far_or_on_the_next_line_does_not_count
+  Scenario: A sentence whose advisor word is more than 40 characters away or on the next line does not count
+    Given the session has an advisor
+    When the prompt is "Work alone." and 41 spaces and "advisor", or "Work alone." and "advisor" on two lines, or "Work alone, the advisor ..."
+    Then the start is denied for the advisor
+
+  # Backed by: tests/test_agent_guard.py::test_an_advisor_allowed_line_passes_and_the_same_words_in_a_sentence_do_not
+  Scenario: A whole prompt line "advisor: allowed" passes and the same words in a sentence do not
+    Given the session has an advisor
+    When the prompt has a line "advisor: allowed", "// Advisor: Allowed" or "  # advisor:allowed  "
+    Then stdout is empty
+    And a prompt "Explain why advisor: allowed is risky." is denied for the advisor
+
+  # Backed by: tests/test_agent_guard.py::test_agenting_types_a_fork_and_other_plugins_agents
+  Scenario: agenting: agents and forks pass and another plugin's agents do not
+    Given the session has an advisor
+    When the agent routing guard runs on subagent_type "agenting:coder", "agenting:reviewer" with a model, "fork" and "otherplug:helper"
+    Then the first three get no output and "otherplug:helper" is denied for the advisor
+
+  # Backed by: tests/test_agent_guard.py::test_a_teammate_falls_under_the_rule
+  Scenario: A teammate falls under the rule
+    Given the session has an advisor and agent teams on
+    And a named start from a user agent file that pins model sonnet and effort low
+    When the agent routing guard runs with no sentence, then with the sentence, then as agenting:coder
+    Then the first is denied with 'Teammate "worker" would inherit this session's advisor' and the other two get no output
+
+  # Backed by: tests/test_agent_guard.py::test_a_start_with_a_routing_gap_and_no_sentence_gets_one_denial_with_both
+  Scenario: A routing gap and a missing sentence share one denial, routing first
+    Given the session has an advisor and a general-purpose start with no model, no effort and no sentence
+    When the agent routing guard runs
+    Then one denial contains 'has no model and no effort' before the sentence
+    And the systemMessage contains "it also needs the work-alone sentence"
+
+  # Backed by: tests/test_agent_guard.py::test_a_teammate_with_an_effort_gap_and_no_sentence_gets_one_denial_with_both
+  Scenario: A teammate's effort gap and a missing sentence share one denial
+    Given the session has an advisor, agent teams on, and a named start with a model and an effort on the call but no agent file
+    When the agent routing guard runs
+    Then the reason contains "cannot be given an effort on the call" and the sentence
+
+  # Backed by: tests/test_agent_guard.py::test_the_routing_inherit_line_escapes_routing_only
+  Scenario: The routing: inherit line escapes the routing check but not the advisor rule
+    Given the session has an advisor and a prompt with the line "routing: inherit" and no sentence
+    When the agent routing guard runs
+    Then the reason contains the sentence and not "no model"
+    And the same prompt with the sentence added gets no output
+
+  # Backed by: tests/test_agent_guard.py::test_a_non_string_prompt_is_denied_without_a_crash
+  Scenario: A prompt that is not a string counts as carrying no sentence
+    Given the session has an advisor and a routed general-purpose start whose prompt is the number 5
+    When the agent routing guard runs
+    Then the start is denied for the advisor
+
+  # Backed by: tests/test_agent_guard.py::test_the_advisor_denial_never_says_allow_or_ask
+  Scenario: The advisor rule never emits allow or ask
+    Given the session has an advisor
+    When the agent routing guard runs on denied and passing starts
+    Then stdout never contains "allow" or "ask" as a quoted value

@@ -256,5 +256,54 @@ class DelegationRules(unittest.TestCase):
         self.assertNotIn("/private/", self.delegation)
 
 
+README = ROOT / "README.md"
+ALONE = ("Work alone. The `advisor` tool belongs to the lead that started you, so do not call it: "
+         "decide from the brief and the files, and when something blocks you, say so in your result.")
+CARRIES_ALONE = re.compile(r"work alone\..{0,40}advisor", re.I)
+
+
+class AdvisorDocs(unittest.TestCase):
+    """The docs for "workers work alone" must carry the exact sentence the hooks look for."""
+
+    def setUp(self):
+        self.skill = SKILL.read_text(encoding="utf-8")
+        self.delegation = DELEGATION.read_text(encoding="utf-8")
+        self.readme = README.read_text(encoding="utf-8")
+
+    def test_the_skill_carries_the_work_alone_sentence_once_in_its_own_section(self):
+        self.assertEqual(self.skill.count(ALONE), 1)
+        section = self.skill.split("## The advisor is for the decider", 1)[1].split("\n## ", 1)[0]
+        self.assertIn(ALONE, section)
+        self.assertTrue(any(CARRIES_ALONE.search(line) for line in section.splitlines()))
+        self.assertIn("// advisor: allowed", section)
+        self.assertIn("const ALONE", section)
+        self.assertLessEqual(len([line for line in section.splitlines() if line.strip()]), 16)
+        # the section follows "Where the work runs" and the routing table follows it
+        order = [self.skill.index(h) for h in ("## Where the work runs", "## The advisor is for the decider",
+                                               "## Routing table")]
+        self.assertEqual(order, sorted(order))
+
+    def test_the_delegation_reference_carries_the_sentence_or_names_the_skill_as_its_source(self):
+        section = self.delegation.split("## The advisor\n", 1)[1].split("\n## ", 1)[0]
+        flat = " ".join(section.split())
+        self.assertTrue(ALONE in flat or ("SKILL.md" in flat and "The advisor is for the decider" in flat))
+        for phrase in ("Subagents inherit the configured advisor", "CLAUDE_CODE_DISABLE_ADVISOR_TOOL",
+                       "advisor: allowed", "--disallowedTools"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, flat)
+        # the limits belong to the "not measured" section, which stays the last one
+        self.assertLess(self.delegation.index("## The advisor\n"), self.delegation.index("## What was not measured"))
+        self.assertIn("--advisor", self.delegation.split("## What was not measured", 1)[1])
+
+    def test_the_readme_names_the_allow_mark_and_the_environment_variable(self):
+        self.assertIn("advisor: allowed", self.readme)
+        self.assertIn("CLAUDE_CODE_DISABLE_ADVISOR_TOOL", self.readme)
+
+    def test_the_advisor_docs_carry_no_local_paths(self):
+        for name, text in (("SKILL.md", self.skill), ("delegation.md", self.delegation), ("README.md", self.readme)):
+            with self.subTest(doc=name):
+                self.assertNotIn("/Users/", text)
+
+
 if __name__ == "__main__":
     unittest.main()

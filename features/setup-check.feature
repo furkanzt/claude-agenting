@@ -470,6 +470,38 @@ Feature: The plugin health check runs the hooks end to end and reports PASS, WAR
     Then the output has no FAIL line
     And the exit code is 0
 
+  # Backed by: tests/test_check_setup.py::test_should_report_advisor_off_as_a_pass_when_no_advisor_is_configured
+  Scenario: With no advisor the check reports "advisor: off" as a PASS
+    Given CLAUDE_CODE_DISABLE_ADVISOR_TOOL is not set and the home directory has no settings.json
+    When "python3 scripts/check-setup.py" runs
+    Then the check "advisor: off" is PASS
+    And the exit code is 0
+
+  # Backed by: tests/test_check_setup.py::test_should_report_the_advisor_model_as_a_pass_when_settings_name_one
+  Scenario: With an advisor the check names the model, never fails, and still judges the guard probes on routing only
+    Given the home directory's settings.json has {"advisorModel": "fable-5.2"}
+    When "python3 scripts/check-setup.py" runs
+    Then the check "advisor: fable-5.2 (agents inherit it; workers are told to work alone)" is PASS
+    And there is no check named "advisor: off"
+    And no check is FAIL and the exit code is 0
+
+  # Backed by: tests/test_check_setup.py::test_should_report_advisor_off_when_the_environment_switch_beats_the_settings
+  Scenario: The environment switch makes the check report the advisor as off
+    Given the home directory's settings.json has {"advisorModel": "fable-5.2"} and CLAUDE_CODE_DISABLE_ADVISOR_TOOL is "1"
+    When "python3 scripts/check-setup.py" runs
+    Then the check "advisor: off" is PASS
+
+  # Backed by: tests/test_check_setup.py::test_should_prove_the_work_alone_denials_with_the_advisor_on
+  Scenario: The check proves both guards' work-alone denials with an advisor on, whatever the caller's switch says
+    Given CLAUDE_CODE_DISABLE_ADVISOR_TOOL is "1" in the caller's environment
+    When "python3 scripts/check-setup.py" runs
+    Then the check "with an advisor, a Workflow whose workers are not told to work alone is DENIED" is PASS
+    And the check "with an advisor, a Workflow that carries the work-alone sentence is not denied for it" is PASS
+    And the check "with an advisor, an Agent start with no work-alone sentence is DENIED" is PASS
+    And the check "with an advisor, an Agent start that carries the sentence passes silently" is PASS
+    And the check "every agenting: worker agent carries the work-alone sentence, the design agent does not" is PASS
+    And the exit code is 0
+
   # Backed by: tests/test_check_setup.py::test_should_show_standing_default_on_after_it_was_recorded
   Scenario: A recorded standing Workflows default of on is shown
     Given "session-continuity.py --record-default --workflows on" was run with AGENTING_STATE_DIR set to the temporary state directory

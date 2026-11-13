@@ -1133,3 +1133,140 @@ Feature: The Workflow routing gate denies unrouted agent() calls and asks for pl
     And the transcript of "resumed-id" holds a SessionStart line "[agenting] mode=auto ... (session original-id)"
     When the routing guard runs for "resumed-id" with that transcript_path
     Then the systemMessage contains "auto mode, mode carried over from session original-id"
+
+  # ---------------------------------------------------------------- workers work alone (advisor)
+
+  # Backed by: tests/test_routing_guard.py::test_advisor_off_leaves_every_output_unchanged
+  Scenario: With the advisor off the routing guard's output is byte for byte what it was
+    Given CLAUDE_CODE_DISABLE_ADVISOR_TOOL is "1" and the local, project and user settings each name an advisorModel
+    And a routed untyped script, an unrouted script, an agenting: script and a mixed script, each in mode manual and mode auto
+    When the routing guard runs with and without those settings files
+    Then both runs print the same stdout
+    And stdout contains neither "advisor" nor "work alone"
+
+  # Backed by: tests/test_routing_guard.py::test_no_settings_file_means_advisor_off
+  Scenario: With no advisor setting anywhere the advisor state is off
+    Given the environment switch is not set and no settings file names an advisorModel
+    When the routing guard runs on an untyped routed script
+    Then the reason contains "STAGE 2/2" and not "ADVISOR"
+
+  # Backed by: tests/test_routing_guard.py::test_each_settings_file_turns_the_rule_on
+  Scenario: Each of the three settings files turns the advisor rule on
+    Given only <cwd>/.claude/settings.local.json, only <cwd>/.claude/settings.json or only ~/.claude/settings.json names advisorModel "model-from-<file>"
+    When the routing guard runs on an untyped routed script with no work-alone sentence
+    Then the reason contains "ADVISOR" and "model-from-<file>"
+
+  # Backed by: tests/test_routing_guard.py::test_settings_files_are_read_in_order_local_project_user
+  Scenario: The settings files are read in the order local, project, user
+    Given the user file names "user-model", then the project file "project-model", then the local file "local-model"
+    When the routing guard runs on an untyped routed script after each file is added
+    Then the reason names "user-model", then "project-model", then "local-model"
+
+  # Backed by: tests/test_routing_guard.py::test_a_bad_settings_file_is_skipped_for_the_next_one
+  Scenario: A settings file that is not JSON or holds no usable advisorModel is skipped
+    Given the local file is "{not json", the project file holds a blank, a number or a list, and the user file names "user-model"
+    When the routing guard runs on an untyped routed script
+    Then the reason names "user-model"
+
+  # Backed by: tests/test_routing_guard.py::test_the_environment_switch_wins_over_every_settings_file
+  Scenario: CLAUDE_CODE_DISABLE_ADVISOR_TOOL wins over every settings file
+    Given all three settings files name an advisorModel
+    When the environment switch is "1", "true", "YES" or " True " the routing guard runs on an untyped routed script
+    Then the reason contains "STAGE 2/2" and not "ADVISOR"
+    And with the switch "0" the reason contains "ADVISOR"
+
+  # Backed by: tests/test_routing_guard.py::test_an_untyped_call_without_the_sentence_is_denied_with_the_fix
+  Scenario: An untyped call with no work-alone sentence is denied with the model, the lines, the paste line and the mark
+    Given the session has advisorModel "claude-fable-5-2"
+    And a routed script whose agent() calls on lines 2 and 4 are untyped and whose call on line 3 has agentType 'agenting:coder'
+    When the routing guard runs
+    Then permissionDecision is "deny" and the reason contains "STAGE 1/2" and "advisor (claude-fable-5-2)"
+    And the reason contains "2 agent() call site(s)" and "lines 2, 4"
+    And the reason contains 'const ALONE = "Work alone. The advisor tool belongs to the lead that started you' with no backtick
+    And the reason contains "append ALONE to every worker prompt" and "// advisor: allowed"
+    And the reason does not contain "MISSING ROUTING"
+
+  # Backed by: tests/test_routing_guard.py::test_a_single_call_site_is_named_in_the_singular
+  Scenario: One unprotected call site is reported in the singular
+    Given the session has an advisor and a routed script whose only untyped call is on line 3
+    When the routing guard runs
+    Then the reason contains "1 agent() call site(s) are not protected (line 3)"
+
+  # Backed by: tests/test_routing_guard.py::test_the_sentence_anywhere_in_the_script_passes
+  Scenario: The work-alone sentence anywhere in the script lets it through
+    Given the session has an advisor and mode auto
+    And a script with an untyped call and the sentence in a const, in a comment or in a template literal
+    When the routing guard runs
+    Then there is no permissionDecision and the systemMessage contains "auto-approved"
+
+  # Backed by: tests/test_routing_guard.py::test_a_sentence_whose_advisor_word_is_too_far_or_on_another_line_does_not_count
+  Scenario: A sentence whose advisor word is more than 40 characters away or on another line does not count
+    Given the session has an advisor
+    And a script whose text is "Work alone." followed by 41 spaces and "advisor", or "Work alone." and "advisor" on two lines, or "Work alone, the advisor ..." with a comma
+    When the routing guard runs
+    Then the reason contains "ADVISOR"
+
+  # Backed by: tests/test_routing_guard.py::test_the_sentence_lets_a_manual_script_reach_stage_two
+  Scenario: With the sentence in place a manual-mode script still waits at Stage 2
+    Given the session has an advisor and mode manual
+    When the routing guard runs on a routed untyped script that carries the sentence
+    Then the reason contains "STAGE 2/2" and not "ADVISOR"
+
+  # Backed by: tests/test_routing_guard.py::test_calls_typed_agenting_pass_without_the_sentence
+  Scenario: Calls whose agentType is a literal agenting: name need no sentence
+    Given the session has an advisor and mode auto
+    And a script whose calls have agentType 'agenting:coder' and "agentType": "agenting:reviewer" in double quotes
+    When the routing guard runs
+    Then there is no permissionDecision and the systemMessage contains "auto-approved"
+
+  # Backed by: tests/test_routing_guard.py::test_a_typed_call_that_is_not_an_agenting_agent_is_unprotected
+  Scenario: A call typed general-purpose, typed with another plugin or typed by a variable is unprotected
+    Given the session has an advisor
+    When the routing guard runs on a call with agentType 'general-purpose', 'other:coder' or a variable
+    Then the reason contains "(line 1)"
+
+  # Backed by: tests/test_routing_guard.py::test_the_comment_mark_protects_the_call_on_its_line_or_the_line_below
+  Scenario: The comment "advisor: allowed" protects the call on its line or the line below
+    Given the session has an advisor and mode auto
+    And a mark in a "//" comment above the call, a "//" comment after it, or a "/* */" comment before it on the same line
+    When the routing guard runs
+    Then there is no permissionDecision and the systemMessage contains "auto-approved"
+
+  # Backed by: tests/test_routing_guard.py::test_the_mark_protects_only_its_own_call
+  Scenario: The mark protects only its own call
+    Given the session has an advisor and a marked call on line 2 and an unmarked call on line 5
+    When the routing guard runs
+    Then the reason contains "1 agent() call site(s) are not protected (line 5)"
+
+  # Backed by: tests/test_routing_guard.py::test_the_mark_words_in_a_string_do_not_protect
+  Scenario: The words "advisor: allowed" inside a string or a prompt protect nothing
+    Given the session has an advisor
+    And a call whose prompt variable or prompt argument says "advisor: allowed"
+    When the routing guard runs
+    Then the reason contains the line of that call
+
+  # Backed by: tests/test_routing_guard.py::test_a_call_with_the_routing_inherit_mark_is_still_unprotected
+  Scenario: The routing: inherit mark does not protect a call from the advisor rule
+    Given the session has an advisor and a call under "// routing: inherit"
+    When the routing guard runs
+    Then the reason contains "1 agent() call site(s) are not protected (line 2)"
+
+  # Backed by: tests/test_routing_guard.py::test_a_routing_gap_and_the_advisor_problem_share_one_denial_routing_first
+  Scenario: A routing gap and the advisor problem share one denial, routing first
+    Given the session has an advisor and a script with one routed untyped call and one call with no model and no effort
+    When the routing guard runs
+    Then the reason contains "MISSING ROUTING: 1 agent() call(s)" before "ADVISOR"
+    And the reason contains "2 agent() call site(s) are not protected (lines 1, 2)" and the paste line
+    And "STAGE 1/2" followed by the MISSING heading appears once
+
+  # Backed by: tests/test_routing_guard.py::test_a_routing_gap_alone_keeps_its_denial_with_the_advisor_off_or_the_sentence_present
+  Scenario: A routing gap alone keeps its denial with no advisor text
+    Given a script with a call that has no model and no effort
+    When the routing guard runs with the advisor off, and with the advisor on and the sentence in the script
+    Then neither reason contains "ADVISOR" and the second contains "MISSING ROUTING"
+
+  # Backed by: tests/test_routing_guard.py::test_the_advisor_denial_never_says_allow_or_ask
+  Scenario: The advisor rule never emits allow or ask
+    Given the session has an advisor
+    When the routing guard runs on an untyped script, an unrouted script, a script with the sentence and an agenting: script
+    Then stdout never contains "allow" or "ask" as a quoted value

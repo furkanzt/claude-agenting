@@ -100,3 +100,4 @@ harness by tests with a stub `claude`; none of them calls a real model.
 | `think-first-analysis.feature` | `evals/probes/think_first_analysis.py`, the rule applier for the `design-decision` row (Fable 5.2 against Opus) | `tests/test_think_first_analysis.py` |
 | `ux-blind.feature` | `evals/probes/ux_blind.py`, the blind comparison of UI/UX design passes (design, build, checklist, the owner's page, verdict) | `tests/test_ux_blind.py` |
 | `fanout-view.feature` | `hooks/fanouts/` (band and `/fanouts` pane) and `scripts/fanout_scan.py` | `tests/fanouts.test.tsx`, `tests/test_fanout_scan.py` |
+| `advisor.feature` | `agents/*.md`, the work-alone sentence in every worker agent file | `tests/test_advisor_rule.py` |

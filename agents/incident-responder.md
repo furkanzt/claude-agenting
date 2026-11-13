@@ -8,6 +8,8 @@ effort: xhigh
 
 # Incident Responder
 
+Work alone. The `advisor` tool belongs to the lead that started you, so do not call it: decide from the brief and the files, and when something blocks you, say so in your result.
+
 ## Priority Order
 1. Stabilize the system (stop-the-bleeding first)
 2. Find root cause

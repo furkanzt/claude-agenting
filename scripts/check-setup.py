@@ -23,6 +23,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 HOME = Path.home()
@@ -37,6 +38,11 @@ if not sys.stdout.isatty():
     GREEN = RED = YELLOW = DIM = RESET = ""
 
 results = []
+
+# The routing probes feed the guard scripts that carry no work-alone sentence. With an advisor
+# in the owner's settings the guard would deny them for that reason, so the probes run with the
+# advisor switched off: they test routing and Stage 2, not the advisor state of this machine.
+GUARD_PROBE_ENV = dict(os.environ, CLAUDE_CODE_DISABLE_ADVISOR_TOOL="1")
 
 
 def check(name, ok, detail="", warn=False):
@@ -88,7 +94,7 @@ if guard:
         try:
             out = subprocess.run(
                 [sys.executable, str(guard)], input=payload,
-                capture_output=True, text=True, timeout=20,
+                capture_output=True, text=True, timeout=20, env=GUARD_PROBE_ENV,
             ).stdout.strip()
         except Exception:
             return None
@@ -140,9 +146,10 @@ if agent_guard:
         """(stdout, exit code) of the Agent guard for one Agent start; None if it could not run.
 
         The child's environment is the caller's, with the Agent Teams switch forced on or
-        removed, so the result does not depend on the caller's shell. AGENTING_STATE_DIR
-        stays as it is."""
-        env = dict(os.environ)
+        removed, so the result does not depend on the caller's shell. The advisor is switched
+        off, so a start that carries no work-alone sentence is judged on its routing only.
+        AGENTING_STATE_DIR stays as it is."""
+        env = dict(GUARD_PROBE_ENV)
         env.pop(TEAMS_VAR, None)
         if teams:
             env[TEAMS_VAR] = "1"
@@ -192,6 +199,75 @@ if agent_guard:
               (garbage.stdout + garbage.stderr).strip()[:70])
     except Exception as e:
         check("garbage input exits 0 silently", False, str(e)[:60])
+
+# ------------------------------------------------------------ advisor rule
+
+section("Advisor rule — behaviour, not configuration")
+
+# The routing probes above run with the advisor switched off. These run with it ON: a temporary project
+# whose local settings name an advisor, and the off switch removed from the child's environment. They
+# prove that the two guards deny a worker with no work-alone sentence and let one with it through.
+ALONE = ("Work alone. The `advisor` tool belongs to the lead that started you, so do not call it: "
+         "decide from the brief and the files, and when something blocks you, say so in your result.")
+ALONE_JS = ALONE.replace("`", "")
+
+
+def advisor_probe(script_path, payload, project):
+    """(stdout, exit code) of one guard run inside `project`, with the advisor on; None on error."""
+    env = dict(os.environ)
+    env.pop("CLAUDE_CODE_DISABLE_ADVISOR_TOOL", None)
+    try:
+        r = subprocess.run([sys.executable, str(script_path)], input=json.dumps(dict(payload, cwd=project)),
+                           capture_output=True, text=True, timeout=20, env=env)
+    except Exception:
+        return None
+    return r.stdout.strip(), r.returncode
+
+
+def deny_reason(run):
+    """permissionDecisionReason of a deny, "" when the output is not a deny, None when the run failed."""
+    if run is None:
+        return None
+    try:
+        hso = json.loads(run[0])["hookSpecificOutput"]
+        return hso["permissionDecisionReason"] if hso.get("permissionDecision") == "deny" else ""
+    except Exception:
+        return ""
+
+
+with tempfile.TemporaryDirectory() as project:
+    (Path(project) / ".claude").mkdir()
+    (Path(project) / ".claude" / "settings.local.json").write_text(
+        json.dumps({"advisorModel": "probe-advisor"}), encoding="utf-8")
+    if guard:
+        wf = {"session_id": "setup-check-advisor", "tool_name": "Workflow"}
+        head = "export const meta = {name: 'probe', description: 'probe'}\n"
+        bare = deny_reason(advisor_probe(guard, dict(wf, tool_input={
+            "script": head + "await agent('do it', {model: 'sonnet', effort: 'low'})\n"}), project))
+        told = deny_reason(advisor_probe(guard, dict(wf, tool_input={
+            "script": head + f'const ALONE = "{ALONE_JS}"\n'
+                             "await agent('do it. ' + ALONE, {model: 'sonnet', effort: 'low'})\n"}), project))
+        check("with an advisor, a Workflow whose workers are not told to work alone is DENIED",
+              bool(bare) and "ADVISOR" in bare and "probe-advisor" in bare, str(bare)[:70])
+        check("with an advisor, a Workflow that carries the work-alone sentence is not denied for it",
+              told is not None and "ADVISOR" not in told, str(told)[:70])
+    if agent_guard:
+        start = {"hook_event_name": "PreToolUse", "tool_name": "Agent"}
+        routed = {"description": "check", "model": "sonnet", "effort": "low"}
+        bare = deny_reason(advisor_probe(agent_guard, dict(start, tool_input=dict(routed, prompt="p")), project))
+        told = advisor_probe(agent_guard, dict(start, tool_input=dict(routed, prompt="p\n\n" + ALONE)), project)
+        check("with an advisor, an Agent start with no work-alone sentence is DENIED",
+              bool(bare) and "work-alone" in bare and "probe-advisor" in bare, str(bare)[:70])
+        check("with an advisor, an Agent start that carries the sentence passes silently",
+              told == ("", 0), str(told)[:70])
+
+plugin_agents = PLUGIN_ROOT / "agents"
+if plugin_agents.is_dir() and any(plugin_agents.glob("*.md")):
+    DESIGN_AGENTS = {"system-architect"}
+    wrong = sorted(f.stem for f in plugin_agents.glob("*.md")
+                   if (f.read_text(encoding="utf-8").count(ALONE) == 1) == (f.stem in DESIGN_AGENTS))
+    check("every agenting: worker agent carries the work-alone sentence, the design agent does not",
+          not wrong, ", ".join(wrong)[:70])
 
 # ------------------------------------------------------------ hook wiring
 
@@ -449,6 +525,15 @@ else:
     else:
         check("teammates: OFF", False, TEAMMATES_OFF_DETAIL, warn=True)
     check(f"standing Workflows default: {sd.group(1)}", True)
+    # Information only: the advisor is the session's, and agents inherit it. Never a FAIL.
+    adv = re.search(r"\badvisor=(\S+)", status_text or "")
+    if not adv:
+        check("advisor status readable", False,
+              "session-continuity.py --status did not print advisor=", warn=True)
+    elif adv.group(1) == "off":
+        check("advisor: off", True)
+    else:
+        check(f"advisor: {adv.group(1)} (agents inherit it; workers are told to work alone)", True)
 
 # ------------------------------------------------- guard auto-mode bypass
 
@@ -497,7 +582,7 @@ if guard and continuity:
         try:
             out = subprocess.run(
                 [sys.executable, str(guard)], input=payload,
-                capture_output=True, text=True, timeout=20,
+                capture_output=True, text=True, timeout=20, env=GUARD_PROBE_ENV,
             ).stdout.strip()
         except Exception:
             return "error"

@@ -15,11 +15,28 @@ UNROUTED = "await agent('x', {schema:S})"
 PLUGIN_AGENT = "await agent('trace it', {agentType:'agenting:researcher', effort:'medium'})"
 
 
+ADVISOR_OFF = "CLAUDE_CODE_DISABLE_ADVISOR_TOOL"
+ALONE = ("Work alone. The advisor tool belongs to the lead that started you, so do not call it: "
+         "decide from the brief and the files, and when something blocks you, say so in your result.")
+SESSION_MODEL = "claude-fable-5-2"
+
+
 class GuardCase(HookTestCase):
-    def guard(self, script, session=SID, tool="Workflow", transcript=None):
+    def setUp(self):
+        super().setUp()
+        # Every test starts with the advisor switched off and a home that holds no settings, so the
+        # owner's real ~/.claude/settings.json cannot turn the advisor rule on; AdvisorRule opts in.
+        self.home = self.state_dir / "home"
+        self.home.mkdir()
+        self.env["HOME"] = str(self.home)
+        self.env[ADVISOR_OFF] = "1"
+
+    def guard(self, script, session=SID, tool="Workflow", transcript=None, cwd=None):
         payload = {"session_id": session, "tool_name": tool, "tool_input": {"script": script}}
         if transcript is not None:
             payload["transcript_path"] = str(transcript)
+        if cwd is not None:
+            payload["cwd"] = str(cwd)
         return self.run_hook(GUARD, payload)
 
     def transcript(self, *starts, name="chat.jsonl", extra=()):
@@ -1052,6 +1069,231 @@ class PassThrough(GuardCase):
             with self.subTest(stdin=stdin):
                 r = self.run_script(GUARD, stdin=stdin)
                 self.assertEqual((r.returncode, r.stdout.strip(), r.stderr.strip()), (0, "", ""))
+
+
+class AdvisorRule(GuardCase):
+    """Workers work alone: while the session has an advisor, every agent() call site that is not
+    protected needs the work-alone sentence somewhere in the script. With the advisor off the guard
+    says nothing new."""
+
+    UNTYPED = "await agent('x', {model:'haiku', effort:'low'})"
+
+    def setUp(self):
+        super().setUp()
+        self.project = self.state_dir / "project"
+        (self.project / ".claude").mkdir(parents=True)
+        (self.home / ".claude").mkdir()
+
+    def settings(self, where, value=SESSION_MODEL, raw=None):
+        """Write a settings file naming the advisor: where is 'local', 'project' or 'user'."""
+        path = {"local": self.project / ".claude" / "settings.local.json",
+                "project": self.project / ".claude" / "settings.json",
+                "user": self.home / ".claude" / "settings.json"}[where]
+        path.write_text(raw if raw is not None else json.dumps({"advisorModel": value}), encoding="utf-8")
+
+    def advisor_on(self, where="user", value=SESSION_MODEL):
+        self.settings(where, value)
+        self.env.pop(ADVISOR_OFF, None)
+
+    def raw_output(self, script):
+        r = self.run_script(GUARD, stdin=json.dumps({"session_id": SID, "tool_name": "Workflow", "cwd": str(self.project),
+                                                       "tool_input": {"script": script}}))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def advisor_reason(self, script):
+        out = self.guard(script, cwd=self.project)
+        self.assertEqual(self.decision(out), "deny", out)
+        return self.reason(out)
+
+    def test_advisor_off_leaves_every_output_unchanged(self):
+        scripts = [self.UNTYPED, UNROUTED, PLUGIN_AGENT, "await agent('x', {model:'haiku', effort:'low'})\n"
+                   "await agent('y', {schema:S})"]
+        files = (self.project / ".claude" / "settings.local.json", self.project / ".claude" / "settings.json",
+                 self.home / ".claude" / "settings.json")
+        for mode in ("manual", "auto"):
+            self.record(SID, "--mode", mode)
+            for script in scripts:
+                with self.subTest(mode=mode, script=script):
+                    before = self.raw_output(script)   # no settings file at all
+                    for where in ("local", "project", "user"):
+                        self.settings(where)           # every file now names an advisor; the switch is still set
+                    after = self.raw_output(script)
+                    for f in files:
+                        f.unlink()
+                    self.assertEqual(before, after)
+                    self.assertNotIn("advisor", after.lower())
+                    self.assertNotIn("work alone", after.lower())
+
+    def test_no_settings_file_means_advisor_off(self):
+        self.env.pop(ADVISOR_OFF, None)
+        self.assertIn("STAGE 2/2", self.reason(self.guard(self.UNTYPED, cwd=self.project)))
+
+    def test_each_settings_file_turns_the_rule_on(self):
+        for where in ("local", "project", "user"):
+            with self.subTest(where=where):
+                for f in (self.project / ".claude" / "settings.local.json", self.project / ".claude" / "settings.json",
+                          self.home / ".claude" / "settings.json"):
+                    f.unlink(missing_ok=True)
+                self.advisor_on(where, f"model-from-{where}")
+                reason = self.advisor_reason(self.UNTYPED)
+                self.assertIn("ADVISOR", reason)
+                self.assertIn(f"model-from-{where}", reason)
+
+    def test_settings_files_are_read_in_order_local_project_user(self):
+        self.settings("user", "user-model")
+        self.env.pop(ADVISOR_OFF, None)
+        self.assertIn("(user-model)", self.advisor_reason(self.UNTYPED))
+        self.settings("project", "project-model")
+        self.assertIn("(project-model)", self.advisor_reason(self.UNTYPED))
+        self.settings("local", "local-model")
+        self.assertIn("(local-model)", self.advisor_reason(self.UNTYPED))
+
+    def test_a_bad_settings_file_is_skipped_for_the_next_one(self):
+        self.env.pop(ADVISOR_OFF, None)
+        self.settings("user", "user-model")
+        self.settings("local", raw="{not json")
+        self.settings("project", value="   ")
+        self.assertIn("(user-model)", self.advisor_reason(self.UNTYPED))
+        self.settings("project", raw=json.dumps({"advisorModel": 5}))
+        self.assertIn("(user-model)", self.advisor_reason(self.UNTYPED))
+        self.settings("project", raw="[1]")
+        self.assertIn("(user-model)", self.advisor_reason(self.UNTYPED))
+
+    def test_the_environment_switch_wins_over_every_settings_file(self):
+        for where in ("local", "project", "user"):
+            self.settings(where)
+        for value in ("1", "true", "YES", " True "):
+            with self.subTest(value=value):
+                self.env[ADVISOR_OFF] = value
+                self.assertIn("STAGE 2/2", self.reason(self.guard(self.UNTYPED, cwd=self.project)))
+        self.env[ADVISOR_OFF] = "0"
+        self.assertIn("ADVISOR", self.advisor_reason(self.UNTYPED))
+
+    def test_an_untyped_call_without_the_sentence_is_denied_with_the_fix(self):
+        self.advisor_on()
+        script = ("const a = 1\nawait agent('x', {model:'haiku', effort:'low'})\n"
+                  "await agent('typed', {agentType:'agenting:coder', effort:'low'})\n"
+                  "await agent('y', {model:'opus', effort:'high'})")
+        reason = self.advisor_reason(script)
+        self.assertIn("STAGE 1/2", reason)
+        self.assertIn(f"advisor ({SESSION_MODEL})", reason)
+        self.assertIn("2 agent() call site(s)", reason)
+        self.assertIn("lines 2, 4", reason)
+        self.assertIn("re-reads that agent's whole conversation at the advisor's price", reason)
+        self.assertIn(f'const ALONE = "{ALONE}"', reason)
+        self.assertNotIn("`", reason.split("const ALONE")[1].split("\n")[0])
+        self.assertIn("// advisor: allowed", reason)
+        self.assertIn("append ALONE to every worker prompt", reason)
+        self.assertNotIn("MISSING ROUTING", reason)
+
+    def test_a_single_call_site_is_named_in_the_singular(self):
+        self.advisor_on()
+        reason = self.advisor_reason("\n\nawait agent('x', {model:'haiku', effort:'low'})")
+        self.assertIn("1 agent() call site(s) are not protected (line 3)", reason)
+
+    def test_the_sentence_anywhere_in_the_script_passes(self):
+        self.advisor_on()
+        self.record(SID, "--mode", "auto")
+        sentences = [f'const ALONE = "{ALONE}"\n{self.UNTYPED}',
+                     f"{self.UNTYPED}\n// work alone. the ADVISOR is the lead's",
+                     f"{self.UNTYPED}\nconst p = `Work alone.{' ' * 30}advisor`"]
+        for script in sentences:
+            with self.subTest(script=script):
+                out = self.guard(script, cwd=self.project)
+                self.assertIsNone(self.decision(out))
+                self.assertIn("auto-approved", out["systemMessage"])
+
+    def test_a_sentence_whose_advisor_word_is_too_far_or_on_another_line_does_not_count(self):
+        self.advisor_on()
+        for text in (f"Work alone.{' ' * 41}advisor", "Work alone.\nadvisor", "Work alone, the advisor is the lead's"):
+            with self.subTest(text=text):
+                reason = self.advisor_reason(f"const p = `{text}`\n{self.UNTYPED}")
+                self.assertIn("ADVISOR", reason)
+
+    def test_the_sentence_lets_a_manual_script_reach_stage_two(self):
+        self.advisor_on()
+        self.record(SID, "--mode", "manual")
+        reason = self.reason(self.guard(f"// {ALONE}\n{self.UNTYPED}", cwd=self.project))
+        self.assertIn("STAGE 2/2", reason)
+        self.assertNotIn("ADVISOR", reason)
+
+    def test_calls_typed_agenting_pass_without_the_sentence(self):
+        self.advisor_on()
+        self.record(SID, "--mode", "auto")
+        script = ("await agent('a', {agentType:'agenting:coder', effort:'low'})\n"
+                  'await agent("b", {"agentType": "agenting:reviewer", effort: \'high\'})')
+        out = self.guard(script, cwd=self.project)
+        self.assertIsNone(self.decision(out))
+        self.assertIn("auto-approved", out["systemMessage"])
+
+    def test_a_typed_call_that_is_not_an_agenting_agent_is_unprotected(self):
+        self.advisor_on()
+        for opts in ("{agentType:'general-purpose', effort:'low'}", "{agentType:'other:coder', effort:'low'}",
+                     "{agentType: kind, effort:'low'}"):
+            with self.subTest(opts=opts):
+                self.assertIn("(line 1)", self.advisor_reason(f"await agent('a', {opts})"))
+
+    def test_the_comment_mark_protects_the_call_on_its_line_or_the_line_below(self):
+        self.advisor_on()
+        self.record(SID, "--mode", "auto")
+        scripts = ["// advisor: allowed\nawait agent('d', {model:'fable', effort:'xhigh'})",
+                   "await agent('d', {model:'fable', effort:'xhigh'}) // advisor: allowed",
+                   "/* advisor: allowed */ await agent('d', {model:'fable', effort:'xhigh'})"]
+        for script in scripts:
+            with self.subTest(script=script):
+                out = self.guard(script, cwd=self.project)
+                self.assertIsNone(self.decision(out))
+                self.assertIn("auto-approved", out["systemMessage"])
+
+    def test_the_mark_protects_only_its_own_call(self):
+        self.advisor_on()
+        script = ("// advisor: allowed\nawait agent('d', {model:'fable', effort:'xhigh'})\n\n\n"
+                  "await agent('w', {model:'haiku', effort:'low'})")
+        reason = self.advisor_reason(script)
+        self.assertIn("1 agent() call site(s) are not protected (line 5)", reason)
+
+    def test_the_mark_words_in_a_string_do_not_protect(self):
+        self.advisor_on()
+        script = "const p = 'advisor: allowed'\nawait agent(p, {model:'haiku', effort:'low'})"
+        self.assertIn("line 2)", self.advisor_reason(script))
+        script = "await agent('say advisor: allowed', {model:'haiku', effort:'low'})"
+        self.assertIn("line 1)", self.advisor_reason(script))
+
+    def test_a_call_with_the_routing_inherit_mark_is_still_unprotected(self):
+        self.advisor_on()
+        reason = self.advisor_reason("// routing: inherit\nawait agent('x', {schema:S})")
+        self.assertIn("1 agent() call site(s) are not protected (line 2)", reason)
+
+    def test_a_routing_gap_and_the_advisor_problem_share_one_denial_routing_first(self):
+        self.advisor_on()
+        script = "await agent('x', {model:'haiku', effort:'low'})\nawait agent('y', {schema:S})"
+        out = self.guard(script, cwd=self.project)
+        self.assertEqual(self.decision(out), "deny")
+        reason = self.reason(out)
+        self.assertIn("MISSING ROUTING: 1 agent() call(s)", reason)
+        self.assertIn("2 agent() call site(s) are not protected (lines 1, 2)", reason)
+        self.assertLess(reason.index("MISSING ROUTING"), reason.index("ADVISOR"))
+        self.assertIn(f'const ALONE = "{ALONE}"', reason)
+        self.assertEqual(reason.count("STAGE 1/2 \u2014 MISSING"), 1)
+
+    def test_a_routing_gap_alone_keeps_its_denial_with_the_advisor_off_or_the_sentence_present(self):
+        script = "await agent('y', {schema:S})"
+        off = self.reason(self.guard(script))
+        self.advisor_on()
+        with_sentence = self.reason(self.guard(f"// {ALONE}\n{script}", cwd=self.project))
+        self.assertNotIn("ADVISOR", off)
+        self.assertNotIn("ADVISOR", with_sentence)
+        self.assertIn("MISSING ROUTING", with_sentence)
+
+    def test_the_advisor_denial_never_says_allow_or_ask(self):
+        self.advisor_on()
+        self.record(SID, "--mode", "auto")
+        scripts = [self.UNTYPED, UNROUTED, f"// {ALONE}\n{self.UNTYPED}", PLUGIN_AGENT]
+        for script in scripts:
+            with self.subTest(script=script):
+                raw = self.raw_output(script)
+                self.assertNotRegex(raw, r'"(allow|ask)"')
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ Python scripts, an eval harness, agent definitions and skill docs. There is no s
 | Hooks-module tests | `tests/fanouts.test.tsx` | The fan-out view's band and pane, drawn through Claude Code's plugin test kit (`claude-code/testing`) with the engine stubbed beneath the plugin; no model, no network |
 | Fan-out scanner | `tests/test_fanout_scan.py` | `scripts/fanout_scan.py` against run folders built in a temp dir and a fake process table |
 | Doc and pin invariants | `tests/test_skill_docs.py` | Wording and pins that other code relies on (description length, list-price caveats, no local paths) |
+| Agent-file rule | `tests/test_advisor_rule.py` | Every agent file but the design agent carries the work-alone sentence exactly once, and keeps `model` and `effort` in its front matter |
 | Isolation proof | `tests/test_real_state_untouched.py` | The `AGENTING_STATE_DIR` override keeps the real `~/.claude` state unchanged |
 | Meta-guard | `tests/test_catalogue_integrity.py` | The scenario catalogue still matches the tests it cites (see BDD.md) |
 | Live layer | none yet; `scripts/quality/` is where `check_*` functions would go | Behaviour unit tests cannot prove (real process boot, real model) |

@@ -19,5 +19,8 @@ Report the result above to the user, concisely.
   routing exists but buys nothing. Mention them, don't alarm.
 - A `teammates: OFF` warning is advisory: relay its one-line "turn on" instruction once
   and do not alarm.
+- The `advisor:` line is information, never a problem. `advisor: off` means the session has
+  no advisor. `advisor: <model>` means agents the session starts inherit it, and the plugin's
+  agents are told to work alone. Mention it in one short clause, not as a warning.
 
 Do not re-run the script; the output is already above.

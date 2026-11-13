@@ -7,8 +7,9 @@ across compaction of one chat continuum:
   disposition  fast | balanced | quality   (default balanced)
   workflows    on | off | unset            (default unset = not opted in)
 
-plus two read-only facts the line also carries: whether Agent Teams (teammates)
-are on, and a standing Workflows default the owner sets once for all chats.
+plus three read-only facts the line also carries: whether Agent Teams (teammates)
+are on, the advisor state of the session, and a standing Workflows default the owner
+sets once for all chats.
 
 Claude Code keeps one session_id across compaction of the same conversation,
 so state keyed on session_id survives a compaction summary that forgets to
@@ -45,6 +46,15 @@ environment; when the variable is absent, the first of ~/.claude/settings.json,
 <cwd>/.claude/settings.json and <cwd>/.claude/settings.local.json whose "env"
 object has it decides.
 
+Advisor: the line says "advisor=off", or "advisor=<model>" when the session has an
+advisor. Agents the session starts inherit its advisor, so the line reminds the lead to
+put the work-alone sentence in each agent prompt. "off" when
+CLAUDE_CODE_DISABLE_ADVISOR_TOOL is 1/true/yes in the hook's environment; otherwise
+the first non-empty string under the top-level key "advisorModel" in <cwd>/.claude/
+settings.local.json, <cwd>/.claude/settings.json, ~/.claude/settings.json (in that
+order); otherwise "off". A file that is missing, not JSON or has no such string is
+skipped. An --advisor flag given at launch cannot be seen from here.
+
 Legacy (2.x) entries: mode "semi-auto" is read as "manual", never as "auto";
 an old "suggestion" key is ignored (it recorded a different consent than the
 workflows opt-in, so it is not mapped) and dropped on the next --record.
@@ -77,6 +87,7 @@ DEFAULT_MODE = "auto"
 DEFAULT_DISPOSITION = "balanced"
 DEFAULTS_KEY = "_defaults"
 TEAMS_VAR = "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
+ADVISOR_OFF_VAR = "CLAUDE_CODE_DISABLE_ADVISOR_TOOL"
 
 
 def read_hook_input() -> dict:
@@ -210,6 +221,35 @@ def fmt_teammates(on: bool) -> str:
             "how to turn them on; see the skill's teammates section)")
 
 
+def advisor_state(cwd):
+    """The session's advisor model, or "off". The environment switch wins; then the
+    first non-empty string under "advisorModel" in the local, project and user settings."""
+    if str(os.environ.get(ADVISOR_OFF_VAR, "")).strip().lower() in ("1", "true", "yes"):
+        return "off"
+    paths = []
+    if cwd and isinstance(cwd, str):
+        paths += [os.path.join(cwd, ".claude", "settings.local.json"),
+                  os.path.join(cwd, ".claude", "settings.json")]
+    paths.append(os.path.expanduser("~/.claude/settings.json"))
+    for path in paths:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            model = data.get("advisorModel") if isinstance(data, dict) else None
+            if isinstance(model, str) and model.strip():
+                return model.strip()
+        except Exception:
+            continue  # missing, unreadable or not JSON: skipped
+    return "off"
+
+
+def fmt_advisor(model: str) -> str:
+    if model == "off":
+        return "advisor=off"
+    return (f"advisor={model} (agents you start inherit it; workers work alone: put the "
+            "work-alone sentence in each agent prompt, agenting: agents carry it; see the skill)")
+
+
 def fmt_default(state: dict) -> str:
     return f"standing default: workflows={default_workflows(state) or 'unset'}"
 
@@ -232,7 +272,8 @@ def run_hook() -> int:
 
     line = (
         f"[agenting] {summary(normalize(entry))} · "
-        f"{fmt_teammates(teammates_on(data.get('cwd')))} (session {session}). "
+        f"{fmt_teammates(teammates_on(data.get('cwd')))} · "
+        f"{fmt_advisor(advisor_state(data.get('cwd')))} (session {session}). "
         f'Record changes: python3 "{SELF_PATH}" --record --session {session} '
         f"[--mode auto|manual] [--disposition fast|balanced|quality] [--workflows on|off]. "
         f"Load the agenting skill before moving bulk work off this chat or starting an agent, teammate or Workflow."
@@ -283,7 +324,8 @@ def status(args) -> int:
     session = args.session or "unknown"
     state = load_state()
     entry = state.get(session) if session != DEFAULTS_KEY else None
-    tail = f" · {fmt_teammates(teammates_on(os.getcwd()))} · {fmt_default(state)}"
+    tail = (f" · {fmt_teammates(teammates_on(os.getcwd()))} · "
+            f"{fmt_advisor(advisor_state(os.getcwd()))} · {fmt_default(state)}")
     if not isinstance(entry, dict):
         print(f"no state recorded for session {session} "
               f"(defaults: {summary(normalize(seed_entry(state)))}){tail}")

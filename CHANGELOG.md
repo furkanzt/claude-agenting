@@ -3,6 +3,25 @@
 ## Unreleased
 
 ### Added
+- **Workers work alone: the advisor is for the decider.** Claude Code's advisor is a server-side tool, and
+  subagents inherit it. Measured on 2026-11-13: in one 11-agent Workflow the advisor (Fable 5.2) was called 19
+  times, all by the 8 Opus agents, and was $23.94 of $58.01 at list price. In a test under a session whose
+  advisor was Fable 5.2 (one read-only review task, each agent started once), 8 of 8 Opus `high` reviewers
+  called it once each; with one sentence ("Work alone. The `advisor` tool belongs to the lead that started
+  you...") 0 of 8 did; 0 of 3 Sonnet `medium` reviewers did without it. A call cost $0.60 on average, an Opus
+  agent's own work $0.33. One task and at most 5 agents per arm; the sentence was not tested on teammates, Explore
+  or Plan. The owner's rule: workers work alone, the advisor is for the decider (the main chat, and the design
+  agent), so the routing table holds with or without an advisor. What each part does: every `agenting:` agent
+  except `system-architect` carries the sentence; the `[agenting]` line shows `advisor=off` or
+  `advisor=<model>` with a reminder; while the session has an advisor, the Workflow guard denies a script with an
+  `agent()` call that is neither typed `agenting:` nor marked `// advisor: allowed` and no sentence anywhere,
+  and prints a `const ALONE = "..."` line to paste; the Agent guard denies a start that is not a fork and not an
+  `agenting:` agent unless the prompt carries the sentence or a line `advisor: allowed`; clean runs start every
+  process with `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1`. The advisor state is read from that variable, then
+  `advisorModel` in the project's local settings, its settings, then `~/.claude/settings.json`; a session
+  started with `--advisor` is not seen by the hooks. SKILL.md gains a short section; `reference/delegation.md`
+  holds the evidence and the switches (a deny rule and `--disallowedTools` did not stop the call); the README's
+  recommended settings give two setups. Doc tests pin the sentence and the names.
 - **An agent guard for single `Agent` starts** (`hooks/agent-routing-guard.py`, `PreToolUse` on `Agent`). Until now
   only Workflow `agent()` calls were checked. In the owner's last 21 days, 87 of 165 `Agent` starts carried no
   model, no effort or neither, and ran on whatever the chat was on. The guard denies such a start with a reason

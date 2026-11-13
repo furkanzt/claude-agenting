@@ -371,7 +371,7 @@ Feature: Session continuity carries mode, disposition and workflows opt-in acros
   Scenario: The line says teammates=on when the environment variable is true
     Given CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS is "TRUE" in the hook's environment
     When SessionStart fires for session "11111111-2222-3333-4444-555555555555" with source "startup"
-    Then the additionalContext contains " · teammates=on (session"
+    Then the additionalContext contains " · teammates=on · advisor=off (session"
     And it does not contain "teammates=off"
 
   # Backed by: tests/test_session_continuity.py::test_teammates_off_when_absent_everywhere
@@ -385,20 +385,20 @@ Feature: Session continuity carries mode, disposition and workflows opt-in acros
   Scenario: The teammates=off note tells Claude to explain once how to turn teammates on
     Given teammates are off
     When SessionStart fires for session "11111111-2222-3333-4444-555555555555" with source "startup"
-    Then the additionalContext contains "workflows=not opted in · teammates=off (when a job fits teammates, tell the user once in this chat how to turn them on; see the skill's teammates section) (session 11111111-2222-3333-4444-555555555555)"
+    Then the additionalContext contains "workflows=not opted in · teammates=off (when a job fits teammates, tell the user once in this chat how to turn them on; see the skill's teammates section) · advisor=off (session 11111111-2222-3333-4444-555555555555)"
     And it has no newline and does not contain "?"
 
   # Backed by: tests/test_session_continuity.py::test_teammates_on_from_the_user_settings_file
   Scenario: Teammates are on when only ~/.claude/settings.json sets the variable to 1 in its env object
     Given the environment lacks CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS and $HOME/.claude/settings.json has {"env": {"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"}}
     When SessionStart fires for a new session with source "startup"
-    Then the additionalContext contains " · teammates=on (session"
+    Then the additionalContext contains " · teammates=on · advisor=off (session"
 
   # Backed by: tests/test_session_continuity.py::test_teammates_on_from_the_project_local_settings_file
   Scenario: Teammates are on when only the project's .claude/settings.local.json sets the variable
     Given the environment lacks the variable and <cwd>/.claude/settings.local.json has {"env": {"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "true"}}
     When SessionStart fires with that cwd
-    Then the additionalContext contains " · teammates=on (session"
+    Then the additionalContext contains " · teammates=on · advisor=off (session"
 
   # Backed by: tests/test_session_continuity.py::test_environment_variable_beats_the_settings_files
   Scenario: A present environment variable decides even when a settings file says otherwise
@@ -419,6 +419,59 @@ Feature: Session continuity carries mode, disposition and workflows opt-in acros
     When --status is run for a session
     Then the output contains "teammates=off"
     And with the variable set to "1" in the environment it contains "teammates=on"
+
+  # ---- advisor state ----
+
+  # Backed by: tests/test_session_continuity.py::test_advisor_is_off_when_nothing_names_one
+  Scenario: The line says advisor=off when no switch or settings file names an advisor
+    Given CLAUDE_CODE_DISABLE_ADVISOR_TOOL is absent and no settings file has an advisorModel
+    When SessionStart fires for session "11111111-2222-3333-4444-555555555555" with source "startup"
+    Then the additionalContext contains " · advisor=off (session 11111111-2222-3333-4444-555555555555)"
+    And the advisor part comes right after the teammates part
+    And it has no newline
+
+  # Backed by: tests/test_session_continuity.py::test_advisor_line_carries_the_model_and_the_work_alone_note
+  Scenario: The line names the advisor model and reminds the lead that workers work alone
+    Given $HOME/.claude/settings.json has {"advisorModel": "fable-5.2"}
+    When SessionStart fires for session "11111111-2222-3333-4444-555555555555" with source "startup"
+    Then the additionalContext contains " · advisor=fable-5.2 (agents you start inherit it; workers work alone: put the work-alone sentence in each agent prompt, agenting: agents carry it; see the skill) (session 11111111-2222-3333-4444-555555555555)"
+    And it does not contain "advisor=off"
+    And it has no newline and does not contain "?"
+
+  # Backed by: tests/test_session_continuity.py::test_advisor_from_each_settings_file
+  Scenario: Each of the three settings files can name the advisor
+    Given only <cwd>/.claude/settings.local.json, only <cwd>/.claude/settings.json, or only $HOME/.claude/settings.json has an advisorModel
+    When SessionStart fires with that cwd
+    Then the additionalContext contains "advisor=" followed by that file's model and " (agents"
+
+  # Backed by: tests/test_session_continuity.py::test_advisor_settings_files_are_read_local_then_project_then_user
+  Scenario: The advisor settings files are read in the order local, project, user
+    Given all three settings files have an advisorModel
+    When SessionStart fires with that cwd
+    Then the advisor is the project file's model while the local file has none
+    And the advisor is the local file's model once it has one
+
+  # Backed by: tests/test_session_continuity.py::test_environment_switch_beats_every_settings_file
+  Scenario: CLAUDE_CODE_DISABLE_ADVISOR_TOOL wins over every settings file
+    Given all three settings files have an advisorModel
+    When SessionStart fires with the variable set to "1", "true", "YES" or " True "
+    Then the additionalContext contains " · advisor=off (session"
+    And with the variable set to "0" it names the settings model again
+
+  # Backed by: tests/test_session_continuity.py::test_invalid_json_and_non_string_values_are_skipped
+  Scenario: A settings file that is not JSON, or an advisorModel that is not a non-empty string, is skipped
+    Given the local settings file is not JSON, the project file has advisorModel 7, and the user file has advisorModel "" and a nested env.advisorModel
+    When SessionStart fires with that cwd
+    Then the additionalContext contains " · advisor=off (session"
+    And a later valid advisorModel in a lower-priority file is still found
+
+  # Backed by: tests/test_session_continuity.py::test_status_prints_the_advisor_value
+  Scenario: --status prints the advisor value between the teammates part and the standing default
+    Given no advisor is configured
+    When --status is run for a session with a cwd
+    Then the output contains " · advisor=off · standing default: workflows=unset"
+    And with a project advisorModel "fable-5.2" it contains "advisor=fable-5.2 (agents you start inherit it"
+    And with the environment switch set to "1" it contains "advisor=off"
 
   # Backed by: tests/test_session_continuity.py::test_default_is_recorded_and_shown_by_status
   Scenario: --record-default stores the standing Workflows default under _defaults and --status shows it

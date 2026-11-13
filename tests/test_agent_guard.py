@@ -5,6 +5,10 @@ import json
 from _util import AGENT_GUARD, ROOT, HookTestCase
 
 TEAMS = "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
+ADVISOR_OFF = "CLAUDE_CODE_DISABLE_ADVISOR_TOOL"
+SESSION_MODEL = "claude-fable-5-2"
+ALONE = ("Work alone. The `advisor` tool belongs to the lead that started you, so do not call it: "
+         "decide from the brief and the files, and when something blocks you, say so in your result.")
 ROUTED = {"description": "trace it", "prompt": "find the caller", "model": "sonnet", "effort": "low"}
 
 
@@ -17,6 +21,9 @@ class AgentGuardCase(HookTestCase):
         self.project.mkdir()
         self.env.pop(TEAMS, None)
         self.env["HOME"] = str(self.home)
+        # The advisor starts switched off in every test, so the owner's real settings cannot matter;
+        # AdvisorRule opts in.
+        self.env[ADVISOR_OFF] = "1"
 
     def start(self, tool_input, teams=None, cwd=None, transcript=None, tool="Agent"):
         """Pipe one PreToolUse payload in; return the parsed output, None when silent."""
@@ -221,6 +228,187 @@ class AgentFiles(AgentGuardCase):
                 head = path.read_text(encoding="utf-8").split("---")[1]
                 self.assertRegex(head, r"(?m)^model:\s*(opus|sonnet|haiku|fable)\s*$")
                 self.assertRegex(head, r"(?m)^effort:\s*(low|medium|high|xhigh|max)\s*$")
+
+
+class AdvisorRule(AgentGuardCase):
+    """Workers work alone: while the session has an advisor, a start that is not a fork or an agenting:
+    agent needs the work-alone sentence or an "advisor: allowed" line in its prompt. With the advisor off
+    nothing changes."""
+
+    GENERAL = {"description": "review it", "prompt": "Review the two files.", "subagent_type": "general-purpose",
+               "model": "opus", "effort": "high"}
+
+    def settings(self, where, value=SESSION_MODEL, raw=None):
+        path = {"local": self.project / ".claude" / "settings.local.json",
+                "project": self.project / ".claude" / "settings.json",
+                "user": self.home / ".claude" / "settings.json"}[where]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(raw if raw is not None else json.dumps({"advisorModel": value}), encoding="utf-8")
+
+    def advisor_on(self, where="user", value=SESSION_MODEL):
+        self.settings(where, value)
+        self.env.pop(ADVISOR_OFF, None)
+
+    def raw_output(self, tool_input, teams=None):
+        if teams is not None:
+            self.env[TEAMS] = teams
+        r = self.run_script(AGENT_GUARD, stdin=json.dumps({"tool_name": "Agent", "cwd": str(self.project),
+                                                           "tool_input": tool_input}))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def denied(self, tool_input, **kw):
+        out = self.start(tool_input, **kw)
+        self.assertEqual(self.decision(out), "deny", out)
+        return self.reason(out)
+
+    def test_advisor_off_leaves_every_output_unchanged(self):
+        inputs = [dict(self.GENERAL), {"description": "d", "prompt": "p"}, dict(ROUTED, name="worker"),
+                  dict(ROUTED, prompt="routing: inherit"), {"description": "d", "prompt": "p", "subagent_type": "Explore",
+                                                           "effort": "low"}]
+        for tool_input in inputs:
+            with self.subTest(tool_input=tool_input):
+                before = self.raw_output(tool_input, teams="1")
+                for where in ("local", "project", "user"):
+                    self.settings(where)
+                after = self.raw_output(tool_input, teams="1")
+                for f in (self.project / ".claude" / "settings.local.json", self.project / ".claude" / "settings.json",
+                          self.home / ".claude" / "settings.json"):
+                    f.unlink()
+                self.assertEqual(before, after)
+                self.assertNotIn("advisor", after.lower())
+
+    def test_each_settings_file_turns_the_rule_on_in_the_order_local_project_user(self):
+        self.env.pop(ADVISOR_OFF, None)
+        self.settings("user", "user-model")
+        self.assertIn("(user-model)", self.denied(dict(self.GENERAL)))
+        self.settings("project", "project-model")
+        self.assertIn("(project-model)", self.denied(dict(self.GENERAL)))
+        self.settings("local", "local-model")
+        self.assertIn("(local-model)", self.denied(dict(self.GENERAL)))
+
+    def test_a_bad_settings_file_is_skipped_for_the_next_one(self):
+        self.env.pop(ADVISOR_OFF, None)
+        self.settings("user", "user-model")
+        self.settings("local", raw="{not json")
+        self.settings("project", raw=json.dumps({"advisorModel": ""}))
+        self.assertIn("(user-model)", self.denied(dict(self.GENERAL)))
+        self.settings("project", raw=json.dumps({"advisorModel": ["x"]}))
+        self.assertIn("(user-model)", self.denied(dict(self.GENERAL)))
+
+    def test_the_environment_switch_wins_over_the_settings_files(self):
+        for where in ("local", "project", "user"):
+            self.settings(where)
+        for value in ("1", "true", "YES"):
+            with self.subTest(value=value):
+                self.env[ADVISOR_OFF] = value
+                self.assertIsNone(self.start(dict(self.GENERAL)))
+        self.env[ADVISOR_OFF] = "0"
+        self.assertIn("advisor", self.denied(dict(self.GENERAL)))
+
+    def test_without_any_settings_file_the_advisor_is_off(self):
+        self.env.pop(ADVISOR_OFF, None)
+        self.assertIsNone(self.start(dict(self.GENERAL)))
+
+    def test_general_purpose_and_explore_without_the_sentence_are_denied_with_the_fix(self):
+        self.advisor_on()
+        for kind in ("general-purpose", "Explore", "Plan", "claude-code-guide", "statusline-setup", None):
+            with self.subTest(kind=kind):
+                tool_input = dict(self.GENERAL)
+                if kind is None:
+                    tool_input.pop("subagent_type")
+                else:
+                    tool_input["subagent_type"] = kind
+                reason = self.denied(tool_input)
+                self.assertIn(f"advisor ({SESSION_MODEL})", reason)
+                self.assertIn(f'"{ALONE}"', reason)
+                self.assertIn("`advisor`", reason)
+                self.assertIn('"advisor: allowed"', reason)
+                self.assertIn("the user, or the skill's design step, asked", reason)
+                self.assertNotIn("no model", reason)
+                self.assertNotIn("no effort", reason)
+
+    def test_the_denial_has_its_own_system_message(self):
+        self.advisor_on()
+        out = self.start(dict(self.GENERAL))
+        self.assertEqual(out["systemMessage"], "agenting: an agent start had no work-alone sentence while the "
+                                               "session has an advisor; Claude is retrying with it")
+
+    def test_a_prompt_with_the_sentence_passes(self):
+        self.advisor_on()
+        for prompt in (f"Review the files.\n{ALONE}", ALONE.replace("`", ""), "WORK ALONE. the Advisor is the lead's"):
+            with self.subTest(prompt=prompt):
+                self.assertIsNone(self.start(dict(self.GENERAL, prompt=prompt)))
+
+    def test_a_sentence_with_the_advisor_word_too_far_or_on_the_next_line_does_not_count(self):
+        self.advisor_on()
+        for prompt in (f"Work alone.{' ' * 41}advisor", "Work alone.\nadvisor", "Work alone, the advisor is the lead's"):
+            with self.subTest(prompt=prompt):
+                self.assertIn("advisor", self.denied(dict(self.GENERAL, prompt=prompt)))
+
+    def test_an_advisor_allowed_line_passes_and_the_same_words_in_a_sentence_do_not(self):
+        self.advisor_on()
+        for prompt in ("Review.\nadvisor: allowed\nThanks.", "// Advisor: Allowed", "  # advisor:allowed  "):
+            with self.subTest(prompt=prompt):
+                self.assertIsNone(self.start(dict(self.GENERAL, prompt=prompt)))
+        for prompt in ("Explain why advisor: allowed is risky.", "advisor: allowed, but only once"):
+            with self.subTest(prompt=prompt):
+                self.assertIn("advisor", self.denied(dict(self.GENERAL, prompt=prompt)))
+
+    def test_agenting_types_a_fork_and_other_plugins_agents(self):
+        self.advisor_on()
+        self.assertIsNone(self.start({"description": "d", "prompt": "p", "subagent_type": "agenting:coder"}))
+        self.assertIsNone(self.start({"description": "d", "prompt": "p", "subagent_type": "agenting:reviewer",
+                                      "model": "opus"}))
+        self.assertIsNone(self.start({"description": "d", "prompt": "p", "subagent_type": "fork"}))
+        self.assertIn("advisor", self.denied({"description": "d", "prompt": "p", "model": "sonnet", "effort": "low",
+                                              "subagent_type": "otherplug:helper"}))
+
+    def test_a_teammate_falls_under_the_rule(self):
+        self.advisor_on()
+        self.agent_file(self.home, "pinned", model="sonnet", effort="low")
+        tool_input = {"description": "d", "prompt": "p", "name": "worker", "subagent_type": "pinned"}
+        reason = self.denied(tool_input, teams="1")
+        self.assertIn('Teammate "worker" would inherit this session\'s advisor', reason)
+        self.assertIsNone(self.start(dict(tool_input, prompt=ALONE), teams="1"))
+        self.assertIsNone(self.start(dict(tool_input, subagent_type="agenting:coder"), teams="1"))
+
+    def test_a_start_with_a_routing_gap_and_no_sentence_gets_one_denial_with_both(self):
+        self.advisor_on()
+        out = self.start({"description": "trace it", "prompt": "p", "subagent_type": "general-purpose"})
+        self.assertEqual(self.decision(out), "deny")
+        reason = self.reason(out)
+        self.assertIn('Agent start "trace it" has no model and no effort', reason)
+        self.assertIn(f'"{ALONE}"', reason)
+        self.assertLess(reason.index("has no model and no effort"), reason.index(ALONE))
+        self.assertEqual(reason.count("[agenting]"), 2)
+        self.assertIn("it also needs the work-alone sentence", out["systemMessage"])
+
+    def test_a_teammate_with_an_effort_gap_and_no_sentence_gets_one_denial_with_both(self):
+        self.advisor_on()
+        out = self.start(dict(ROUTED, name="worker"), teams="1")
+        reason = self.reason(out)
+        self.assertIn("cannot be given an effort on the call", reason)
+        self.assertIn(ALONE, reason)
+
+    def test_the_routing_inherit_line_escapes_routing_only(self):
+        self.advisor_on()
+        prompt = "Do the work.\nrouting: inherit"
+        reason = self.denied({"description": "d", "prompt": prompt, "subagent_type": "general-purpose"})
+        self.assertIn(ALONE, reason)
+        self.assertNotIn("no model", reason)
+        self.assertIsNone(self.start({"description": "d", "prompt": f"{prompt}\n{ALONE}"}))
+
+    def test_a_non_string_prompt_is_denied_without_a_crash(self):
+        self.advisor_on()
+        self.assertIn("advisor", self.denied(dict(self.GENERAL, prompt=5)))
+
+    def test_the_advisor_denial_never_says_allow_or_ask(self):
+        self.advisor_on()
+        for tool_input in (dict(self.GENERAL), {"description": "d", "prompt": "p"},
+                           dict(self.GENERAL, prompt=ALONE), dict(self.GENERAL, subagent_type="agenting:coder")):
+            with self.subTest(tool_input=tool_input):
+                self.assertNotRegex(self.raw_output(tool_input), r'"(allow|ask)"')
 
 
 class Robustness(AgentGuardCase):

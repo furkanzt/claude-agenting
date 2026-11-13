@@ -45,9 +45,30 @@ mode propose it and wait.
 Examples, what each vehicle costs and the teammate rules:
 [reference/delegation.md](reference/delegation.md).
 
+## The advisor is for the decider
+
+Workers work alone: only the main chat, and the one design agent
+(`agenting:system-architect`), may call the `advisor` tool. Every other agent
+carries this sentence, verbatim, in its file or its prompt:
+
+```
+Work alone. The `advisor` tool belongs to the lead that started you, so do not call it: decide from the brief and the files, and when something blocks you, say so in your result.
+```
+
+- **Workflow:** define `const ALONE` as that sentence without its two backticks and
+  end every worker prompt with it. A call that must reach the advisor gets the
+  comment `// advisor: allowed`.
+- **Agent start:** an `agenting:` agent already has it; for any other type put the
+  sentence in the prompt, or the line `advisor: allowed`. A fork is exempt.
+- The `[agenting]` line shows `advisor=off`, or `advisor=<model>` with a reminder.
+
+The evidence is in [reference/delegation.md](reference/delegation.md).
+
 ## Routing table
 
-Pick by reasoning demand, not by how important the task feels.
+Pick by reasoning demand, not by how important the task feels. The cells were
+measured with each model working alone, so they hold with or without an advisor:
+workers work alone.
 
 | Task shape | Model | Effort | Test |
 |---|---|---|---|

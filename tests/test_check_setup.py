@@ -26,6 +26,7 @@ class CheckSetupCase(unittest.TestCase):
     SETTINGS = SETTINGS_MISSING
     EMPTY_PLUGIN_ROOT = False
     TEAMS = None             # value of CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS in the child; None removes it
+    ADVISOR_SWITCH = None    # value of CLAUDE_CODE_DISABLE_ADVISOR_TOOL in the child; None removes it
     RECORD_DEFAULT = None    # "on"/"off": record the standing Workflows default first
     PLUGIN_HOOKS_JSON = None  # text of hooks/hooks.json in a temp plugin root (implies EMPTY_PLUGIN_ROOT)
 
@@ -46,6 +47,9 @@ class CheckSetupCase(unittest.TestCase):
         env = dict(os.environ, HOME=str(home), AGENTING_STATE_DIR=str(state),
                    CLAUDE_PLUGIN_ROOT=str(plugin if cls.EMPTY_PLUGIN_ROOT or cls.PLUGIN_HOOKS_JSON is not None else ROOT))
         env.pop("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", None)
+        env.pop("CLAUDE_CODE_DISABLE_ADVISOR_TOOL", None)
+        if cls.ADVISOR_SWITCH is not None:
+            env["CLAUDE_CODE_DISABLE_ADVISOR_TOOL"] = cls.ADVISOR_SWITCH
         if cls.TEAMS is not None:
             env["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] = cls.TEAMS
         if cls.RECORD_DEFAULT:
@@ -223,6 +227,55 @@ class TestTeammatesOff(CheckSetupCase):
     def test_should_keep_exit_code_0_when_only_the_teammates_warning_fires(self):
         self.assertRanToTheEnd()
         self.assertNotIn("FAIL]", self.result.stdout)
+        self.assertEqual(self.result.returncode, 0)
+
+
+ADVISOR_ON = "advisor: fable-5.2 (agents inherit it; workers are told to work alone)"
+
+
+class TestAdvisorOff(CheckSetupCase):
+    def test_should_report_advisor_off_as_a_pass_when_no_advisor_is_configured(self):
+        self.assertCheck("advisor: off", "PASS")
+        self.assertIsNone(self.line(ADVISOR_ON))
+        self.assertRanToTheEnd()
+        self.assertEqual(self.result.returncode, 0)
+
+
+class TestAdvisorOn(CheckSetupCase):
+    SETTINGS = json.dumps({"advisorModel": "fable-5.2"})
+
+    def test_should_report_the_advisor_model_as_a_pass_when_settings_name_one(self):
+        self.assertCheck(ADVISOR_ON, "PASS")
+        self.assertIsNone(self.line("advisor: off"))
+        self.assertRanToTheEnd()
+        self.assertEqual(self.result.returncode, 0)
+
+
+class TestAdvisorSwitchedOffByTheEnvironment(CheckSetupCase):
+    SETTINGS = json.dumps({"advisorModel": "fable-5.2"})
+    ADVISOR_SWITCH = "1"
+
+    def test_should_report_advisor_off_when_the_environment_switch_beats_the_settings(self):
+        self.assertCheck("advisor: off", "PASS")
+        self.assertIsNone(self.line(ADVISOR_ON))
+
+
+ADVISOR_RULE_CHECKS = (
+    "with an advisor, a Workflow whose workers are not told to work alone is DENIED",
+    "with an advisor, a Workflow that carries the work-alone sentence is not denied for it",
+    "with an advisor, an Agent start with no work-alone sentence is DENIED",
+    "with an advisor, an Agent start that carries the sentence passes silently",
+    "every agenting: worker agent carries the work-alone sentence, the design agent does not",
+)
+
+
+class TestAdvisorRuleSection(CheckSetupCase):
+    ADVISOR_SWITCH = "1"   # the caller's own switch must not hide the probes that run with an advisor on
+
+    def test_should_prove_the_work_alone_denials_with_the_advisor_on(self):
+        for name in ADVISOR_RULE_CHECKS:
+            self.assertCheck(name, "PASS")
+        self.assertRanToTheEnd()
         self.assertEqual(self.result.returncode, 0)
 
 

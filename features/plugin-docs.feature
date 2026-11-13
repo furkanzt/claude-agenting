@@ -372,3 +372,33 @@ Feature: Plugin packaging, agent pins and doc invariants stay consistent, becaus
     Given reference/delegation.md
     When the docs test searches it
     Then it contains neither "/Users/" nor "/private/"
+
+  # --- Workers work alone: the advisor is for the decider ---
+
+  # Backed by: tests/test_skill_docs.py::test_the_skill_carries_the_work_alone_sentence_once_in_its_own_section
+  Scenario: SKILL.md carries the work-alone sentence once, in its own short section between "Where the work runs" and the routing table
+    Given skills/agenting/SKILL.md
+    When the docs test reads the section "The advisor is for the decider"
+    Then the exact sentence "Work alone. The `advisor` tool belongs to the lead that started you, ..." appears once in the whole file, inside that section, on one line that matches the hooks' pattern
+    And the section names "// advisor: allowed" and "const ALONE", and has at most 16 non-blank lines
+    And it sits after "Where the work runs" and before "Routing table"
+
+  # Backed by: tests/test_skill_docs.py::test_the_delegation_reference_carries_the_sentence_or_names_the_skill_as_its_source
+  Scenario: reference/delegation.md holds the advisor evidence and names SKILL.md as the source of the sentence
+    Given the "The advisor" section of reference/delegation.md
+    When the docs test reads it
+    Then it carries the sentence or names SKILL.md and the section "The advisor is for the decider"
+    And it quotes "Subagents inherit the configured advisor" and names "CLAUDE_CODE_DISABLE_ADVISOR_TOOL", "advisor: allowed" and "--disallowedTools"
+    And the section comes before "What was not measured", which names the "--advisor" flag as a limit
+
+  # Backed by: tests/test_skill_docs.py::test_the_readme_names_the_allow_mark_and_the_environment_variable
+  Scenario: The README names the advisor allow mark and the switch that turns the advisor off
+    Given README.md
+    When the docs test searches it
+    Then it contains "advisor: allowed" and "CLAUDE_CODE_DISABLE_ADVISOR_TOOL"
+
+  # Backed by: tests/test_skill_docs.py::test_the_advisor_docs_carry_no_local_paths
+  Scenario: SKILL.md, delegation.md and the README carry no "/Users/" path
+    Given skills/agenting/SKILL.md, skills/agenting/reference/delegation.md and README.md
+    When the docs test searches each
+    Then none contains "/Users/"

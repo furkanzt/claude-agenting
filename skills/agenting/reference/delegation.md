@@ -102,9 +102,71 @@ as a Workflow, and tell the user once in this chat, in one line and never as a q
 job fits teammates and that they turn on by adding `"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"`
 under `"env"` in `~/.claude/settings.json` (experimental; more tokens than subagents).
 
+## The advisor
+
+The advisor is a server-side tool. A session gets one from the `advisorModel` setting, the `/advisor`
+command or the `--advisor` flag. Claude Code's docs say: "Subagents inherit the configured advisor",
+and "There is no setting to cap or force advisor calls; if you want Claude to consult more or less
+often during a task, say so in your instructions" (code.claude.com/docs/en/advisor, read 2026-11-13).
+Each call re-reads the agent's whole conversation, uncached, at the advisor model's price. So every
+Workflow agent, one-off agent and teammate of such a session can call it.
+
+**The Workflow figure.** In one Workflow of 11 agents the advisor (Fable 5.2) was called 19 times, all
+by the 8 Opus agents, and was 23.94 of 58.01 dollars at list price.
+
+**The reviewer test** (measured 2026-11-13 on Claude Code 2.1.323, under a session whose advisor was
+Fable 5.2; one read-only review task over two source files of about 450 lines; each agent started once):
+
+| Arm | Agents | Agents that called the advisor | Calls |
+|---|---|---|---|
+| Opus `high`, no sentence (5 from an agent file, 3 `general-purpose`) | 8 | 8 | 8 |
+| Opus `high`, with the sentence (5 in the agent file, 3 in the prompt) | 8 | 0 | 0 |
+| Sonnet `medium`, no sentence | 3 | 0 | 0 |
+
+An advisor call cost 0.60 dollars on average (8 calls, 4.77 dollars). An Opus agent's own work cost
+0.33 dollars on average (16 agents, 5.28 dollars). So one advisor call cost more than the agent's
+whole review.
+
+**The rule (the owner's, 2026-11-13).** Workers work alone; the advisor is for the decider. The
+decider is the main chat, and the one design agent (`agenting:system-architect`) when a design step
+runs as an agent. The one exception is a call marked `// advisor: allowed` in a Workflow script, or
+a prompt line `advisor: allowed` on an `Agent` start. Because workers never call the advisor, the
+routing table holds whether the session has an advisor or not: its cells were measured with each
+model working alone.
+
+**How each vehicle is covered.** The sentence is in [SKILL.md](../SKILL.md) (section "The advisor is
+for the decider"); the two guards only run while the session has an advisor.
+
+- **Agent files:** every `agenting:` agent except `system-architect` carries the sentence.
+- **Workflow prompts:** the Workflow guard denies a script when at least one `agent()` call is
+  neither typed `agenting:` nor marked `// advisor: allowed` and the script carries the sentence
+  nowhere. The denial prints a line to paste, `const ALONE = "..."`, to append to every worker
+  prompt. The Agent guard denies a start that is not a fork and not an `agenting:` agent unless its
+  prompt carries the sentence or a line `advisor: allowed`.
+- **Clean runs:** `scripts/cleanrun.py` starts every process with `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1`.
+- **The session line** shows `advisor=off`, or `advisor=<model>` with a reminder that agents inherit
+  it and workers work alone. Both hooks read the state the same way: off when that variable is
+  truthy (`1`, `true`, `yes`), else the first non-empty `advisorModel` in the project's
+  `.claude/settings.local.json`, the project's `.claude/settings.json`, then `~/.claude/settings.json`,
+  else off.
+
+**The switches that exist.** The sentence in the prompt or agent file works (0 of 8 called it).
+`CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` in a process's environment removes the advisor for that process.
+Removing `advisorModel` (or `/advisor off`) removes it for the whole session, the main chat
+included. There is no per-agent switch. Two things that failed in single probes: a permissions deny
+rule for `advisor`, and the `--disallowedTools` flag. Neither stopped the call.
+
+**To turn the advisor off entirely,** set `CLAUDE_CODE_DISABLE_ADVISOR_TOOL` to `1` under `"env"` in
+`~/.claude/settings.json`, or remove `advisorModel`.
+
 ## What was not measured
 
 - The bulk thresholds (5 items, 10 files, 20k tokens) are the owner's judgment.
 - Teammates against a Workflow on the same job: no cost comparison was run here.
 - Split-pane teammates (`teammateMode` other than in-process) were not probed; the docs say they
   ignore an agent file's `effort`.
+- The advisor test used one task and at most 5 agents per arm, each started once.
+- No quality comparison was run between a worker with an advisor and one without.
+- The sentence was not tested on teammates, or on the built-in Explore and Plan agents.
+- A session started with the `--advisor` flag is not seen by the hooks, which read the environment
+  variable and the settings files only. The session line then says `advisor=off` although one is on.

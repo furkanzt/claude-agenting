@@ -86,6 +86,23 @@ with depth times length), so its own cost stays bounded and does not push the
 hook toward its timeout: a hook that times out lets the Workflow launch, Stage 2
 denial or not.
 
+WORKERS WORK ALONE (Stage 1, only while the session has an advisor)
+------------------------------------------------------------------
+Claude Code's advisor is a server-side tool, and every agent() of the session inherits it.
+An advisor call re-reads the agent's whole conversation, uncached, at the advisor model's price
+(2026-11-13: 19 calls by 8 Opus agents were 23.94 of 58.01 dollars in one Workflow). The owner's
+rule: workers work alone, the advisor is for the decider. So when the advisor state (below) is not
+"off", a script with at least one UNPROTECTED agent() call site and no work-alone sentence anywhere
+in its source is denied at Stage 1, together with any routing gap in one denial (routing first).
+A call site is PROTECTED when its options carry a literal agentType starting with `agenting:` or
+when a comment on its line or the line above says `advisor: allowed` (a comment only, like
+`routing: inherit`). The sentence counts when one line holds "work alone." and, within 40
+characters after it, the word "advisor". With the advisor off nothing changes: no new text.
+Advisor state, the same definition as hooks/session-continuity.py: "off" when
+CLAUDE_CODE_DISABLE_ADVISOR_TOOL is 1/true/yes; else the first non-empty string under the top-level
+key "advisorModel" in <cwd>/.claude/settings.local.json, <cwd>/.claude/settings.json,
+~/.claude/settings.json; else "off". An --advisor flag given at launch cannot be seen from a hook.
+
 SINGLE Agent CALLS ARE OUT OF SCOPE
 -----------------------------------
 Deliberate: every agent definition in this plugin's agents/ pins both model and
@@ -127,6 +144,13 @@ import re
 import sys
 
 ESCAPE_HATCH = "routing: inherit"
+ADVISOR_MARK = "advisor: allowed"
+ADVISOR_OFF_VAR = "CLAUDE_CODE_DISABLE_ADVISOR_TOOL"
+# The work-alone sentence. The script form has no backticks (it goes into a JavaScript string).
+ALONE_SENTENCE = ("Work alone. The advisor tool belongs to the lead that started you, so do not call it: "
+                  "decide from the brief and the files, and when something blocks you, say so in your result.")
+# A text carries the sentence when one line holds "work alone." and, within 40 characters after it, "advisor".
+ALONE_RE = re.compile(r"work alone\.[^\n\r\u2028\u2029]{0,40}advisor", re.IGNORECASE)
 MAX_REPORTED = 12
 STATE_DIR = os.path.expanduser(os.environ.get("AGENTING_STATE_DIR") or "~/.claude")
 APPROVALS_PATH = os.path.join(STATE_DIR, ".routing-approvals.json")
@@ -879,14 +903,71 @@ def checked_clean_run_warning(src: str, clean: str, sites) -> str:
         return ""
 
 
-def has_escape_hatch(src: str, start: int, comments) -> bool:
-    """True if a comment on this line or the one above it says `routing: inherit`. The words in a
-    string or a prompt do not count (`Explain why routing: inherit is risky`)."""
+def has_escape_hatch(src: str, start: int, comments, phrase: str = ESCAPE_HATCH) -> bool:
+    """True if a comment on this line or the one above it says `routing: inherit` (or `phrase`). The
+    words in a string or a prompt do not count (`Explain why routing: inherit is risky`)."""
     line_start = src.rfind("\n", 0, start) + 1
     line_end = src.find("\n", start)
     line_end = len(src) if line_end == -1 else line_end
     prev_start = src.rfind("\n", 0, line_start - 1) + 1 if line_start > 0 else 0
-    return any(src.find(ESCAPE_HATCH, max(a, prev_start), min(b, line_end)) >= 0 for a, b in comments)
+    return any(src.find(phrase, max(a, prev_start), min(b, line_end)) >= 0 for a, b in comments)
+
+
+def advisor_state(cwd) -> str:
+    """The session's advisor model, or "off" (same definition as hooks/session-continuity.py). The
+    environment switch wins; then the first non-empty string under "advisorModel" in the local, project
+    and user settings. A file that is missing, unreadable or not JSON, or a value that is not a
+    non-empty string, is skipped."""
+    if str(os.environ.get(ADVISOR_OFF_VAR, "")).strip().lower() in ("1", "true", "yes"):
+        return "off"
+    paths = []
+    if cwd and isinstance(cwd, str):
+        paths += [os.path.join(cwd, ".claude", "settings.local.json"),
+                  os.path.join(cwd, ".claude", "settings.json")]
+    paths.append(os.path.expanduser("~/.claude/settings.json"))
+    for path in paths:
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            model = data.get("advisorModel") if isinstance(data, dict) else None
+            if isinstance(model, str) and model.strip():
+                return model.strip()
+        except Exception:
+            continue
+    return "off"
+
+
+def advisor_section(src: str, clean: str, sites, comments, cwd) -> str:
+    """The advisor problem as text, or "" when there is none (advisor off, a protected script, or the
+    sentence somewhere in the source). Never raises: on a fault the hook answers as it would without it."""
+    try:
+        model = advisor_state(cwd)
+        if model == "off" or ALONE_RE.search(src):
+            return ""
+        lines = []
+        for start, end in sites:
+            if has_escape_hatch(src, start, comments, ADVISOR_MARK):
+                continue
+            clean_call, raw_call = clean[start:end], src[start:end]
+            span = opts_span(clean_call)
+            clean_opts = clean_call[span[0] : span[1]] if span else ""
+            raw_opts = raw_call[span[0] : span[1]] if span else ""
+            if clean_opts and kv(raw_opts, clean_opts, "agentType").startswith("agenting:"):
+                continue
+            lines.append(src.count("\n", 0, start) + 1)
+        if not lines:
+            return ""
+        shown = ", ".join(str(n) for n in lines[:MAX_REPORTED])
+        more = f", and {len(lines) - MAX_REPORTED} more" if len(lines) > MAX_REPORTED else ""
+        return f"""ADVISOR: workers must work alone. This session has an advisor ({model}), and {len(lines)} agent() call site(s) are not protected ({'line' if len(lines) == 1 else 'lines'} {shown}{more}).
+Each agent inherits the session's advisor, and every advisor call re-reads that agent's whole conversation at the advisor's price.
+
+DO THIS: paste this line near the top of the script and append ALONE to every worker prompt:
+  const ALONE = "{ALONE_SENTENCE}"
+For the one agent that should consult the advisor (the design agent), put // {ADVISOR_MARK} on its call line or the line above.
+A call whose agentType is a literal 'agenting:<name>' needs neither."""
+    except Exception:
+        return ""
 
 
 def load_script(tool_input: dict):
@@ -1151,6 +1232,9 @@ move the regex into a const of its own, or write it as new RegExp(...).""",
     if not tiers and not unrouted:
         return 0  # no agent() calls at all
 
+    # Workers work alone: empty when the session has no advisor, so everything below is then unchanged.
+    advisor = advisor_section(src, clean, sites, comments, payload.get("cwd"))
+
     # --- STAGE 1: missing routing ------------------------------------------
     if unrouted:
         rows = "\n".join(
@@ -1161,7 +1245,7 @@ move the regex into a const of its own, or write it as new RegExp(...).""",
             if len(unrouted) > MAX_REPORTED
             else ""
         )
-        return deny(
+        routing_reason = (
             f"""STAGE 1/2 — MISSING ROUTING: {len(unrouted)} agent() call(s) specify no model/effort ({label}).
 
 Unrouted calls INHERIT the main-loop model and the session effort. That cuts
@@ -1184,8 +1268,18 @@ lens of NAME)) and the script only reads the list and its items, every item is r
 and one with no model or effort is named here. Otherwise only the key's presence is
 checked, so every item must set it. A literal undefined or null does not count.
 
-For deliberate inheritance, put `// {ESCAPE_HATCH}` on that line or the one above it.""",
-            f"Workflow stopped (1/2): {len(unrouted)} agent() call(s) have no routing.",
+For deliberate inheritance, put `// {ESCAPE_HATCH}` on that line or the one above it."""
+        )
+        system_msg = f"Workflow stopped (1/2): {len(unrouted)} agent() call(s) have no routing."
+        if advisor:
+            routing_reason += "\n\nSECOND PROBLEM, STAGE 1/2, " + advisor
+            system_msg += " The workers also have no work-alone sentence."
+        return deny(routing_reason, system_msg)
+
+    if advisor:
+        return deny(
+            "STAGE 1/2, " + advisor,
+            "Workflow stopped (1/2): the workers have no work-alone sentence and the session has an advisor.",
         )
 
     # --- STAGE 2: plan approval --------------------------------------------
