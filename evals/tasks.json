@@ -44,6 +44,28 @@
     "task_hash": "c337c9edf0e718db7a79996b54cfbef428253863e56dbb4382d2d98a606f0150"
   },
   {
+    "id": "design-01",
+    "row": "design-decision",
+    "phase": "screening",
+    "title": "Design a two-phase room state machine (solo, then shared) for a real two-player browser puzzle game, from the project as it stood before it was built",
+    "delivery": "files",
+    "grading_type": "judge",
+    "pass_rule": "no binding constraint violated and at most one foreseeable pitfall left unhandled",
+    "pass_threshold": 0.79,
+    "task_hash": "d43dff58a1468107a8528aabe4058487a6a96a9811fddd041d7701e641cbdbc7"
+  },
+  {
+    "id": "design-02",
+    "row": "design-decision",
+    "phase": "confirmation",
+    "title": "Design accounts and sign-in for a real two-player browser game, from its files as they stood before the real decision",
+    "delivery": "files",
+    "grading_type": "judge",
+    "pass_rule": "no binding constraint violated and at most one foreseeable pitfall left unhandled",
+    "pass_threshold": 0.8233,
+    "task_hash": "3addb4e1c054e11bb0603c61820f74bb7a35cfdf4d57eab902bcedc14837d452"
+  },
+  {
     "id": "dont-guess-01",
     "row": "dont-guess",
     "phase": "screening",

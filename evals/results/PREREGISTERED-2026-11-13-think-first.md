@@ -247,3 +247,31 @@ So the paths to the live repositories that the material mentions cannot leak lat
 **Order and budget.** The `ux-design` runs go first, then stage 1 of `design-decision`; stage 2
 runs only as far as the ceiling of section 2 allows. Spent before the first run: about $61 at list
 price ($58 for building and reviewing the tasks, $24 of it advisor calls; $3 for device checks).
+
+## Addendum 3, 2026-11-13T15:40Z: infrastructure errors, page checks and run order
+
+Written while the designer runs of `ux-design` were in progress, before any page was built and
+before any `design-decision` run. None of these points changes a threshold.
+
+1. **An API or infrastructure error is not the model's failure.** Section 2 says a run with no
+   valid answer after the harness's retries counts as failed. That was written for a model that
+   cannot answer within the limits, not for an outage. An attempt is an infrastructure error when
+   the CLI reports an API error status, or when the call failed with no model output and was not a
+   refusal. Such attempts do not use up a slot's retries, the slot is run again later, and a batch
+   stops at the first one. A slot that could never be completed for that reason is reported as
+   "not run": it is neither a pass nor a fail, and a rule that needs it stays undecided. A timeout
+   of the harness, a missing answer and a refusal keep their meaning.
+2. **Builder rules added for every arm alike, before any build.** The frames the owner sees allow
+   scripts only. The builder prompt therefore also forbids modal dialogs, form submission, page
+   navigation and the History API, and a page that uses them is rejected and rebuilt.
+3. **A render check before any pair is made.** Every built page is loaded in a headless browser
+   inside the same sandboxed frame. A page with an uncaught script error on load or on a first
+   click, or one that renders nothing, is rejected and rebuilt within the same retry cap. The check
+   works by page id and never reads which arm a page belongs to.
+4. **Order of stage 1.** One run per cell on `design-01` first, to see run time and cost against
+   the harness limits (1200 s, $6 a run). If a cell needs more time than that, the limit is raised
+   for every cell of the row before the rest run. Then the twelve `opus-5-5@xhigh` runs and their
+   judging, then the other cells.
+5. **Stage 2 within the ceiling.** The `fast` candidates come first, because only they can still
+   change a cell: under addendum 2 a Fable result can be provisional at most. Stage 2 for a Fable
+   cell is put to the owner before it is run.

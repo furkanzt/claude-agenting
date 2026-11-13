@@ -57,6 +57,8 @@ Shared helpers: `tests/_util.py` (`HookTestCase`, script paths). Stubs: `tests/f
 | Apply scenario to test mappings | `python3 scripts/quality/apply_backed_by.py <mappings.json>` |
 | Dev dependencies | `python3 -m pip install -r requirements-dev.txt` |
 
+`pytest.ini` limits a bare `pytest` to `tests/` and never recurses into `evals/`, because on 2026-11-10 a runner walked the gitignored `evals/private/` and left bytecode caches that changed a task's hash.
+
 There is no CI configuration in this repo. The suite above is the gate; run it before a commit, and
 `scripts/quality/run_plugin_tests.py` with it when `hooks/fanouts/` or `types/` changed. That runner
 copies only the plugin's own files into a temp folder first: `claude plugin test` takes no filter and

@@ -260,6 +260,17 @@ def material_files(tdir):
     return sorted([p.relative_to(mat).as_posix(), sha256_bytes(p.read_bytes())] for p in files)
 
 
+def bytecode_cache_files(tdir):
+    """Files in a task's material that are Python bytecode caches: anything under a
+    __pycache__ folder or ending .pyc. They are never hidden from the hash on purpose;
+    selfcheck reports them so the cause gets fixed."""
+    mat = tdir / "material"
+    if not mat.is_dir():
+        return []
+    return sorted(p for p in mat.rglob("*") if p.is_file()
+                  and ("__pycache__" in p.relative_to(mat).parts[:-1] or p.suffix == ".pyc"))
+
+
 def compute_task_hash(tdir, delivery):
     prompt = tdir / "prompt.md"
     if not prompt.is_file():
@@ -1460,6 +1471,11 @@ def check_task(ctx, tdir, errors):
             errors.append(f"{tid}: {name} missing")
     if (e["delivery"] == "files") != bool(material_files(tdir)):
         errors.append(f"{tid}: delivery {e['delivery']!r} does not match material/ contents")
+    caches = bytecode_cache_files(tdir)
+    if caches:
+        errors.append(f"{tid}: material holds Python bytecode caches ({len(caches)} file(s) under "
+                      "__pycache__ or ending .pyc); a test runner walked evals/private. Delete them: "
+                      "they change the task hash and the files a run sees.")
     scan_secrets(tdir, errors)
     check_threshold(e, tdir, errors)
     if (tdir / "grader.py").is_file() and (tdir / "truth.json").is_file():

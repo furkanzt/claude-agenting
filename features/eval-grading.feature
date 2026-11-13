@@ -694,6 +694,28 @@ Feature: The evalkit grades runs in a sandboxed child process, judges with a bli
     When I run "evalkit.py selfcheck"
     Then stdout contains "j-1: ok_b.json is an ok fixture but did not pass"
 
+  # Backed by: tests/test_evalkit.py::test_bytecode_cache_folder_in_material_is_reported
+  Scenario: Selfcheck reports a __pycache__ folder in a task's material
+    Given "n-1" has material/pkg/__pycache__ holding two .pyc files
+    When I run "evalkit.py selfcheck"
+    Then the exit code is 1
+    And stdout contains "n-1: material holds Python bytecode caches (2 file(s)"
+
+  # Backed by: tests/test_evalkit.py::test_stray_pyc_file_in_material_is_reported
+  Scenario: Selfcheck reports a stray .pyc file in a task's material
+    Given "n-1" has a material file a.pyc outside any __pycache__ folder
+    When I run "evalkit.py selfcheck"
+    Then the exit code is 1
+    And stdout contains "n-1: material holds Python bytecode caches (1 file(s)"
+
+  # Backed by: tests/test_pytest_config.py::test_bare_pytest_collects_tests_and_never_walks_evals
+  Scenario: A bare pytest collects only tests/ and never walks evals/
+    Given pytest.ini sets testpaths to tests and norecursedirs to evals
+    And a folder with tests/test_ok.py and evals/private/tasks/t/material/tests/test_trap.py
+    When I run "python3 -m pytest --collect-only -q" there
+    Then test_ok is collected and test_trap is not
+    And no __pycache__ folder appears under evals/
+
   # Backed by: tests/test_evalkit.py::test_planted_fake_secret_is_caught
   Scenario: Selfcheck's secret scan catches an API-key-shaped string in task material
     Given "n-1" has a material file notes.txt containing "token = sk-ant-api03-" and a long filler

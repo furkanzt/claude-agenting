@@ -944,6 +944,20 @@ class SelfCheck(EvalTestCase):
         self.assertIn(".env.local is an env file", out)
         self.assertIn("k.pem matches secret pattern", out)
 
+    def test_bytecode_cache_folder_in_material_is_reported(self):
+        base = self.root / "private" / "tasks" / "n-1" / "material" / "pkg" / "__pycache__"
+        write(base / "x.cpython-312.pyc", "junk")
+        write(base / "y.cpython-312.pyc", "junk")
+        r = self.cli("selfcheck", check=False)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("n-1: material holds Python bytecode caches (2 file(s)", r.stdout)
+
+    def test_stray_pyc_file_in_material_is_reported(self):
+        write(self.root / "private" / "tasks" / "n-1" / "material" / "a.pyc", "junk")
+        r = self.cli("selfcheck", check=False)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("n-1: material holds Python bytecode caches (1 file(s)", r.stdout)
+
     def test_missing_task_fields_are_caught(self):
         write(self.root / "private" / "tasks" / "n-1" / "task.json", '{"id": "n-1"}')
         out = self.cli("selfcheck", check=False).stdout

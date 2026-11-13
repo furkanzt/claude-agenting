@@ -1,5 +1,5 @@
 {
-  "_note": "role: baseline = the cell the plugin table uses today; effort_down / model_down = the neighbours; up_reference = a stronger cell to fall back to if the baseline fails; ceiling = Fable 5.1 as an upper reference (NOT a safe ceiling for dont-guess: research shows the highest hallucination rate and least abstention); research_candidate = added because the 2026-10-05 research names it. tier: silent_damage rows need confirmation tasks before a change. control_weak = a deliberately weaker cell, run only to show whether a task can separate cells at all.",
+  "_note": "role: baseline = the cell the plugin table uses today; effort_down / model_down = the neighbours; up_reference = a stronger cell to fall back to if the baseline fails; ceiling = Fable 5.1 as an upper reference (NOT a safe ceiling for dont-guess: research shows the highest hallucination rate and least abstention); research_candidate = added because the 2026-10-05 research names it. tier: silent_damage rows need confirmation tasks before a change. control_weak = a deliberately weaker cell, run only to show whether a task can separate cells at all. paid_upgrade = a dearer cell tested as an upgrade under a pre-registered rule; decide ignores it because it is never cheaper.",
   "rows": [
     {
       "id": "scan",
@@ -355,6 +355,43 @@
         "verify-03"
       ],
       "baseline_note": "Moved from opus-5-5@high to sonnet-5-5@high on 2026-10-09 to match the routing table (REPORT-2026-10-06 section 7). The `quality` disposition still uses Opus."
+    },
+    {
+      "id": "design-decision",
+      "plugin_row": "Decide an architecture or approach that later work is built on",
+      "tier": "silent_damage",
+      "baseline": "opus-5-5@xhigh",
+      "grid": [
+        {
+          "cell": "opus-5-5@xhigh",
+          "role": "baseline"
+        },
+        {
+          "cell": "opus-5-5@high",
+          "role": "effort_down"
+        },
+        {
+          "cell": "sonnet-5-5@xhigh",
+          "role": "model_down"
+        },
+        {
+          "cell": "fable-5-2@low",
+          "role": "paid_upgrade"
+        },
+        {
+          "cell": "fable-5-2@medium",
+          "role": "paid_upgrade"
+        },
+        {
+          "cell": "fable-5-2@high",
+          "role": "paid_upgrade"
+        }
+      ],
+      "tasks": [
+        "design-01",
+        "design-02"
+      ],
+      "baseline_note": "New row, 2026-11-13. opus-5-5@xhigh is the starting point because the system-architect agent runs on it. The Fable cells (role paid_upgrade: dearer, so decide never picks them) compete by the pre-registered rules in results/PREREGISTERED-2026-11-13-think-first.md, applied by probes/think_first_analysis.py."
     }
   ]
 }
