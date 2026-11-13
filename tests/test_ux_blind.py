@@ -32,9 +32,15 @@ sys.path.insert(0, str(FIXTURES))
 
 import evalkit as ev  # noqa: E402
 
-_spec = importlib.util.spec_from_file_location("ux_blind_under_test", EVALS / "probes" / "ux_blind.py")
+# The red-proof runs point these at mutated copies, so the real files are never edited.
+UX_SRC = Path(os.environ.get("UX_BLIND_UNDER_TEST") or EVALS / "probes" / "ux_blind.py")
+CHECK_SRC = Path(os.environ.get("CHECK_UX_UNDER_TEST") or ROOT / "scripts" / "quality" / "check_ux_pages.py")
+_spec = importlib.util.spec_from_file_location("ux_blind_under_test", UX_SRC)
 ux = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ux)
+_cspec = importlib.util.spec_from_file_location("check_ux_pages_under_test", CHECK_SRC)
+chk = importlib.util.module_from_spec(_cspec)
+_cspec.loader.exec_module(chk)
 
 MODELS = {"fable-5-2@high": "claude-test-fable-5-2", "opus-5-5@xhigh": "claude-test-opus-5-5",
           "opus-5-5@high": "claude-test-opus-5-5", "fable-5-1@high": "claude-test-fable-5-1",
@@ -167,7 +173,19 @@ class UXTestCase(unittest.TestCase):
                 data[pid] = {"judges": {j: dict(items) for j in ux.JUDGE_CELLS}}
         write(self.root / "checklist.json", json.dumps(data))
 
+    def seed_render_check(self, failed=(), skip=(), newer=True):
+        """Write <root>/render-check.json in the shape check_ux_pages.py writes, newer (or older) than every page."""
+        entries = {pid: {"load_errors": 0, "first_load_error": "", "click_errors": 0, "first_click_error": "",
+                         "clicked": True, "text_length": 40, "canvas": 0, "svg": 0, "img": 0,
+                         "passed": pid not in failed, "reasons": ""} for pid in self.pages_json() if pid not in skip}
+        path = self.root / "render-check.json"
+        write(path, json.dumps(chk.build_report(entries)))
+        newest = max(f.stat().st_mtime_ns for f in (self.root / "pages").glob("*.html"))
+        t = newest + (10 ** 9 if newer else -10 ** 9)
+        os.utime(path, ns=(t, t))
+
     def make_page_file(self):
+        self.seed_render_check()
         code, out, err = self.cli("page")
         self.assertEqual(code, 0, out + err)
         return json.loads((self.root / "pairs.json").read_text())
@@ -284,6 +302,15 @@ class PromptTests(UXTestCase):
                 "keep all state in memory")
         for design in ("DESIGN A", "DESIGN B", None):
             self.assertIn(rule, ux.builder_prompt(brief, design, MARKERS))
+
+    def test_the_builder_prompt_forbids_dialogs_form_submission_navigation_and_the_history_api_for_every_arm(self):
+        brief = {"description": "Add a shop.", "viewport": "390x780"}
+        rule = ("no alert, confirm or prompt dialogs; no form submission and no page navigation "
+                "(switch screens by showing and hiding elements); no History API")
+        prompts = [ux.builder_prompt(brief, d, MARKERS) for d in ("DESIGN A", "DESIGN B", None)]
+        for p in prompts:
+            self.assertIn(rule, p)
+        self.assertEqual({p.split(rule)[1].split("Output only")[0] for p in prompts}, {"; portrait layout for a 390x780 phone screen; UI strings in the game's own language; no HTML comments.\n"})
 
     def test_each_builder_gets_the_design_of_its_own_arm_and_none_for_d(self):
         self.make_briefs(1)
@@ -428,6 +455,32 @@ class SanitiseTests(unittest.TestCase):
     def test_a_plain_text_mention_of_browser_storage_outside_a_script_is_fine(self):
         self.clean("<html><body><p>Progress is not saved: no localStorage, no cookie, no indexedDB.</p>"
                    '<script>var state = {cookies: 3, store: "memory"};</script></body></html>')
+
+    def test_a_script_that_opens_a_dialog_is_invalid(self):
+        for code in ('alert("hi")', "window.alert(1)", "if (confirm('Sure?')) go()", 'var n = prompt ("Name")'):
+            self.invalid(f"<html><body><script>{code}</script></body></html>", "dialog")
+        self.invalid('<html><body><button onclick="alert(1)">x</button></body></html>', "dialog")
+
+    def test_a_script_that_uses_the_history_api_is_invalid(self):
+        for code in ('history.pushState({}, "", "/a")', "window.history.replaceState(null, '', '#b')",
+                     "history . pushState(1, '')"):
+            self.invalid(f"<html><body><script>{code}</script></body></html>", "History API")
+
+    def test_a_script_that_navigates_the_page_is_invalid(self):
+        for code in ('location.href = "next.html"', "window.location.href='#a'", "document.location.assign('x')",
+                     "location.replace('x')", "window.open('x')"):
+            self.invalid(f"<html><body><script>{code}</script></body></html>", "navigates")
+        self.invalid('<html><body><a href="#" onclick="location.href=\'x\'">x</a></body></html>', "navigates")
+
+    def test_look_alike_calls_and_comparisons_are_fine(self):
+        self.clean("<html><body><script>myalert(1); xalert(1); preconfirm(3); reprompt(2); confirmed(2); var prompts = []; x.alerts(); dialog.open(1);"
+                   " mylocation.replace('x'); relocation.assign(1); 'abc'.replace('a', 'b'); myhistory.pushState(1);"
+                   " if (location.href == 'a' || location.href === 'b') {} location.hash = '#a';"
+                   " var n = history.length; function showPrompt() {}</script></body></html>")
+
+    def test_a_plain_text_mention_of_dialogs_and_navigation_outside_a_script_is_fine(self):
+        self.clean("<html><body><p>No alert( or confirm( dialogs, no window.open( and no history.pushState, "
+                   "no location.href = x.</p></body></html>")
 
     def test_a_document_with_neither_html_nor_body_is_invalid(self):
         self.invalid("Sorry, I cannot build that.", "no <html or <body")
@@ -829,6 +882,7 @@ class BlindPageTests(UXTestCase):
     def test_page_refuses_a_page_that_names_a_model(self):
         pid = next(iter(self.index))
         write(self.root / "pages" / f"{pid}.html", page_html("<p>Made by Claude</p>"))
+        self.seed_render_check()
         code, _, err = self.cli("page")
         self.assertEqual(code, 2)
         self.assertIn(f"{pid}.html names a model", err)
@@ -836,6 +890,7 @@ class BlindPageTests(UXTestCase):
 
     def test_page_writes_to_out_when_given(self):
         out = self.base / "elsewhere" / "owner.html"
+        self.seed_render_check()
         code, text, _ = self.cli("page", "--out", str(out))
         self.assertEqual(code, 0)
         self.assertTrue(out.is_file())
@@ -1140,6 +1195,288 @@ class VerdictTests(UXTestCase):
         self.assertIn("UQ (quality): designer opus-5-5@xhigh", out)
 
 
+# -- infrastructure errors ---------------------------------------------------
+
+def call_dict(returncode=0, timeout=False, error=None):
+    return {"stdout": "", "returncode": returncode, "timeout": timeout, "error": error}
+
+
+class InfraTests(UXTestCase):
+    def setUp(self):
+        super().setUp()
+        self.make_briefs(1)
+
+    def test_a_non_null_api_error_status_is_an_infra_error(self):
+        self.assertTrue(ux.is_infra_error(call_dict(0), {"api_error_status": 529, "usage": {"output_tokens": 20}}))
+        self.assertTrue(ux.is_infra_error(call_dict(1), {"api_error_status": 429, "is_error": True}))
+        self.assertTrue(ux.is_infra_error(call_dict(0), {"api_error_status": 429, "usage": {"output_tokens": 20}}))
+        self.assertTrue(ux.is_infra_error(call_dict(0), {"api_error_status": 0, "usage": {"output_tokens": 20}}))
+        self.assertFalse(ux.is_infra_error(call_dict(0), {"api_error_status": None, "usage": {"output_tokens": 20}}))
+
+    def test_a_failed_call_with_no_output_tokens_is_an_infra_error_without_a_status(self):
+        self.assertTrue(ux.is_infra_error(call_dict(error="spawn failed: no such file"), None))
+        self.assertTrue(ux.is_infra_error(call_dict(1), None))
+        self.assertTrue(ux.is_infra_error(call_dict(1), {"is_error": True, "usage": {"output_tokens": 0}}))
+        self.assertTrue(ux.is_infra_error(call_dict(0), {"is_error": True, "usage": {}}))
+
+    def test_a_timeout_a_failure_with_output_and_a_normal_call_are_not_infra_errors(self):
+        self.assertFalse(ux.is_infra_error(call_dict(None, timeout=True), None))
+        self.assertFalse(ux.is_infra_error(call_dict(None, timeout=True), {"api_error_status": 500}))
+        self.assertFalse(ux.is_infra_error(call_dict(None, timeout=True, error="x"), None))
+        self.assertFalse(ux.is_infra_error(call_dict(1), {"is_error": True, "usage": {"output_tokens": 50}}))
+        self.assertFalse(ux.is_infra_error(call_dict(0), {"is_error": False, "usage": {"output_tokens": 50}}))
+        self.assertFalse(ux.is_infra_error(call_dict(0), None), "unparseable output from a clean exit is a counted failure")
+
+    def test_three_rate_limit_errors_leave_the_slot_runnable(self):
+        with self.env(UX_FAKE_API_ERROR_MODEL="claude-test-fable-5-2", UX_FAKE_API_ERROR_FIRST=3):
+            for _ in range(3):
+                self.assertEqual(self.cli("design", "--jobs", "1")[0], 3)
+        log = [e for e in self.attempts() if e["slot"] == "design|ux-01|F|1"]
+        self.assertEqual(len(log), 3)
+        for e in log:
+            self.assertEqual((e["accepted"], e["infra_error"], e["api_error_status"]), (False, True, 429))
+        p = self.plan()
+        self.assertEqual((p["exhausted_designs"], p["designs_missing"], p["infra_waiting_designs"]), (0, 9, 1))
+        self.assertEqual(self.cli("design", "--jobs", "1")[0], 0)
+        d = json.loads((self.root / "designs" / "ux-01-F-1.json").read_text())
+        self.assertEqual((d["attempts"], d["slot_failed"], d["attempt_reasons"]), (4, False, []))
+        self.assertEqual(self.plan()["infra_waiting"], 0)
+
+    def test_three_attempts_that_are_not_infra_errors_still_exhaust_the_slot(self):
+        with self.env(UX_FAKE_NO_BLOCK="design"):
+            self.pipeline("design")
+        p = self.plan()
+        self.assertEqual((p["exhausted_designs"], p["infra_waiting_designs"]), (9, 0))
+        self.assertFalse(any(e["infra_error"] for e in self.attempts()))
+
+    def test_the_first_infra_error_stops_the_invocation_with_exit_3_and_starts_nothing_more(self):
+        with self.env(UX_FAKE_API_ERROR_MODEL="claude-test-fable-5-2", UX_FAKE_API_ERROR_FIRST=1000):
+            code, out, err = self.cli("design", "--jobs", "1")
+        self.assertEqual(code, 3)
+        self.assertEqual(len(self.calls()), 1, "nothing is started after the first infra error")
+        lines = [ln for ln in err.splitlines() if "infra error" in ln]
+        self.assertEqual(len(lines), 1)
+        self.assertIn("design|ux-01|F|1", lines[0])
+        self.assertIn("api_error_status 429", lines[0])
+        self.assertIn("design cost", out)
+
+    def test_build_and_checklist_stop_on_an_infra_error_too(self):
+        self.pipeline("design")
+        with self.env(UX_FAKE_API_ERROR_MODEL="claude-test-sonnet-5-5", UX_FAKE_API_ERROR_FIRST=1000):
+            code, _, err = self.cli("build", "--jobs", "1")
+        self.assertEqual((code, len(self.calls(kind="build"))), (3, 1))
+        self.assertIn("infra error on build|", err)
+        self.pipeline("build")
+        with self.env(UX_FAKE_API_ERROR_MODEL="claude-test-fable-5-1", UX_FAKE_API_ERROR_FIRST=1000):
+            code, _, err = self.cli("checklist", "--jobs", "1")
+        self.assertEqual((code, len(self.calls(kind="checklist"))), (3, 1))
+        self.assertIn("infra error on checklist|", err)
+
+    def test_a_failed_call_with_no_output_and_no_status_stops_the_invocation_too(self):
+        with self.env(UX_FAKE_FAIL_MODEL="claude-test-fable-5-2", UX_FAKE_FAIL_FIRST=1000):
+            code, _, err = self.cli("design", "--jobs", "1")
+        self.assertEqual((code, len(self.calls())), (3, 1))
+        self.assertIn("api_error_status none", err)
+        e = self.attempts()[0]
+        self.assertEqual((e["infra_error"], e["api_error_status"], e["accepted"]), (True, None, False))
+
+    def test_a_refusal_that_comes_back_with_is_error_is_not_an_infra_error(self):
+        with self.env(UX_FAKE_REFUSE_MODEL="claude-test-fable-5-2", UX_FAKE_REFUSE_FIRST=1, UX_FAKE_REFUSE_ERROR=1):
+            code, _, err = self.cli("design", "--jobs", "1")
+        self.assertEqual(code, 0, err)
+        first = next(e for e in self.attempts() if e["slot"] == "design|ux-01|F|1")
+        self.assertEqual((first["reason"], first["infra_error"], first["output_tokens"]), ("refused", False, 0))
+        d = json.loads((self.root / "designs" / "ux-01-F-1.json").read_text())
+        self.assertEqual((d["attempts"], d["slot_failed"]), (2, True))
+
+    def test_a_slot_with_an_infra_error_and_a_counted_failure_is_not_waiting_only_on_infra(self):
+        with self.env(UX_FAKE_API_ERROR_MODEL="claude-test-fable-5-2", UX_FAKE_API_ERROR_FIRST=1):
+            self.cli("design", "--jobs", "1")
+        with self.env(UX_FAKE_NO_BLOCK="design"):
+            self.cli("design", "--jobs", "1")
+        p = self.plan()
+        self.assertEqual((p["infra_waiting_designs"], p["exhausted_designs"], p["designs_missing"]), (0, 9, 9))
+
+    def test_plan_text_shows_the_slots_waiting_only_on_infra_errors(self):
+        with self.env(UX_FAKE_API_ERROR_MODEL="claude-test-fable-5-2", UX_FAKE_API_ERROR_FIRST=1):
+            self.cli("design", "--jobs", "1")
+        out = self.cli("plan")[1]
+        self.assertIn("slots waiting only on infra errors: 1 (1 designs, 0 builds, 0 checklist calls)", out)
+
+
+# -- reject and the render-check gate ----------------------------------------
+
+class RejectTests(UXTestCase):
+    def setUp(self):
+        super().setUp()
+        self.index = self.seed_pages()
+        self.seed_checklist()
+        self.d_page = next(p for p, v in self.index.items() if v["arm"] == "D" and v["brief"] == "ux-01" and v["sample"] == 1)
+
+    def test_reject_removes_the_page_and_build_lists_it_as_missing_again_without_printing_the_arm(self):
+        self.assertEqual(self.plan()["builds_missing"], 0)
+        code, out, err = self.cli("reject", "--page", self.d_page, "--reason", "blank screen")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, f"rejected page {self.d_page}: blank screen\n")
+        self.assertEqual(err, "")
+        self.assertFalse((self.root / "pages" / f"{self.d_page}.html").exists())
+        self.assertNotIn(self.d_page, self.pages_json())
+        self.assertEqual(self.plan()["builds_missing"], 1)
+        code, out, _ = self.cli("build", "--jobs", "1")
+        self.assertEqual(code, 0)
+        self.assertIn("1 build(s) to do", out)
+        self.assertEqual(len(self.calls(kind="build")), 1)
+        new = next(p for p, v in self.pages_json().items()
+                   if (v["brief"], v["arm"], v["sample"]) == ("ux-01", "D", 1))
+        self.assertNotEqual(new, self.d_page)
+
+    def test_reject_logs_one_counted_failed_build_attempt_for_the_slot(self):
+        self.cli("reject", "--page", self.d_page, "--reason", "blank screen")
+        log = [e for e in self.attempts() if e["slot"] == "build|ux-01|D|1"]
+        self.assertEqual(len(log), 1)
+        self.assertEqual((log[0]["accepted"], log[0]["infra_error"], log[0]["reason"], log[0]["stage"]),
+                         (False, False, "rejected: blank screen", "build"))
+        self.assertEqual(ux.failures_of(log), 1)
+
+    def test_rejections_count_toward_the_same_cap_as_other_failed_builds(self):
+        for _ in range(3):
+            page = next(p for p, v in self.pages_json().items() if (v["brief"], v["arm"], v["sample"]) == ("ux-01", "D", 1))
+            self.assertEqual(self.cli("reject", "--page", page, "--reason", "bad")[0], 0)
+            self.cli("build", "--jobs", "1")
+        self.assertEqual(len(self.calls(kind="build")), 2, "the third rebuild is refused by the cap")
+        p = self.plan()
+        self.assertEqual((p["builds_missing"], p["exhausted_builds"]), (1, 1))
+
+    def test_reject_also_drops_the_checklist_answers_of_that_page(self):
+        f_page = next(p for p, v in self.index.items() if v["arm"] == "F" and v["sample"] == 1 and v["brief"] == "ux-01")
+        self.assertIn(f_page, json.loads((self.root / "checklist.json").read_text()))
+        self.cli("reject", "--page", f_page, "--reason", "x")
+        self.assertNotIn(f_page, json.loads((self.root / "checklist.json").read_text()))
+
+    def test_reject_of_an_unknown_page_is_refused(self):
+        code, out, err = self.cli("reject", "--page", "deadbeef", "--reason", "x")
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("no page deadbeef", err)
+
+    def test_reject_takes_the_evalkit_lock(self):
+        with ev.exclusive_lock(self.ctx.lock_path):
+            code, _, err = self.cli("reject", "--page", self.d_page, "--reason", "x")
+        self.assertEqual(code, 2)
+        self.assertIn("already writing", err)
+        self.assertIn(self.d_page, self.pages_json())
+
+    def refuses(self, fragment):
+        code, out, err = self.cli("page")
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn(fragment, err)
+        self.assertFalse((self.root / "pairs.json").exists())
+        self.assertFalse((self.root / "blind.html").exists())
+        return err
+
+    def test_page_refuses_without_a_render_check_file(self):
+        self.refuses("render-check.json is missing")
+
+    def test_page_refuses_with_a_render_check_older_than_a_page(self):
+        self.seed_render_check(newer=False)
+        self.refuses("render-check.json is older than a page file")
+
+    def test_page_refuses_when_a_page_changed_after_the_check(self):
+        self.seed_render_check()
+        f = next((self.root / "pages").glob("*.html"))
+        future = (self.root / "render-check.json").stat().st_mtime_ns + 5 * 10 ** 9
+        os.utime(f, ns=(future, future))
+        self.refuses("older than a page file")
+
+    def test_page_refuses_when_the_render_check_lists_a_failed_page(self):
+        self.seed_render_check(failed={self.d_page})
+        err = self.refuses("did not pass 1 page(s)")
+        self.assertIn(self.d_page, err)
+
+    def test_page_refuses_when_a_page_is_missing_from_the_render_check(self):
+        self.seed_render_check(skip={self.d_page})
+        err = self.refuses("did not pass 1 page(s)")
+        self.assertIn(self.d_page, err)
+
+    def test_page_accepts_a_fresh_render_check_that_passes_every_page(self):
+        self.seed_render_check()
+        code, out, err = self.cli("page")
+        self.assertEqual(code, 0, err)
+        self.assertTrue((self.root / "blind.html").is_file())
+
+    def test_the_render_check_must_name_a_page_rebuilt_after_a_reject(self):
+        self.seed_render_check()
+        self.cli("reject", "--page", self.d_page, "--reason", "x")
+        self.cli("build", "--jobs", "1")
+        code, out, err = self.cli("page")
+        self.assertEqual((code, out), (2, ""))
+        self.assertRegex(err, r"older than a page file|did not pass 1 page")     # which one depends on the clock
+        self.assertFalse((self.root / "blind.html").exists())
+
+
+# -- the render check's pure parts (the browser run is a live check) ----------
+
+class RenderCheckTests(unittest.TestCase):
+    def stats(self, **kw):
+        base = {"load_errors": 0, "click_errors": 0, "text_length": 40, "canvas": 0, "svg": 0, "img": 0}
+        return {**base, **kw}
+
+    def test_a_page_with_enough_text_and_no_errors_passes(self):
+        self.assertEqual(chk.judge_page(self.stats()), (True, []))
+        self.assertEqual(chk.judge_page(self.stats(text_length=20)), (True, []))
+
+    def test_an_uncaught_error_on_load_fails_the_page(self):
+        self.assertEqual(chk.judge_page(self.stats(load_errors=1)), (False, ["uncaught error on load"]))
+
+    def test_an_uncaught_error_on_the_first_click_fails_the_page(self):
+        self.assertEqual(chk.judge_page(self.stats(click_errors=2)), (False, ["uncaught error on first click"]))
+
+    def test_a_page_with_under_20_characters_and_nothing_drawn_rendered_nothing(self):
+        self.assertEqual(chk.judge_page(self.stats(text_length=19)), (False, ["rendered nothing"]))
+        self.assertEqual(chk.judge_page(self.stats(text_length=0)), (False, ["rendered nothing"]))
+
+    def test_a_canvas_an_svg_or_an_img_counts_as_rendered(self):
+        for kind in ("canvas", "svg", "img"):
+            self.assertEqual(chk.judge_page(self.stats(text_length=3, **{kind: 1})), (True, []), kind)
+
+    def test_every_failing_reason_is_reported(self):
+        ok, reasons = chk.judge_page(self.stats(load_errors=1, click_errors=1, text_length=0))
+        self.assertFalse(ok)
+        self.assertEqual(len(reasons), 3)
+
+    def test_the_report_fails_unless_every_page_passed_and_there_is_at_least_one(self):
+        good, bad = {"passed": True}, {"passed": False}
+        self.assertTrue(chk.build_report({"a1": good, "b2": good})["all_passed"])
+        r = chk.build_report({"a1": good, "b2": bad})
+        self.assertEqual((r["all_passed"], r["checked"], r["failed"]), (False, 2, 1))
+        self.assertFalse(chk.build_report({})["all_passed"])
+        self.assertEqual((r["version"], r["viewport"]), (1, "390x780"))
+
+    def test_messages_are_cut_to_120_characters_on_one_line(self):
+        out = chk.short("a  b\n" + "x" * 300)
+        self.assertEqual(len(out), 120)
+        self.assertNotIn("\n", out)
+
+    def test_the_frame_is_sandboxed_without_same_origin_at_the_phone_viewport(self):
+        w = chk.wrapper_html('<p class="a">x & y</p>')
+        self.assertIn('sandbox="allow-scripts"', w)
+        self.assertNotIn("allow-same-origin", w)
+        self.assertIn('width="390" height="780"', w)
+        self.assertIn("&lt;p class=&quot;a&quot;&gt;x &amp; y&lt;/p&gt;", w)
+
+    def test_the_check_reads_only_page_files_and_never_names_the_arm_mapping(self):
+        src = CHECK_SRC.read_text(encoding="utf-8")
+        for private in ("pages.json", "designs", "attempts", "pairs.json", "checklist.json"):
+            self.assertNotIn(private, src)
+        self.assertEqual(src.count('glob("*.html")'), 2)
+
+    def test_the_report_can_be_read_by_the_page_gate_in_the_shape_ux_blind_expects(self):
+        r = chk.build_report({"a1": {"passed": True, "text_length": 3}})
+        self.assertEqual(set(r["pages"]), {"a1"})
+        for st in r["pages"].values():
+            for v in st.values():
+                self.assertIsInstance(v, (int, str, bool))
+
+
 # -- the command line --------------------------------------------------------
 
 class CommandLineTests(UXTestCase):
@@ -1147,7 +1484,7 @@ class CommandLineTests(UXTestCase):
         env = dict(os.environ, AGENTING_EVALS_DIR=str(self.evals))
         briefs = self.evals / "private" / "ux" / "briefs"
         shutil.copytree(self.briefs, briefs)
-        r = subprocess.run([sys.executable, str(EVALS / "probes" / "ux_blind.py"), "plan", "--json"],
+        r = subprocess.run([sys.executable, str(UX_SRC), "plan", "--json"],
                            capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(json.loads(r.stdout)["designs_missing"], 36)

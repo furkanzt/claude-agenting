@@ -19,6 +19,8 @@ FAKE_CLAUDE_COST (default 0.01), FAKE_CLAUDE_THINKING (default 100),
 FAKE_CLAUDE_LOG (append one JSON line per call: argv, cwd, files, prompt).
 FAKE_CLAUDE_STOP_REASON and FAKE_CLAUDE_SAFETY_STOPS, when set, add the top-level `stop_reason` and
 `safety_stops` fields to the result JSON (the real CLI always has them); unset, the output is unchanged.
+FAKE_CLAUDE_API_ERROR_STATUS adds `api_error_status` (an HTTP status, as the CLI reports on an API error) and
+FAKE_CLAUDE_OUTPUT_TOKENS overrides `usage.output_tokens`, both only when set.
 
 `--version` prints FAKE_CLAUDE_VERSION (default "9.9.9 (Fake)") and exits 0 before anything
 else happens: no stdin read, no FAKE_CLAUDE_LOG line. FAKE_CLAUDE_VERSION_LOG, if set, gets
@@ -76,6 +78,10 @@ def with_stop_fields(result):
         result["stop_reason"] = os.environ["FAKE_CLAUDE_STOP_REASON"]
     if os.environ.get("FAKE_CLAUDE_SAFETY_STOPS") is not None:
         result["safety_stops"] = int(os.environ["FAKE_CLAUDE_SAFETY_STOPS"])
+    if os.environ.get("FAKE_CLAUDE_API_ERROR_STATUS") is not None:
+        result["api_error_status"] = int(os.environ["FAKE_CLAUDE_API_ERROR_STATUS"])
+    if os.environ.get("FAKE_CLAUDE_OUTPUT_TOKENS") is not None:
+        result["usage"]["output_tokens"] = int(os.environ["FAKE_CLAUDE_OUTPUT_TOKENS"])
     return result
 
 

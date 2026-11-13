@@ -41,7 +41,9 @@ GRADING SAFETY
 
 VALIDITY (README): process exited 0, JSON parsed, is_error false, and
   modelUsage names exactly the cell's model_id. Invalid runs are logged with
-  valid:false and re-planned up to harness max_retries_invalid times. A missing
+  valid:false and re-planned up to harness max_retries_invalid times, except API
+  or infrastructure errors (infra_error: a rate limit, an overload), which never
+  use up retries; `run` stops launching on the first one and exits 3. A missing
   answer block is a graded failure (score 0), never an invalid run.
 
 Cost guard: `run --max-usd` stops LAUNCHING once the cost spent in this
@@ -87,6 +89,7 @@ UP_ROLES = ("up_reference", "ceiling")
 NOTICED_FAIL_BELOW = 0.5      # noticed tier: baseline "fails its row" under this pass rate
 GRADER_TIMEOUT_S = 30         # per grader call; module-level so tests can shorten it
 DETAIL_STR_MAX = 40           # longest string kept in a public score `details` value
+EXIT_INFRA_ERROR = 3          # `run` stopped on an API or infrastructure error (see infra_error)
 LOCKED_COMMANDS = ("run", "judge", "grade", "sanitize")   # commands that write results/
 JUDGE_FORMAT_RETRIES = 2      # extra judge attempts after an unparseable or rejected reply
 SECRET_PATTERNS = [re.compile(p) for p in (
@@ -375,17 +378,50 @@ def run_id_for(ctx, task, cell_id, repeat):
                           ctx.cell_hash(cell_id), repeat)
 
 
+def is_refusal(line):
+    """A safety-classifier refusal: stop_reason "refusal", safety_stops above 0, or a reason "refusal..."."""
+    stops = line.get("safety_stops")
+    return (line.get("stop_reason") == "refusal" or str(line.get("invalid_reason") or "").startswith("refusal")
+            or (isinstance(stops, (int, float)) and not isinstance(stops, bool) and stops > 0))
+
+
+def infra_error(line):
+    """True for an INVALID attempt that is an API or infrastructure fault, not the model's doing, so it
+    must not use up the slot's retries (a rate limit three times in a row is an outage, not a result):
+      * api_error_status is not null (an HTTP status such as 429 or 529); or
+      * invalid_reason is `spawn failed...`; or
+      * invalid_reason is `is_error` or `exit_code=...`, the attempt produced no output (output_tokens 0 or
+        null) and it is not a refusal. Only lines that carry the `stop_reason` key (written since
+        2026-11-13) can match this one; older lines keep counting as they always did.
+    A timeout, a json_parse, a model_mismatch, a refusal and any valid line are never infra errors.
+    think_first_analysis.py mirrors this rule; a test keeps the two in step."""
+    if line.get("valid") or is_refusal(line):
+        return False
+    reason = str(line.get("invalid_reason") or "")
+    if reason.startswith(("timeout", "json_parse", "model_mismatch")):
+        return False
+    status = line.get("api_error_status")
+    if isinstance(status, int) and not isinstance(status, bool):
+        return True
+    if reason.startswith("spawn failed"):
+        return True
+    return (reason == "is_error" or reason.startswith("exit_code=")) and "stop_reason" in line \
+        and not line.get("output_tokens")
+
+
 class RunIndex:
-    """runs.jsonl grouped by run_id: the latest valid line and the invalid-attempt count."""
+    """runs.jsonl grouped by run_id: the latest valid line, the invalid-attempt count (infra errors
+    excluded: they never use up retries) and the infra-error count."""
 
     def __init__(self, ctx):
         self.lines = read_jsonl(ctx.runs_path)
-        self.valid, self.invalid = {}, {}
+        self.valid, self.invalid, self.infra = {}, {}, {}
         for r in self.lines:
             if r.get("valid"):
                 self.valid[r["run_id"]] = r
             else:
-                self.invalid[r["run_id"]] = self.invalid.get(r["run_id"], 0) + 1
+                bucket = self.infra if infra_error(r) else self.invalid
+                bucket[r["run_id"]] = bucket.get(r["run_id"], 0) + 1
 
 
 def scores_by_run(ctx):
@@ -454,9 +490,12 @@ def make_plan(ctx, tasks, args):
                     if failed > max_retry:
                         exhausted += 1
                         continue
-                    items.append({"run_id": rid, "row": row["id"], "task": task["id"],
-                                  "cell": g["cell"], "repeat": rep,
-                                  "reason": "retry" if failed else "missing"})
+                    item = {"run_id": rid, "row": row["id"], "task": task["id"],
+                            "cell": g["cell"], "repeat": rep,
+                            "reason": "retry" if failed or idx.infra.get(rid) else "missing"}
+                    if idx.infra.get(rid) and not failed:
+                        item["infra_only"] = True        # every attempt so far was an API or infra error
+                    items.append(item)
     items.sort(key=lambda i: (i["row"], i["task"], i["cell"], i["repeat"]))
     return items, exhausted
 
@@ -466,15 +505,18 @@ def cmd_plan(ctx, args):
     counts = {}
     for i in items:
         counts[i["cell"]] = counts.get(i["cell"], 0) + 1
+    infra_only = sum(1 for i in items if i.get("infra_only"))
     if args.json:
         print(json.dumps({"items": items, "counts": dict(sorted(counts.items())),
-                          "exhausted": exhausted}, indent=2))
+                          "exhausted": exhausted, "infra_only": infra_only}, indent=2))
         return 0
     print(f"{len(items)} run(s) to do" + (f"; {exhausted} exhausted their retries" if exhausted else ""))
     for cell, n in sorted(counts.items()):
         print(f"  {cell:<20} {n}")
     for i in items:
         print(f"  {i['reason']:<8} {i['row']:<18} {i['task']:<20} {i['cell']:<20} #{i['repeat']}  {i['run_id']}")
+    if infra_only:
+        print(f"{infra_only} slot(s) waiting only on API or infrastructure errors (they never use up retries)")
     return 0
 
 
@@ -765,12 +807,16 @@ def prepare_workdir(ctx, task, rid):
 
 
 def stop_fields(data):
-    """The CLI's top-level `stop_reason` (string or None) and `safety_stops` (int, 0 when absent or not a
-    number), for any attempt whose JSON parsed. A safety-classifier refusal shows up in one of the two."""
+    """The CLI's top-level `stop_reason` (string or None), `safety_stops` (int, 0 when absent or not a number)
+    and `api_error_status` (int such as 429 or 529, else None), for any attempt whose JSON parsed. A
+    safety-classifier refusal shows up in the first two, an API error in the third."""
     data = data if isinstance(data, dict) else {}
-    reason, stops = data.get("stop_reason"), data.get("safety_stops")
+    reason, stops, status = data.get("stop_reason"), data.get("safety_stops"), data.get("api_error_status")
+
+    def integer(x, default):
+        return x if isinstance(x, int) and not isinstance(x, bool) else default
     return {"stop_reason": reason[:DETAIL_STR_MAX] if isinstance(reason, str) else None,
-            "safety_stops": stops if isinstance(stops, int) and not isinstance(stops, bool) else 0}
+            "safety_stops": integer(stops, 0), "api_error_status": integer(status, None)}
 
 
 def run_record(ctx, item, call, valid, reason, data):
@@ -882,6 +928,7 @@ def cmd_run(ctx, args):
     if items:
         ctx.cli_version = claude_version(ctx)
     budget = Budget(args.max_usd, ctx.harness["runner"]["max_budget_usd_per_run"])
+    infra, infra_lock = [], threading.Lock()
 
     def worker(item, stop):
         if stop.event.is_set():
@@ -892,6 +939,15 @@ def cmd_run(ctx, args):
         if done is None:
             return None
         rec, graded, duplicate = done
+        if infra_error(rec):
+            with infra_lock:
+                first = not infra
+                infra.append(rec)
+            if first:             # the same cooperative flag as Ctrl-C: nothing new starts, runs in flight finish
+                why = rec.get("api_error_status") or rec["invalid_reason"]
+                print(f"stopping: API or infrastructure error on {item['task']} {item['cell']} "
+                      f"#{item['repeat']} ({why}); nothing else was started", flush=True)
+                stop.event.set()
         state = ("valid" if rec["valid"] else f"INVALID ({rec['invalid_reason']})") + \
                 ("" if graded else " UNGRADED (grader fault)") + \
                 (" DUPLICATE (not stored)" if duplicate else "")
@@ -902,7 +958,7 @@ def cmd_run(ctx, args):
     print(f"spent ${budget.spent:.4f}" + (f" of ${args.max_usd}" if args.max_usd else "") +
           (f" ({budget.unknown} run(s) with unknown cost charged at the per-run cap)"
            if budget.unknown else ""))
-    return code
+    return code or (EXIT_INFRA_ERROR if infra else 0)
 
 
 def cmd_grade(ctx, args):

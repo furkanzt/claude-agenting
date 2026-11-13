@@ -539,3 +539,59 @@ Feature: The evalkit runner plans only the missing runs, executes each as its ow
     Given claude answers with stop_reason "refusal" and safety_stops 2, then with stop_reason "end_turn" and no safety_stops, then with is_error, stop_reason "refusal" and safety_stops 1, then with output that is not JSON
     When I run evalkit.py run for "n-1" on cell "cheap" for repeats 1 to 3 and on cell "up" repeat 1
     Then the four runs.jsonl lines carry ("refusal", 2) valid, ("end_turn", 0) valid, ("refusal", 1) invalid and (null, 0) invalid
+
+  # Backed by: tests/test_evalkit.py::test_the_api_error_status_is_recorded_on_every_line_whose_json_parsed
+  Scenario: Every run line records the CLI's api_error_status, null when absent or when the JSON did not parse
+    Given claude fails with is_error and api_error_status 529, then answers normally, then prints output that is not JSON
+    When I run evalkit.py run for "n-1" on cells "cheap", "base" and "up" repeat 1
+    Then the run for "cheap" exits 3 and its line has api_error_status 529, and the lines for "base" and "up" have api_error_status null
+
+  # Backed by: tests/test_evalkit.py::test_three_429_attempts_do_not_exhaust_a_slot_and_plan_reissues_it
+  Scenario: Three 429 attempts do not exhaust a slot and plan re-issues it
+    Given runs.jsonl holds three invalid attempts of "n-1" on "cheap" repeat 1, each with api_error_status 429 and no output
+    When I run evalkit.py plan --json for "n-1" on cell "cheap" repeat 1
+    Then the plan holds one item with reason "retry", exhausted is 0 and infra_only is 1
+    And the text plan says "1 slot(s) waiting only on API or infrastructure errors"
+
+  # Backed by: tests/test_evalkit.py::test_three_timeouts_still_exhaust_a_slot
+  Scenario: Three timeouts still exhaust a slot
+    Given runs.jsonl holds three invalid attempts of "n-1" on "cheap" repeat 1 with invalid_reason "timeout"
+    When I run evalkit.py plan --json for that slot
+    Then the plan holds no item, exhausted is 1 and infra_only is 0
+
+  # Backed by: tests/test_evalkit.py::test_a_timeout_among_infra_errors_counts_as_the_only_retry_used
+  Scenario: Only the non-infra attempts count toward the retry cap
+    Given a slot with five 429 attempts and two timeouts
+    When I run evalkit.py plan --json for that slot
+    Then it is planned once as a retry that is not infra-only, and after a third timeout it is exhausted
+
+  # Backed by: tests/test_evalkit.py::test_run_stops_on_the_first_infra_error_starts_nothing_after_it_and_exits_3
+  Scenario: Run stops on the first infra error, starts nothing after it and exits 3
+    Given a claude that fails every call with is_error, api_error_status 429 and no output tokens
+    When I run evalkit.py run for row "noticed-row" on cell "cheap" with --jobs 1
+    Then the exit code is 3 and stdout contains once "stopping: API or infrastructure error on n-1 cheap #1 (429); nothing else was started"
+    And runs.jsonl holds one line and claude was launched once
+
+  # Backed by: tests/test_evalkit.py::test_run_names_the_reason_when_there_is_no_status
+  Scenario: Without an HTTP status the stop line names the invalid reason
+    Given a claude that exits 1 with is_error, no api_error_status and no output tokens
+    When I run evalkit.py run for "n-1" on cell "cheap" repeat 1
+    Then the exit code is 3 and stdout contains "(exit_code=1); nothing else was started"
+
+  # Backed by: tests/test_evalkit.py::test_a_refusal_with_is_error_is_not_an_infra_error
+  Scenario: A refusal that arrives as is_error is not an infra error and uses up retries
+    Given a claude that fails with is_error, stop_reason "refusal" and no output tokens, then with safety_stops 1
+    When I run evalkit.py run for "n-1" on cell "cheap" repeat 1 three times
+    Then each exit code is 0, no "stopping" line is printed and the slot is exhausted
+
+  # Backed by: tests/test_evalkit.py::test_the_infra_error_rule_on_a_table_of_lines
+  Scenario: infra_error is true for an API status, a spawn failure or an error with no output, and false for a timeout, json_parse, model_mismatch, a refusal or a valid line
+    Given invalid lines with api_error_status 429 or 529, "spawn failed", is_error or exit_code with no output, and the false cases above
+    When infra_error is evaluated on each
+    Then it is true for the first five kinds and false for an is_error with output, a refusal, a safety stop, a timeout, json_parse, model_mismatch (with or without a status) and a valid line
+
+  # Backed by: tests/test_evalkit.py::test_a_line_from_before_the_new_fields_counts_as_it_always_did
+  Scenario: A run line from before the new fields counts toward the retry cap as it always did
+    Given three invalid attempts with invalid_reason "is_error" and none of stop_reason, output_tokens or api_error_status
+    When I run evalkit.py plan --json for that slot
+    Then exhausted is 1, and a line "spawn failed: boom" is still an infra error

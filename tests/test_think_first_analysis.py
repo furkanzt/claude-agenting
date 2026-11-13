@@ -22,9 +22,12 @@ OX, OH, SX = "opus-5-5@xhigh", "opus-5-5@high", "sonnet-5-5@xhigh"
 ALL_CELLS = (FL, FM, FH, OX, OH, SX)
 BOTH_FAIL = {J1: "fail", J2: "fail"}
 ONLY_J1 = {J1: "fail", J2: "pass"}
+RATE_LIMIT_LINE = {"invalid_reason": "is_error", "stop_reason": "end_turn", "safety_stops": 0,
+                   "api_error_status": 429, "output_tokens": 0}
 REFUSED = {"reason": "is_error", "stop_reason": "refusal"}          # the CLI's own marks of a classifier stop
 SAFETY = {"reason": "is_error", "safety_stops": 1}
-RATE_LIMIT = {"reason": "is_error", "stop_reason": "end_turn", "safety_stops": 0, "api_error_status": 429}
+RATE_LIMIT = {"reason": "is_error", "stop_reason": "end_turn", "safety_stops": 0, "api_error_status": 429,
+              "output_tokens": 0}
 
 
 class World:
@@ -73,6 +76,16 @@ def full_world(fails=None, costs=None, cells=ALL_CELLS, repeats=range(1, 7), rub
         for task in (T1, T2):
             for rep in repeats:
                 w.slot(cell, task, rep, (fails or {}).get((cell, task, rep), "pass"), cost=(costs or {}).get(cell, 1.0))
+    return w
+
+
+def lose(w, cell, task, repeat, attempts=3, **fields):
+    """Replace the slot with `attempts` invalid attempts that are all API errors (a 429 by default)."""
+    rid = w.rid(cell, task, repeat)
+    w.runs = [r for r in w.runs if r["run_id"] != rid]
+    w.scores = [x for x in w.scores if x["run_id"] != rid]
+    for _ in range(attempts):
+        w.attempt(cell, task, repeat, valid=False, **{**RATE_LIMIT, **fields})
     return w
 
 
@@ -203,6 +216,85 @@ class FailedSlots(unittest.TestCase):
     def test_a_slot_with_no_attempt_is_not_decided(self):
         a = analyse(World())["cells"][OX]
         self.assertEqual((a["decided"], a["failed"]), (0, 0))
+
+
+class LostSlots(unittest.TestCase):
+    """A slot whose attempts are all API errors measured nothing: not failed, not decided, cell PENDING."""
+
+    def test_an_all_429_slot_is_lost_not_failed_and_keeps_its_cell_pending(self):
+        w = lose(full_world(opus_fails(4), {FL: 3.0, FM: 2.0, FH: 5.0}), FL, T1, 1)
+        a = analyse(w)["cells"][FL]
+        self.assertEqual((a["lost"], a["failed"], a["decided"], a["fails"]), (1, 0, 11, {J1: 0, J2: 0}))
+        d = decide(w)
+        self.assertEqual(d["quality"]["status"], "pending")       # fable-5-2@low could still be the cheapest
+        self.assertIn(FL, d["quality"]["why"])
+        self.assertEqual(analyse(w)["missing"], [])                # and it owes no judge pass
+
+    def test_a_slot_with_a_timeout_and_two_429s_and_no_valid_run_is_failed(self):
+        w = World()
+        w.attempt(OX, T1, 1, valid=False, reason="timeout")
+        w.attempt(OX, T1, 1, valid=False, **RATE_LIMIT)
+        w.attempt(OX, T1, 1, valid=False, **RATE_LIMIT)
+        a = analyse(w)["cells"][OX]
+        self.assertEqual((a["failed"], a["lost"], a["decided"], a["fails"]), (1, 0, 1, {J1: 1, J2: 1}))
+
+    def test_429s_followed_by_a_valid_run_make_a_normal_decided_slot(self):
+        w = World()
+        w.slot(OX, T1, 1, "pass", before=(RATE_LIMIT, RATE_LIMIT))
+        a = analyse(w)["cells"][OX]
+        self.assertEqual((a["failed"], a["lost"], a["decided"], a["fails"]), (0, 0, 1, {J1: 0, J2: 0}))
+
+    def test_a_lost_fable_slot_that_also_had_a_refusal_is_failed(self):
+        w = World()
+        w.attempt(FL, T1, 1, valid=False, **RATE_LIMIT)
+        w.attempt(FL, T1, 1, valid=False, **REFUSED)
+        a = analyse(w)["cells"][FL]
+        self.assertEqual((a["failed"], a["lost"]), (1, 0))
+
+    def test_the_text_and_json_show_the_lost_slots_and_a_command_to_run_them_again(self):
+        w = lose(full_world(opus_fails(4), {FL: 2.0, FM: 2.0, FH: 5.0}), FL, T1, 2)
+        code, out, _ = cli(w)
+        self.assertEqual(code, 2)
+        self.assertRegex(out, r"failed slots\s+lost to API errors\s+mean cost/run")
+        row = next(l for l in out.splitlines() if l.startswith(FL + " "))
+        self.assertRegex(row, r"\s1\s+\$")                      # one lost slot in the table row
+        self.assertIn(f"python3 evals/evalkit.py run --phase all --rows design-decision --cells {FL} --repeats 2 --max-usd 3", out)
+        js = json.loads(cli(w, "--json")[1])
+        self.assertEqual((js["cells"][FL]["lost_to_api_errors"], js["cells"][FM]["lost_to_api_errors"]), (1, 0))
+
+    def test_a_lost_stage_2_slot_of_a_warranted_cell_is_run_again_by_the_stage_2_line(self):
+        w = lose(full_world(opus_fails(4), {c: 1.0 for c in ALL_CELLS}), FL, T1, 6)
+        plan = tf.stage2_plan(analyse(w))
+        self.assertEqual(plan["cells"], [FL])
+        self.assertIn(f"--cells {FL} --repeats 6", plan["lines"][0][1])
+        self.assertEqual(tf.lost_plan(analyse(w), skip=plan["cells"]), [])     # not listed a second time
+
+    def test_the_infra_error_rule_agrees_with_evalkits_on_a_table_of_lines(self):
+        spec = importlib.util.spec_from_file_location("evalkit_for_agreement", ROOT / "evals" / "evalkit.py")
+        ek = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ek)
+        refusal = {"stop_reason": "refusal", "safety_stops": 0, "output_tokens": 0}
+        lines = [
+            RATE_LIMIT_LINE, {"invalid_reason": "is_error", "api_error_status": 529, "output_tokens": 40},
+            {"invalid_reason": "spawn failed: x"}, {"invalid_reason": "is_error", "stop_reason": "end_turn", "output_tokens": 0},
+            {"invalid_reason": "exit_code=1", "stop_reason": "end_turn", "output_tokens": None},
+            {"invalid_reason": "exit_code=1", "stop_reason": "end_turn"},
+            {"invalid_reason": "is_error", "stop_reason": "end_turn", "output_tokens": 12},
+            {"invalid_reason": "is_error"}, {"invalid_reason": "exit_code=1", "output_tokens": 0},
+            {"invalid_reason": "is_error", **refusal},
+            {"invalid_reason": "is_error", "stop_reason": "end_turn", "safety_stops": 2, "output_tokens": 0},
+            {"invalid_reason": "refusal: classifier", "stop_reason": "end_turn", "output_tokens": 0},
+            {"invalid_reason": "timeout", "stop_reason": None, "output_tokens": 0},
+            {"invalid_reason": "json_parse", "stop_reason": None, "output_tokens": 0},
+            {"invalid_reason": "model_mismatch: observed ['x']", "api_error_status": 529},
+            {"valid": True, "api_error_status": 429}, {"valid": True},
+        ]
+        verdicts = []
+        for fields in lines:
+            line = {"valid": False, **fields}
+            verdicts.append(tf.infra_error(line))
+            self.assertEqual(tf.infra_error(line), ek.infra_error(line), fields)
+        self.assertEqual(verdicts.count(True), 6)               # the table holds true and false cases
 
 
 class Incomplete(unittest.TestCase):
@@ -453,6 +545,7 @@ class JsonOutput(unittest.TestCase):
         worlds = [full_world(opus_fails(6), {FL: 3.0, FM: 2.0, FH: 5.0}),
                   full_world(opus_fails(4), repeats=range(1, 4)),
                   full_world({**opus_fails(4), (FL, T1, 1): "fail", (FM, T1, 1): "fail", (FH, T1, 1): "fail"}),
+                  lose(full_world(opus_fails(4)), FL, T1, 1),
                   World()]
         for w in worlds:
             obj = json.loads(cli(w, "--json")[1])

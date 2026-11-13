@@ -1483,6 +1483,118 @@ class CliVersion(EvalTestCase):
         self.assertEqual(len(r["cli_version"]), 40)
 
 
+class InfraErrors(EvalTestCase):
+    """An API or infrastructure error (a rate limit, an overload) is not a model failure: it never uses up
+    a slot's retries, and `run` stops launching on the first one and exits 3."""
+
+    ARGS = ("--rows", "noticed-row", "--cells", "cheap", "--repeats", "1")
+
+    def plan(self, *args):
+        return json.loads(self.cli("plan", "--json", *args).stdout)
+
+    def attempt_lines(self, n, **fields):
+        """n invalid attempts of n-1 / cheap / repeat 1, written straight into runs.jsonl."""
+        ctx, task = self.ctx(), ev.load_tasks(self.ctx())["n-1"]
+        for _ in range(n):
+            ev.append_jsonl(ctx.runs_path, {
+                "run_id": ev.run_id_for(ctx, task, "cheap", 1), "task_id": "n-1", "cell_id": "cheap", "repeat": 1,
+                "valid": False, "model_id_expected": ctx.model_id("cheap"), "cost_usd": 0.0, **fields})
+
+    INFRA_429 = {"invalid_reason": "is_error", "stop_reason": "end_turn", "safety_stops": 0,
+                 "api_error_status": 429, "output_tokens": 0}
+
+    def test_the_api_error_status_is_recorded_on_every_line_whose_json_parsed(self):
+        r = self.cli("run", *self.ARGS, mode="error", check=False, FAKE_CLAUDE_API_ERROR_STATUS="529")
+        self.assertEqual(r.returncode, 3)
+        self.cli("run", "--rows", "noticed-row", "--cells", "base", "--repeats", "1")        # a normal run
+        self.cli("run", "--rows", "noticed-row", "--cells", "up", "--repeats", "1", mode="bad_json")
+        by_cell = {x["cell_id"]: x for x in self.runs()}
+        self.assertEqual((by_cell["cheap"]["valid"], by_cell["cheap"]["api_error_status"]), (False, 529))
+        self.assertIsNone(by_cell["base"]["api_error_status"])
+        self.assertIsNone(by_cell["up"]["api_error_status"])            # the JSON did not parse
+
+    def test_three_429_attempts_do_not_exhaust_a_slot_and_plan_reissues_it(self):
+        self.attempt_lines(3, **self.INFRA_429)
+        p = self.plan(*self.ARGS)
+        self.assertEqual([i["reason"] for i in p["items"]], ["retry"])
+        self.assertEqual((p["exhausted"], p["infra_only"]), (0, 1))
+        out = self.cli("plan", *self.ARGS).stdout
+        self.assertIn("1 slot(s) waiting only on API or infrastructure errors", out)
+        self.assertNotIn("exhausted", out)
+
+    def test_three_timeouts_still_exhaust_a_slot(self):
+        self.attempt_lines(3, invalid_reason="timeout", stop_reason=None, safety_stops=0, api_error_status=None)
+        p = self.plan(*self.ARGS)
+        self.assertEqual((p["items"], p["exhausted"], p["infra_only"]), ([], 1, 0))
+
+    def test_a_timeout_among_infra_errors_counts_as_the_only_retry_used(self):
+        self.attempt_lines(5, **self.INFRA_429)
+        self.attempt_lines(2, invalid_reason="timeout")
+        p = self.plan(*self.ARGS)
+        self.assertEqual((len(p["items"]), p["exhausted"], p["items"][0].get("infra_only")), (1, 0, None))
+        self.attempt_lines(1, invalid_reason="timeout")
+        self.assertEqual(self.plan(*self.ARGS)["exhausted"], 1)
+
+    def test_run_stops_on_the_first_infra_error_starts_nothing_after_it_and_exits_3(self):
+        r = self.cli("run", "--rows", "noticed-row", "--cells", "cheap", "--jobs", "1", mode="error",
+                     check=False, FAKE_CLAUDE_API_ERROR_STATUS="429", FAKE_CLAUDE_OUTPUT_TOKENS="0")
+        self.assertEqual(r.returncode, 3)
+        self.assertIn("stopping: API or infrastructure error on n-1 cheap #1 (429); nothing else was started",
+                      r.stdout)
+        self.assertEqual(r.stdout.count("stopping:"), 1)
+        self.assertEqual(len(self.runs()), 1)
+        self.assertEqual(len(self.calls()), 1)
+
+    def test_run_names_the_reason_when_there_is_no_status(self):
+        r = self.cli("run", *self.ARGS, mode="error", check=False, FAKE_CLAUDE_OUTPUT_TOKENS="0")
+        self.assertEqual(r.returncode, 3)                       # is_error, no output, not a refusal
+        self.assertIn("(exit_code=1); nothing else was started", r.stdout)
+
+    def test_a_refusal_with_is_error_is_not_an_infra_error(self):
+        r = self.cli("run", *self.ARGS, mode="error", check=False, FAKE_CLAUDE_STOP_REASON="refusal",
+                     FAKE_CLAUDE_OUTPUT_TOKENS="0")
+        self.assertEqual(r.returncode, 0)
+        self.assertNotIn("stopping", r.stdout)
+        self.assertEqual(len(self.runs()), 1)
+        self.assertFalse(any(ev.infra_error(x) for x in self.runs()))
+        self.assertIsNone(self.plan(*self.ARGS)["items"][0].get("infra_only"))   # it counts as a used retry
+        r = self.cli("run", *self.ARGS, mode="error", check=False, FAKE_CLAUDE_SAFETY_STOPS="1",
+                     FAKE_CLAUDE_OUTPUT_TOKENS="0")
+        self.assertEqual(r.returncode, 0)
+        self.cli("run", *self.ARGS, mode="error", check=False, FAKE_CLAUDE_STOP_REASON="refusal",
+                 FAKE_CLAUDE_OUTPUT_TOKENS="0")
+        self.assertEqual(self.plan(*self.ARGS)["exhausted"], 1)  # three refusals use up the slot
+
+    def test_the_infra_error_rule_on_a_table_of_lines(self):
+        refusal = {"stop_reason": "refusal", "safety_stops": 0, "output_tokens": 0}
+        cases = [
+            ("a 429", {**self.INFRA_429}, True),
+            ("a 529 with output", {"invalid_reason": "is_error", "api_error_status": 529, "output_tokens": 40}, True),
+            ("spawn failed", {"invalid_reason": "spawn failed: no such file"}, True),
+            ("is_error, no output", {"invalid_reason": "is_error", "stop_reason": "end_turn", "output_tokens": 0}, True),
+            ("exit_code, null output", {"invalid_reason": "exit_code=1", "stop_reason": "end_turn", "output_tokens": None}, True),
+            ("exit_code, missing output", {"invalid_reason": "exit_code=1", "stop_reason": "end_turn"}, True),
+            ("is_error with output", {"invalid_reason": "is_error", "stop_reason": "end_turn", "output_tokens": 12}, False),
+            ("refusal is_error", {"invalid_reason": "is_error", **refusal}, False),
+            ("safety stop", {"invalid_reason": "is_error", "stop_reason": "end_turn", "safety_stops": 2, "output_tokens": 0}, False),
+            ("timeout", {"invalid_reason": "timeout", "stop_reason": None, "output_tokens": 0}, False),
+            ("json_parse", {"invalid_reason": "json_parse", "stop_reason": None, "output_tokens": 0}, False),
+            ("model_mismatch", {"invalid_reason": "model_mismatch: observed ['x']", "stop_reason": "end_turn",
+                                "output_tokens": 0}, False),
+            ("model_mismatch with a status", {"invalid_reason": "model_mismatch: observed ['x']", "api_error_status": 529}, False),
+            ("a valid line", {"valid": True, "api_error_status": 429}, False),
+        ]
+        for name, fields, expected in cases:
+            self.assertEqual(ev.infra_error({"valid": False, **fields}), expected, name)
+
+    def test_a_line_from_before_the_new_fields_counts_as_it_always_did(self):
+        self.attempt_lines(3, invalid_reason="is_error")           # no stop_reason key, no output_tokens
+        self.assertEqual(self.plan(*self.ARGS)["exhausted"], 1)
+        self.assertFalse(ev.infra_error({"valid": False, "invalid_reason": "exit_code=1", "output_tokens": 0}))
+        self.attempt_lines(3, invalid_reason="spawn failed: boom")  # the spawn rule needs no new field
+        self.assertTrue(ev.infra_error({"valid": False, "invalid_reason": "spawn failed: boom"}))
+
+
 class PublicDetails(EvalTestCase):
     """Item 6: scores.jsonl never carries per-item structure."""
 

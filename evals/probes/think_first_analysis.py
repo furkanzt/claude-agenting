@@ -22,6 +22,10 @@ Readings fixed here, where the pre-registration leaves room (each is stated agai
     Run lines written before evalkit recorded stop_reason and safety_stops lack both: they read as not refused.
     A failed slot needs no judge passes. The count the rules use is "fails" = solid fails under that judge +
     failed slots; a no_block run is a solid fail under every judge and needs no judge passes.
+  * A slot whose attempts are ALL invalid AND ALL API or infrastructure errors (infra_error: a rate limit, an
+    overload, a spawn failure) is LOST: not failed and not decided, so its cell stays PENDING for every rule
+    that needs all 12 slots; it has to be run again. One non-infra invalid attempt (a timeout) with no valid
+    run keeps the slot failed. A valid run after infra errors is an ordinary slot.
   * A rule that needs 12 slots is PENDING until all 12 are decided. A cell with a fail under either judge is
     out of Rule Q and B for good (they need 0 under both), so it is not pending.
   * "Both fail" fires only when Rule Q's opus condition holds (>= 4 under both judges) and every Fable cell has
@@ -101,15 +105,39 @@ def read_jsonl(path) -> list[dict]:
 
 # -- slots, passes, solid fails ----------------------------------------------
 
+def is_refusal(line: dict) -> bool:
+    stops = line.get("safety_stops")
+    return (line.get("stop_reason") in REFUSAL_STOP_REASONS
+            or str(line.get("invalid_reason") or "").startswith(REFUSAL_REASONS)
+            or (isinstance(stops, (int, float)) and not isinstance(stops, bool) and stops > 0))
+
+
+def infra_error(line: dict) -> bool:
+    """An INVALID attempt that is an API or infrastructure fault, not the model's doing. This mirrors
+    infra_error() in evals/evalkit.py (a test keeps the two in step): a non-null api_error_status, or a
+    `spawn failed` reason, or `is_error` / `exit_code=` with no output (output_tokens 0 or null, only on a
+    line that has the stop_reason key) that is not a refusal. A timeout, json_parse, model_mismatch, a
+    refusal and a valid line are never infra errors."""
+    if line.get("valid") or is_refusal(line):
+        return False
+    reason = str(line.get("invalid_reason") or "")
+    if reason.startswith(("timeout", "json_parse", "model_mismatch")):
+        return False
+    status = line.get("api_error_status")
+    if isinstance(status, int) and not isinstance(status, bool):
+        return True
+    if reason.startswith("spawn failed"):
+        return True
+    return (reason == "is_error" or reason.startswith("exit_code=")) and "stop_reason" in line \
+        and not line.get("output_tokens")
+
+
 def attempt_class(line: dict) -> str | None:
     """'refusal' or 'wrong_model' for a refused or wrong-model attempt (valid or not); 'other' for any other
     invalid attempt; None for a valid attempt that was neither."""
-    stops = line.get("safety_stops")
-    reason = str(line.get("invalid_reason") or "")
-    if (line.get("stop_reason") in REFUSAL_STOP_REASONS or reason.startswith(REFUSAL_REASONS)
-            or (isinstance(stops, (int, float)) and not isinstance(stops, bool) and stops > 0)):
+    if is_refusal(line):
         return "refusal"
-    if reason.startswith(WRONG_MODEL_REASONS):
+    if str(line.get("invalid_reason") or "").startswith(WRONG_MODEL_REASONS):
         return "wrong_model"
     return None if line.get("valid") else "other"
 
@@ -179,9 +207,14 @@ def solid_fail(passes: dict) -> bool:
     return all(i in passes and not passes[i].get("passed") for i in PASS_INDEXES)
 
 
+def slot_lost(slot: dict) -> bool:
+    """Every attempt is invalid and every one is an API or infrastructure error: no measurement was made."""
+    return bool(slot["attempts"]) and slot["valid"] is None and all(infra_error(a) for a in slot["attempts"])
+
+
 def slot_failed(cell: str, slot: dict) -> bool:
-    """Failed regardless of judging (section 2, 'A failed run')."""
-    if not slot["attempts"]:
+    """Failed regardless of judging (section 2, 'A failed run'). A slot lost to API errors is not failed."""
+    if not slot["attempts"] or slot_lost(slot):
         return False
     if slot["valid"] is None:
         return True
@@ -196,6 +229,9 @@ def evaluate_slot(cell: str, task: str, repeat: int, slot: dict | None, by_run: 
     run = slot["valid"]
     if run is not None and isinstance(run.get("cost_usd"), (int, float)):
         rec["cost"] = float(run["cost_usd"])
+    if slot_lost(slot):
+        rec["state"] = "lost"                       # neither failed nor decided: it has to be run again
+        return rec
     if slot_failed(cell, slot):
         rec["state"] = "failed"
         return rec
@@ -224,13 +260,14 @@ def cell_stats(cell: str, recs: list[dict]) -> dict:
         return solid(rs, j) + sum(1 for r in rs if r["state"] == "failed")
 
     costs = [r["cost"] for r in recs if r["cost"] is not None]
+    lost = [r for r in recs if r["state"] == "lost"]
     return {"cell": cell, "slots": len(recs), "decided": len(decided), "stage1_decided": len(stage1),
-            "failed": len(failed), "solid": {j: solid(decided, j) for j in JUDGES},
+            "failed": len(failed), "lost": len(lost), "lost_repeats": sorted({r["repeat"] for r in lost}), "solid": {j: solid(decided, j) for j in JUDGES},
             "fails": {j: fails(decided, j) for j in JUDGES},
             "stage1_fails": {j: fails(stage1, j) for j in JUDGES},
             "task_fails": {j: {t: fails([r for r in decided if r["task"] == t], j) for t in TASKS} for j in JUDGES},
             "mean_cost": sum(costs) / len(costs) if costs else None, "cost_n": len(costs),
-            "unrun_stage2": [r for r in recs if r["state"] == "not_run" and r["repeat"] not in STAGE1_REPEATS]}
+            "unrun_stage2": [r for r in recs if r["state"] in ("not_run", "lost") and r["repeat"] not in STAGE1_REPEATS]}
 
 
 def analyse(runs: list[dict], scores: list[dict]) -> dict:
@@ -321,6 +358,22 @@ def stage2_plan(an: dict) -> dict:
     return {"lines": lines, "cells": all_cells, "max_usd": int(total), "notes": notes}
 
 
+def lost_plan(an: dict, skip=()) -> list[tuple[str, str]]:
+    """[(cell, run command)] for the slots lost to API errors, which need running again. `skip`: cells whose
+    stage-2 line already covers theirs. --repeats is the highest repeat that was lost for the cell; plan only
+    issues what is still missing up to it."""
+    out = []
+    for c in CELLS:
+        s = an["cells"][c]
+        if not s["lost"] or c in skip:
+            continue
+        mean = s["mean_cost"] if s["mean_cost"] is not None else RUN_USD_FALLBACK
+        usd = max(1, math.ceil(mean * s["lost"] * RUN_USD_MARGIN))
+        out.append((c, "python3 evals/evalkit.py run --phase all --rows design-decision "
+                       f"--cells {c} --repeats {max(s['lost_repeats'])} --max-usd {usd}"))
+    return out
+
+
 # -- dispositions ------------------------------------------------------------
 
 def cheapest(cells, an: dict) -> str:
@@ -392,13 +445,13 @@ def money(x) -> str:
 def render(an: dict, disp: dict | None, plan: dict | None) -> str:
     out = ["Think-first rules (PREREGISTERED-2026-11-13-think-first.md, section 3), tasks "
            + ", ".join(TASKS) + "; judges " + " and ".join(JUDGES), ""]
-    head = ["cell", "slots decided"] + [f"solid fails {j}" for j in JUDGES] + ["failed slots", "mean cost/run"]
+    head = ["cell", "slots decided"] + [f"solid fails {j}" for j in JUDGES] + ["failed slots", "lost to API errors", "mean cost/run"]
     rows = [head]
     for c in CELLS:
         s = an["cells"][c]
         need = needed(c, an)
         rows.append([c, f"{s['decided']}/{need}"] + [str(s["solid"][j]) for j in JUDGES]
-                    + [str(s["failed"]), money(s["mean_cost"])])
+                    + [str(s["failed"]), str(s["lost"]), money(s["mean_cost"])])
     widths = [max(len(r[i]) for r in rows) for i in range(len(head))]
     out += ["  ".join(v.ljust(w) for v, w in zip(r, widths)).rstrip() for r in rows]
     out += ["", "Count the rules read = solid fails + failed slots, per judge: "
@@ -421,6 +474,12 @@ def render(an: dict, disp: dict | None, plan: dict | None) -> str:
     else:
         out.append("  none are warranted or still to run")
     out += [f"  {n}" for n in plan["notes"]]
+    lost = lost_plan(an, skip=plan["cells"])
+    if any(an["cells"][c]["lost"] for c in CELLS):
+        out += ["", "Slots lost to API errors (every attempt a rate limit, overload or other API fault; not failed, "
+                    "not decided, so their cells stay PENDING until they are run again):"]
+        out += [f"  {c}: {an['cells'][c]['lost']} slot(s)" for c in CELLS if an["cells"][c]["lost"]]
+        out += [f"    {cmd}" for _, cmd in lost]
     out += ["", "Dispositions:"]
     for kind in ("quality", "balanced", "fast"):
         d = disp[kind]
@@ -436,6 +495,7 @@ def to_json(an: dict, disp: dict | None, plan: dict | None) -> dict:
     out = {"status": overall_status(an, disp),
            "cells": {c: {"slots_decided": s["decided"], "slots_needed": needed(c, an),
                          "solid_fails": dict(s["solid"]), "failed_slots": s["failed"],
+                         "lost_to_api_errors": s["lost"],
                          "mean_cost_usd": None if s["mean_cost"] is None else round(s["mean_cost"], 6)}
                      for c, s in an["cells"].items()}}
     if an["missing"]:

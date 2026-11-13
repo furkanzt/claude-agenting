@@ -592,3 +592,249 @@ Feature: The UX blind probe compares design passes for UI/UX work and applies th
     Given 10 raw F preferences in each block, one flagged F slot in a preferred pair of each block
     When verdict runs
     Then it prints "F preferred in 9 of 12 counted (10 raw; 1 pair(s) with a flagged Fable slot, 1 changed by it)" for both blocks, a "NOTE: section 2 counts a Fable slot" line and designer opus-5-5@xhigh for UQ
+
+  # Backed by: tests/test_ux_blind.py::test_a_non_null_api_error_status_is_an_infra_error
+  Scenario: A non-null api_error_status is an infra error
+    Given a result with api_error_status 529 and 20 output tokens, and one with api_error_status 429 and is_error true
+    When each call is classified
+    Then both are infra errors; a result with api_error_status null and 20 output tokens is not
+
+  # Backed by: tests/test_ux_blind.py::test_a_failed_call_with_no_output_tokens_is_an_infra_error_without_a_status
+  Scenario: A failed call with no output tokens is an infra error even without a status
+    Given a spawn failure, a non-zero exit with no output, and is_error true with 0 output tokens
+    When each call is classified
+    Then each is an infra error
+
+  # Backed by: tests/test_ux_blind.py::test_a_timeout_a_failure_with_output_and_a_normal_call_are_not_infra_errors
+  Scenario: A timeout, a failure that produced output and a normal call are not infra errors
+    Given a timed-out call, a call with is_error true and 50 output tokens, a normal call, and unparseable output from a clean exit
+    When each call is classified
+    Then none is an infra error
+
+  # Backed by: tests/test_ux_blind.py::test_three_rate_limit_errors_leave_the_slot_runnable
+  Scenario: Three rate-limit errors leave a slot runnable
+    Given the fable designer's first 3 calls fail with api_error_status 429
+    When design runs 3 times, then a fourth time without errors
+    Then the first 3 runs exit 3 and log accepted false, infra_error true and api_error_status 429; plan shows exhausted_designs 0 and infra_waiting_designs 1; the fourth run stores ux-01-F-1 with attempts 4 and slot_failed false
+
+  # Backed by: tests/test_ux_blind.py::test_three_attempts_that_are_not_infra_errors_still_exhaust_the_slot
+  Scenario: Three attempts that are not infra errors still exhaust a slot
+    Given a model that never prints the marker lines and one brief
+    When design runs
+    Then plan shows exhausted_designs 9 and infra_waiting_designs 0, and no attempt is logged as an infra error
+
+  # Backed by: tests/test_ux_blind.py::test_the_first_infra_error_stops_the_invocation_with_exit_3_and_starts_nothing_more
+  Scenario: The first infra error stops the invocation with exit 3
+    Given every call of the fable designer fails with api_error_status 429 and one job
+    When design runs
+    Then it exits 3, exactly 1 call was made, and stderr has one line naming "design|ux-01|F|1" and "api_error_status 429"
+
+  # Backed by: tests/test_ux_blind.py::test_build_and_checklist_stop_on_an_infra_error_too
+  Scenario: Build and checklist stop on an infra error too
+    Given every builder call, then every fable-judge call, fails with api_error_status 429
+    When build runs, then checklist runs
+    Then each exits 3 after exactly 1 call, with a stderr line "infra error on build|" or "infra error on checklist|"
+
+  # Backed by: tests/test_ux_blind.py::test_a_failed_call_with_no_output_and_no_status_stops_the_invocation_too
+  Scenario: A failure with no output and no status stops the invocation too
+    Given every fable designer call fails with is_error true, no output tokens and no api_error_status
+    When design runs
+    Then it exits 3 after 1 call, stderr says "api_error_status none", and the attempt is logged with infra_error true and accepted false
+
+  # Backed by: tests/test_ux_blind.py::test_a_refusal_that_comes_back_with_is_error_is_not_an_infra_error
+  Scenario: A refusal with is_error is not an infra error
+    Given the fable designer's first call returns stop_reason "refusal", is_error true and 0 output tokens
+    When design runs
+    Then it exits 0, the attempt is logged with reason "refused" and infra_error false, and the design records attempts 2 and slot_failed true
+
+  # Backed by: tests/test_ux_blind.py::test_plan_text_shows_the_slots_waiting_only_on_infra_errors
+  Scenario: Plan shows the slots waiting only on infra errors
+    Given one design slot whose only attempt was an infra error
+    When plan runs
+    Then it prints "slots waiting only on infra errors: 1 (1 designs, 0 builds, 0 checklist calls)"
+
+  # Backed by: tests/test_ux_blind.py::test_the_builder_prompt_forbids_dialogs_form_submission_navigation_and_the_history_api_for_every_arm
+  Scenario: The builder prompt forbids dialogs, form submission, navigation and the History API for every arm
+    Given two design texts and no design
+    When the builder prompts are built
+    Then each contains "no alert, confirm or prompt dialogs; no form submission and no page navigation (switch screens by showing and hiding elements); no History API" followed by the same remaining rules
+
+  # Backed by: tests/test_ux_blind.py::test_a_script_that_opens_a_dialog_is_invalid
+  Scenario: A script that opens a dialog makes the page invalid
+    Given scripts calling alert("hi"), window.alert(1), confirm('Sure?') and prompt ("Name"), and an onclick handler calling alert(1)
+    When each page is sanitised
+    Then each page is invalid with a dialog reason
+
+  # Backed by: tests/test_ux_blind.py::test_a_script_that_uses_the_history_api_is_invalid
+  Scenario: A script that uses the History API makes the page invalid
+    Given scripts calling history.pushState, window.history.replaceState and history . pushState
+    When each page is sanitised
+    Then each page is invalid with the reason "script uses the History API"
+
+  # Backed by: tests/test_ux_blind.py::test_a_script_that_navigates_the_page_is_invalid
+  Scenario: A script that navigates the page makes the page invalid
+    Given scripts with location.href = "next.html", window.location.href='#a', document.location.assign('x'), location.replace('x') and window.open('x'), and an onclick handler assigning location.href
+    When each page is sanitised
+    Then each page is invalid with a navigates reason
+
+  # Backed by: tests/test_ux_blind.py::test_look_alike_calls_and_comparisons_are_fine
+  Scenario: Look-alike calls and comparisons are fine
+    Given a script with myAlert(1), confirmed(2), a variable prompts, x.alerts(), dialog.open(1), location.href == 'a', location.href === 'b', location.hash = '#a' and history.length
+    When the page is sanitised
+    Then the page is valid
+
+  # Backed by: tests/test_ux_blind.py::test_a_plain_text_mention_of_dialogs_and_navigation_outside_a_script_is_fine
+  Scenario: A plain-text mention of dialogs and navigation outside a script is fine
+    Given a paragraph saying "No alert( or confirm( dialogs, no window.open( and no history.pushState, no location.href = x."
+    When the page is sanitised
+    Then the page is valid
+
+  # Backed by: tests/test_ux_blind.py::test_reject_removes_the_page_and_build_lists_it_as_missing_again_without_printing_the_arm
+  Scenario: Reject removes a page and build rebuilds it without printing the arm
+    Given 48 built pages and the D page of ux-01 sample 1
+    When reject --page <id> --reason "blank screen" runs, then plan and build
+    Then stdout is exactly "rejected page <id>: blank screen", stderr is empty, the file and the pages.json entry are gone, plan shows builds_missing 1, and build makes 1 call that stores a page under a new id
+
+  # Backed by: tests/test_ux_blind.py::test_reject_logs_one_counted_failed_build_attempt_for_the_slot
+  Scenario: Reject logs one counted failed build attempt
+    Given a built D page
+    When reject runs
+    Then attempts.jsonl holds one entry for slot "build|ux-01|D|1" with accepted false, infra_error false and reason "rejected: blank screen", and failures_of counts 1
+
+  # Backed by: tests/test_ux_blind.py::test_rejections_count_toward_the_same_cap_as_other_failed_builds
+  Scenario: Rejections count toward the same attempt cap
+    Given a D page rejected and rebuilt three times in turn
+    When build runs after the third reject
+    Then no further builder call is made (2 calls in all) and plan shows builds_missing 1 and exhausted_builds 1
+
+  # Backed by: tests/test_ux_blind.py::test_reject_also_drops_the_checklist_answers_of_that_page
+  Scenario: Reject drops the checklist answers of that page
+    Given a block-1 page with both judges' answers
+    When reject runs
+    Then its entry is gone from checklist.json
+
+  # Backed by: tests/test_ux_blind.py::test_reject_of_an_unknown_page_is_refused
+  Scenario: Reject refuses an unknown page id
+    Given pages.json without deadbeef
+    When reject --page deadbeef runs
+    Then the exit code is 2, stdout is empty and stderr says "no page deadbeef"
+
+  # Backed by: tests/test_ux_blind.py::test_reject_takes_the_evalkit_lock
+  Scenario: Reject takes evalkit's lock
+    Given another process holds evalkit's exclusive lock
+    When reject runs
+    Then the exit code is 2, stderr says "already writing" and the page is still in pages.json
+
+  # Backed by: tests/test_ux_blind.py::test_page_refuses_without_a_render_check_file
+  Scenario: Page refuses without a render-check file
+    Given 48 built pages and no render-check.json
+    When page runs
+    Then the exit code is 2, stderr says "render-check.json is missing" and neither pairs.json nor blind.html is written
+
+  # Backed by: tests/test_ux_blind.py::test_page_refuses_with_a_render_check_older_than_a_page
+  Scenario: Page refuses a stale render-check file
+    Given a render-check.json that is older than the newest page file
+    When page runs
+    Then the exit code is 2 and stderr says "render-check.json is older than a page file"
+
+  # Backed by: tests/test_ux_blind.py::test_page_refuses_when_a_page_changed_after_the_check
+  Scenario: Page refuses when a page changed after the check
+    Given a fresh render-check.json and then one page file touched 5 seconds later
+    When page runs
+    Then the exit code is 2 and stderr says "older than a page file"
+
+  # Backed by: tests/test_ux_blind.py::test_page_refuses_when_the_render_check_lists_a_failed_page
+  Scenario: Page refuses when the render check lists a failed page
+    Given a fresh render-check.json with passed false for one page
+    When page runs
+    Then the exit code is 2, stderr says "did not pass 1 page(s)" and names that page id
+
+  # Backed by: tests/test_ux_blind.py::test_page_refuses_when_a_page_is_missing_from_the_render_check
+  Scenario: Page refuses when a page is missing from the render check
+    Given a fresh render-check.json that lacks one page id
+    When page runs
+    Then the exit code is 2, stderr says "did not pass 1 page(s)" and names that page id
+
+  # Backed by: tests/test_ux_blind.py::test_page_accepts_a_fresh_render_check_that_passes_every_page
+  Scenario: Page accepts a fresh render check that passes every page
+    Given a render-check.json newer than every page, with passed true for all 48
+    When page runs
+    Then the exit code is 0 and blind.html is written
+
+  # Backed by: tests/test_ux_blind.py::test_the_render_check_must_name_a_page_rebuilt_after_a_reject
+  Scenario: A page rebuilt after a reject needs a new render check
+    Given a passing render check, then a reject and a rebuild of one page
+    When page runs
+    Then the exit code is 2 and stderr says "older than a page file"
+
+  # Backed by: tests/test_ux_blind.py::test_a_page_with_enough_text_and_no_errors_passes
+  Scenario: A page with 20 characters of text and no errors passes the render check
+    Given stats with 40 and with 20 visible characters, no errors, no canvas, svg or img
+    When the page is judged
+    Then it passes with no reasons
+
+  # Backed by: tests/test_ux_blind.py::test_an_uncaught_error_on_load_fails_the_page
+  Scenario: An uncaught error on load fails the render check
+    Given stats with load_errors 1
+    When the page is judged
+    Then it fails with the reason "uncaught error on load"
+
+  # Backed by: tests/test_ux_blind.py::test_an_uncaught_error_on_the_first_click_fails_the_page
+  Scenario: An uncaught error on the first click fails the render check
+    Given stats with click_errors 2
+    When the page is judged
+    Then it fails with the reason "uncaught error on first click"
+
+  # Backed by: tests/test_ux_blind.py::test_a_page_with_under_20_characters_and_nothing_drawn_rendered_nothing
+  Scenario: A page with under 20 characters and nothing drawn fails the render check
+    Given stats with 19 and with 0 visible characters and no canvas, svg or img
+    When the page is judged
+    Then it fails with the reason "rendered nothing"
+
+  # Backed by: tests/test_ux_blind.py::test_a_canvas_an_svg_or_an_img_counts_as_rendered
+  Scenario: A canvas, an svg or an img counts as rendered
+    Given stats with 3 visible characters and one canvas, one svg or one img
+    When the page is judged
+    Then it passes
+
+  # Backed by: tests/test_ux_blind.py::test_every_failing_reason_is_reported
+  Scenario: Every failing reason is reported
+    Given stats with a load error, a click error and 0 visible characters
+    When the page is judged
+    Then it fails with 3 reasons
+
+  # Backed by: tests/test_ux_blind.py::test_the_report_fails_unless_every_page_passed_and_there_is_at_least_one
+  Scenario: The report passes only when every page passed and there is at least one
+    Given reports for two passed pages, one passed and one failed page, and no page
+    When the reports are built
+    Then all_passed is true, false (checked 2, failed 1) and false; version is 1 and viewport is 390x780
+
+  # Backed by: tests/test_ux_blind.py::test_messages_are_cut_to_120_characters_on_one_line
+  Scenario: Error messages are cut to 120 characters on one line
+    Given a message of 300 characters with a line break
+    When it is shortened
+    Then it is 120 characters long and has no line break
+
+  # Backed by: tests/test_ux_blind.py::test_the_frame_is_sandboxed_without_same_origin_at_the_phone_viewport
+  Scenario: The render check uses the owner's frame
+    Given a page source with markup and an ampersand
+    When the wrapper document is built
+    Then it holds one iframe with sandbox="allow-scripts" and no allow-same-origin, width 390 and height 780, and the source HTML-escaped in srcdoc
+
+  # Backed by: tests/test_ux_blind.py::test_the_check_reads_only_page_files_and_never_names_the_arm_mapping
+  Scenario: The render check reads page files only
+    Given the source of scripts/quality/check_ux_pages.py
+    When it is read
+    Then it never names pages.json, designs, attempts, pairs.json or checklist.json and reads only *.html files
+
+  # Backed by: tests/test_ux_blind.py::test_the_report_can_be_read_by_the_page_gate_in_the_shape_ux_blind_expects
+  Scenario: The render-check report has one scalar-only entry per page id
+    Given a report for page a1
+    When it is built
+    Then its pages object is keyed by page id and every value of an entry is a number, string or boolean
+
+  # Backed by: scripts/quality/check_ux_pages.py::check_ux_pages_render
+  Scenario: The render check loads every page in the owner's frame and fails blank or broken ones
+    Given a root with four pages: one that renders text and a working button, one that throws on load, one that is blank, and one whose button throws
+    When check_ux_pages.py runs headless against the root
+    Then the first page passes; the second fails with an uncaught error on load, the third fails with rendered nothing, the fourth fails with an uncaught error on first click; the exit code is 1 and render-check.json lists every page id with scalar values only

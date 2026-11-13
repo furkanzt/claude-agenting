@@ -255,3 +255,46 @@ Feature: The think-first analysis tool applies the pre-registered Fable 5.2 rule
     Given an empty set of results, a stage-1 set, a both-fail set and a complete set
     When the tool runs with --json
     Then every string value is a cell id, one of "rule Q", "rule B", "rule fast", "otherwise", "both fail", or a status word, and the complete set has status "VERDICT", quality fable-5-2@medium and balanced by "rule B"
+
+  # Backed by: tests/test_think_first_analysis.py::test_an_all_429_slot_is_lost_not_failed_and_keeps_its_cell_pending
+  Scenario: A slot whose attempts are all 429s is lost to API errors, not failed, and keeps its cell pending
+    Given a complete set of runs in which one fable-5-2@low slot has three invalid attempts with api_error_status 429 and no valid run
+    When the cell is counted and the dispositions are decided
+    Then fable-5-2@low has 1 lost slot, 0 failed slots, 11 slots decided and 0 fails, quality is "pending" naming fable-5-2@low, and no judge pass is missing
+
+  # Backed by: tests/test_think_first_analysis.py::test_a_slot_with_a_timeout_and_two_429s_and_no_valid_run_is_failed
+  Scenario: A slot with a timeout and two 429s and no valid run is a failed slot
+    Given an opus-5-5@xhigh slot with one attempt "timeout" and two 429 attempts and no valid run
+    When the cell is counted
+    Then it has 1 failed slot, 0 lost slots, 1 slot decided and 1 fail under both judges
+
+  # Backed by: tests/test_think_first_analysis.py::test_429s_followed_by_a_valid_run_make_a_normal_decided_slot
+  Scenario: 429 attempts followed by a valid run make an ordinary decided slot
+    Given an opus-5-5@xhigh slot with two 429 attempts and then a valid run that passes
+    When the cell is counted
+    Then it has 0 failed slots, 0 lost slots, 1 slot decided and 0 fails
+
+  # Backed by: tests/test_think_first_analysis.py::test_a_lost_fable_slot_that_also_had_a_refusal_is_failed
+  Scenario: A Fable slot with a 429 attempt and a refused attempt and no valid run is failed, not lost
+    Given a fable-5-2@low slot with one 429 attempt and one attempt with stop_reason "refusal" and no valid run
+    When the cell is counted
+    Then it has 1 failed slot and 0 lost slots
+
+  # Backed by: tests/test_think_first_analysis.py::test_the_text_and_json_show_the_lost_slots_and_a_command_to_run_them_again
+  Scenario: The text table and the JSON show lost slots per cell, with a command to run them again
+    Given a complete set of runs in which one fable-5-2@low slot at repeat 2 is lost to API errors and its cell has a mean cost of 2.0
+    When the tool runs, as text and with --json
+    Then the exit code is 2, the text has the column "lost to API errors" and the line "python3 evals/evalkit.py run --phase all --rows design-decision --cells fable-5-2@low --repeats 2 --max-usd 3", and the JSON has lost_to_api_errors 1 for fable-5-2@low and 0 for fable-5-2@medium
+
+  # Backed by: tests/test_think_first_analysis.py::test_a_lost_stage_2_slot_of_a_warranted_cell_is_run_again_by_the_stage_2_line
+  Scenario: A lost stage-2 slot of a warranted cell is covered by the stage-2 run line and not listed twice
+    Given a complete set of runs in which a fable-5-2@low stage-2 slot at repeat 6 is lost and opus-5-5@xhigh has 4 fails
+    When the stage-2 plan and the lost-slot plan are made
+    Then the stage-2 plan holds one line for fable-5-2@low with "--repeats 6" and the lost-slot plan holds nothing for it
+
+  # Backed by: tests/test_think_first_analysis.py::test_the_infra_error_rule_agrees_with_evalkits_on_a_table_of_lines
+  Scenario: The probe's infra_error rule agrees with evalkit's on a table of lines
+    Given 17 run lines: API statuses, spawn failures, errors with and without output, refusals, safety stops, timeouts, json_parse, model_mismatch and valid lines
+    When both infra_error functions are evaluated on each
+    Then they return the same answer for every line and 6 of the lines are infra errors
+

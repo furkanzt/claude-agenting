@@ -10,7 +10,8 @@ the better page in 24 blind pairs and `verdict` applies rules UQ, UB and UD.
     python3 evals/probes/ux_blind.py design   --max-usd 60     # designer runs (arms F and O)
     python3 evals/probes/ux_blind.py build    --max-usd 40     # builder runs, pages are sanitised
     python3 evals/probes/ux_blind.py checklist --max-usd 40    # two judges, block-1 pages only
-    python3 evals/probes/ux_blind.py page [--out blind.html]   # ONE offline HTML file for the owner
+    python3 evals/probes/ux_blind.py reject --page ID --reason TEXT   # drop one built page; `build` rebuilds it
+    python3 evals/probes/ux_blind.py page [--out blind.html]   # ONE offline HTML file for the owner (needs render-check.json)
     python3 evals/probes/ux_blind.py verdict --results ux-blind-results.json [--json]
 
 Every path lives under a root (default <evals>/private/ux/, override --root):
@@ -27,7 +28,9 @@ Model calls reuse evalkit (call_claude, parse_call, usage_of, extract_block, Bud
 prepare_workdir, exclusive_lock, run_pool). `design`, `build` and `checklist` take evalkit's exclusive
 lock (results/.evalkit.lock, outside --root) so they never run beside `evalkit.py run|judge`.
 The attempt limit per slot is harness `max_retries_invalid` + 1, counted across invocations from
-attempts.jsonl, so repeated invocations cannot keep spending on one broken slot.
+attempts.jsonl, so repeated invocations cannot keep spending on one broken slot. An infrastructure error
+(a non-null api_error_status, or a failed call with no output tokens that is not a refusal) is logged but
+does not count toward that limit: the invocation stops launching calls and exits with code 3.
 
 Everything the owner sees is blind: file names and file contents never name an arm, a model or a
 sample number; the mapping page -> arm lives only in the private files above.
@@ -129,7 +132,9 @@ def builder_prompt(brief: dict, design_text, markers) -> str:
     """Arms F and O pass the design text, arm D passes None; only that paragraph differs."""
     rules = ("Rules: one self-contained HTML document with inline CSS and JavaScript; no network "
              "request of any kind (no external fonts, images, scripts or styles); no browser storage "
-             "(localStorage, sessionStorage, cookies, IndexedDB); keep all state in memory; portrait layout "
+             "(localStorage, sessionStorage, cookies, IndexedDB); keep all state in memory; no alert, confirm or "
+             "prompt dialogs; no form submission and no page navigation (switch screens by showing and hiding "
+             "elements); no History API; portrait layout "
              f"for a {brief['viewport']} phone screen; UI strings in the game's own language; "
              "no HTML comments.\nOutput only the HTML document.")
     return (BUILDER_HEAD + brief["description"] + "\n\n" + design_part(design_text) + "\n\n" + rules
@@ -168,6 +173,10 @@ FENCE_RE = re.compile(r"^\s*```[A-Za-z]*[ \t]*\n(.*?)\n?```\s*$", re.S)
 SCRIPT_BLOCK_RE = re.compile(r"<script\b[^>]*>(.*?)</script\s*>", re.I | re.S)
 EVENT_ATTR_RE = re.compile(r"\bon[a-z]+\s*=\s*(\"[^\"]*\"|'[^']*')", re.I)
 STORAGE_RE = re.compile(r"\b(?:localStorage|sessionStorage|indexedDB)\b|\bdocument\s*\.\s*cookie\b", re.I)
+DIALOG_RE = re.compile(r"\b(?:alert|confirm|prompt)\s*\(")
+HISTORY_RE = re.compile(r"\bhistory\s*\.\s*(?:pushState|replaceState)\b")
+NAVIGATE_RE = re.compile(r"\blocation\s*\.\s*href\s*=(?!=)|\blocation\s*\.\s*(?:assign|replace)\s*\(|"
+                         r"\bwindow\s*\.\s*open\s*\(")
 EXTERNAL_USE = (
     ("src, href or action points to an external URL",
      re.compile(r"\b(?:src|href|action|formaction|poster|srcset)\s*=\s*[\"']?\s*" + EXT, re.I)),
@@ -221,6 +230,12 @@ def sanitize_page(raw: str):
     code = SCRIPT_BLOCK_RE.findall(page) + [m.group(1) for m in EVENT_ATTR_RE.finditer(page)]
     if any(STORAGE_RE.search(c) for c in code):
         reasons.append("script uses browser storage")
+    if any(DIALOG_RE.search(c) for c in code):
+        reasons.append("script opens a dialog (alert, confirm or prompt)")
+    if any(HISTORY_RE.search(c) for c in code):
+        reasons.append("script uses the History API")
+    if any(NAVIGATE_RE.search(c) for c in code):
+        reasons.append("script navigates the page (location or window.open)")
     if not (re.search(r"<html\b", page, re.I) or re.search(r"<body\b", page, re.I)):
         reasons.append("no <html or <body")
     if len(page.encode("utf-8")) > MAX_PAGE_BYTES:
@@ -254,6 +269,8 @@ class UX:
         self.max_attempts = ctx.harness["max_retries_invalid"] + 1
         self.per_run_cap = ctx.harness["runner"]["max_budget_usd_per_run"]
         self._briefs = None
+        self.infra_stop = threading.Event()     # set by the first infrastructure error of an invocation
+        self.infra_lines = []
 
     @property
     def briefs(self) -> dict:
@@ -312,7 +329,13 @@ def attempts_by_slot(ux) -> dict:
 
 
 def failures_of(entries) -> int:
-    return sum(1 for e in entries if not e.get("accepted"))
+    """Counted failed attempts of a slot. An infrastructure error is logged but never counted."""
+    return sum(1 for e in entries if not e.get("accepted") and not e.get("infra_error"))
+
+
+def only_infra(entries) -> bool:
+    """True when a slot has attempts and every one of them was an infrastructure error."""
+    return bool(entries) and all(e.get("infra_error") for e in entries)
 
 
 def pages_index(ux) -> dict:
@@ -354,6 +377,9 @@ def compute_plan(ux) -> dict:
                 check.append((s, j))
     exhausted["checklist"] = sum(
         failures_of(by_slot.get(slot_key("checklist", s, j), [])) >= ux.max_attempts for s, j in check)
+    infra = {"designs": sum(only_infra(by_slot.get(slot_key("design", s), [])) for s in designs),
+             "builds": sum(only_infra(by_slot.get(slot_key("build", s), [])) for s in builds),
+             "checklist": sum(only_infra(by_slot.get(slot_key("checklist", s, j), [])) for s, j in check)}
     missing = len(designs) + len(builds) + len(check)
     flagged = flagged_fable_slots(ux)
     return {"briefs": len(ux.briefs), "designs_total": sum(1 for s in slots if s["arm"] in ARM_CELL),
@@ -362,6 +388,8 @@ def compute_plan(ux) -> dict:
             "checklist_total": sum(1 for s in slots if s["block"] == 1) * len(JUDGE_CELLS),
             "checklist_missing": len(check), "exhausted_designs": exhausted["designs"],
             "exhausted_builds": exhausted["builds"], "exhausted_checklist": exhausted["checklist"],
+            "infra_waiting_designs": infra["designs"], "infra_waiting_builds": infra["builds"],
+            "infra_waiting_checklist": infra["checklist"], "infra_waiting": sum(infra.values()),
             "calls_missing": missing, "per_run_cap_usd": ux.per_run_cap,
             "cost_bound_usd": missing * ux.per_run_cap, "fable_flagged_slots": flagged,
             "_designs": designs, "_builds": builds, "_check": check}
@@ -387,6 +415,9 @@ def cmd_plan(ux, args):
           f"({p['builds_waiting_for_design']} waiting for a design, {p['exhausted_builds']} out of attempts)")
     print(f"checklist calls: {p['checklist_missing']} missing of {p['checklist_total']} "
           f"({p['exhausted_checklist']} out of attempts)")
+    print(f"slots waiting only on infra errors: {p['infra_waiting']} "
+          f"({p['infra_waiting_designs']} designs, {p['infra_waiting_builds']} builds, "
+          f"{p['infra_waiting_checklist']} checklist calls)")
     print(f"calls missing: {p['calls_missing']}")
     print(f"cost bound: ${p['cost_bound_usd']:.2f} ({p['calls_missing']} calls x "
           f"${p['per_run_cap_usd']:.2f} per-run cap)")
@@ -414,6 +445,22 @@ def counts_against_fable(reason) -> bool:
     return isinstance(reason, str) and (reason == "refused" or reason.startswith("model_mismatch"))
 
 
+INFRA_EXIT = 3
+
+
+def is_infra_error(call, data) -> bool:
+    """An infrastructure error: the CLI reports a non-null api_error_status, or the call failed (a spawn
+    failure, a non-zero exit or is_error) and produced no output tokens. The caller checks for a refusal
+    first, so a refusal is never an infra error. A timeout is not one: it counts as a failed attempt."""
+    if call.get("timeout"):
+        return False
+    d = data if isinstance(data, dict) else {}
+    if d.get("api_error_status") is not None:
+        return True
+    failed = bool(call.get("error")) or call.get("returncode") not in (0, None) or bool(d.get("is_error"))
+    return failed and not (d.get("usage") or {}).get("output_tokens")
+
+
 def run_slot(ux, *, stage, key, ident, cell_id, prompt, tools, system_prompt, brief, accept, budget, stop):
     """Up to (max_attempts - earlier failures) attempts. Returns a dict: ok, payload, stopped, usage,
     observed, attempts (total for the slot), cost_usd (all attempts of the slot), reasons (invalid ones)."""
@@ -421,9 +468,9 @@ def run_slot(ux, *, stage, key, ident, cell_id, prompt, tools, system_prompt, br
     prior = attempts_by_slot(ux).get(key, [])
     out = {"ok": False, "payload": None, "stopped": False, "usage": None, "observed": None,
            "attempts": len(prior), "cost_usd": sum(e.get("cost_usd") or 0.0 for e in prior),
-           "reasons": [e["reason"] for e in prior if not e.get("accepted")]}
+           "reasons": [e["reason"] for e in prior if not e.get("accepted") and not e.get("infra_error")]}
     for _ in range(max(0, ux.max_attempts - failures_of(prior))):
-        if budget.exhausted() or stop.event.is_set():
+        if budget.exhausted() or stop.event.is_set() or ux.infra_stop.is_set():
             out["stopped"] = True
             return out
         wd = ev.prepare_workdir(ux.workctx, {"delivery": "files", "dir": brief["dir"]}, "ux-")
@@ -435,8 +482,13 @@ def run_slot(ux, *, stage, key, ident, cell_id, prompt, tools, system_prompt, br
             out["stopped"] = True
             return out
         valid, reason, data = ev.parse_call(call, cell["model_id"])
-        if is_refusal(data):
+        refused = is_refusal(data)
+        if refused:
             valid, reason = False, "refused"
+        infra = not refused and is_infra_error(call, data)
+        status = data.get("api_error_status") if isinstance(data, dict) else None
+        if infra:
+            valid, reason = False, reason or f"api_error_status={status}"
         cost, unknown = ev.call_cost(call, data)
         budget.add(cost)
         payload = None
@@ -452,9 +504,18 @@ def run_slot(ux, *, stage, key, ident, cell_id, prompt, tools, system_prompt, br
             "model_expected": cell["model_id"], "model_observed": observed, "attempt": out["attempts"],
             "accepted": valid, "reason": None if valid else reason, "cost_usd": cost,
             "stop_reason": (data or {}).get("stop_reason"), "safety_stops": (data or {}).get("safety_stops"),
+            "api_error_status": status, "infra_error": infra,
             **({"cost_unknown": True} if unknown else {}), **usage})
         if valid:
             out.update(ok=True, payload=payload, usage=usage, observed=observed)
+            return out
+        if infra:
+            ux.infra_lines.append(
+                f"ux_blind: infra error on {key}: api_error_status {status if status is not None else 'none'} "
+                f"({reason}); no new calls were started and this attempt was not counted; "
+                "run the same command again when the service is back (exit 3)")
+            ux.infra_stop.set()
+            out["infra"] = True
             return out
         out["reasons"].append(reason)
     return out
@@ -483,7 +544,8 @@ def design_one(ux, slot, budget, stop):
                    system_prompt=ux.ctx.system_prompt(cell_id), brief=brief, budget=budget, stop=stop,
                    accept=lambda text: accept_design(text, ux.markers))
     if not res["ok"]:
-        return label + (" stopped" if res["stopped"] else f" left missing after {res['attempts']} attempt(s)")
+        return label + (" infra error" if res.get("infra") else " stopped" if res["stopped"]
+                        else f" left missing after {res['attempts']} attempt(s)")
     flagged = "fable" in ux.ctx.cells[cell_id]["model_id"] and any(
         counts_against_fable(r) for r in res["reasons"])
     ev.write_json_atomic(design_path(ux, slot), {
@@ -503,9 +565,12 @@ def pool_args(ux, args):
     return budget, args.jobs or ux.ctx.harness["runner"]["jobs"]
 
 
-def finish(label, budget, code):
+def finish(ux, label, budget, code):
     print(f"{label} cost ${budget.spent:.4f}" +
           (f" ({budget.unknown} call(s) with unknown cost charged at the per-run cap)" if budget.unknown else ""))
+    if ux.infra_lines:
+        print(ux.infra_lines[0], file=sys.stderr)
+        return INFRA_EXIT
     return code
 
 
@@ -516,7 +581,7 @@ def cmd_design(ux, args):
     print(f"{len(todo)} design run(s) to do")
     budget, jobs = pool_args(ux, args)
     code = ev.run_pool(ux.ctx, todo, lambda s, stop: design_one(ux, s, budget, stop), jobs, "design")
-    return finish("design", budget, code)
+    return finish(ux, "design", budget, code)
 
 
 # -- build -------------------------------------------------------------------
@@ -563,7 +628,8 @@ def build_one(ux, slot, budget, stop):
                    tools=tools_files(ux), system_prompt=ux.ctx.system_prompt(BUILDER_CELL), brief=brief,
                    budget=budget, stop=stop, accept=lambda t: accept_page(t, ux.markers))
     if not res["ok"]:
-        return label + (" stopped" if res["stopped"] else f" left missing after {res['attempts']} attempt(s)")
+        return label + (" infra error" if res.get("infra") else " stopped" if res["stopped"]
+                        else f" left missing after {res['attempts']} attempt(s)")
     store_page(ux, slot, res["payload"])
     return f"{label} built in {res['attempts']} attempt(s)"
 
@@ -577,7 +643,32 @@ def cmd_build(ux, args):
     print(f"{len(todo)} build(s) to do")
     budget, jobs = pool_args(ux, args)
     code = ev.run_pool(ux.ctx, todo, lambda s, stop: build_one(ux, s, budget, stop), jobs, "build")
-    return finish("build", budget, code)
+    return finish(ux, "build", budget, code)
+
+
+def cmd_reject(ux, args):
+    """Drop one built page (its file, its pages.json entry, its checklist answers) and log ONE counted
+    failed build attempt for its slot, so `build` rebuilds it within the same cap. Prints no arm."""
+    with STORE_LOCK:
+        index = ux.read(ux.pages_json, {})
+        if args.page not in index:
+            raise ev.EvalError(f"no page {args.page}")
+        slot = {**index[args.page]}
+        prior = attempts_by_slot(ux).get(slot_key("build", slot), [])
+        ev.append_jsonl(ux.attempts, {
+            "ts": ev.now(), "slot": slot_key("build", slot), "stage": "build", **slot_ident(slot),
+            "cell": BUILDER_CELL, "model_expected": None, "model_observed": None, "attempt": len(prior) + 1,
+            "accepted": False, "reason": f"rejected: {args.reason}", "cost_usd": 0.0, "stop_reason": None,
+            "safety_stops": None, "api_error_status": None, "infra_error": False,
+            "rejected_page": args.page})
+        index.pop(args.page)
+        ev.write_json_atomic(ux.pages_json, index)
+        (ux.pages / f"{args.page}.html").unlink(missing_ok=True)
+        checks = ux.read(ux.checklist_json, {})
+        if checks.pop(args.page, None) is not None:
+            ev.write_json_atomic(ux.checklist_json, checks)
+    print(f"rejected page {args.page}: {args.reason}")
+    return 0
 
 
 # -- checklist ---------------------------------------------------------------
@@ -614,7 +705,8 @@ def checklist_one(ux, unit, budget, stop):
                    stop=stop, accept=lambda t: accept_checklist(t, ux.markers, ids))
     label = f"{page_id} {judge}"
     if not res["ok"]:
-        return label + (" stopped" if res["stopped"] else f" left missing after {res['attempts']} attempt(s)")
+        return label + (" infra error" if res.get("infra") else " stopped" if res["stopped"]
+                        else f" left missing after {res['attempts']} attempt(s)")
     store_checklist(ux, page_id, judge, res["payload"], ids)
     return f"{label} judged in {res['attempts']} attempt(s)"
 
@@ -629,7 +721,7 @@ def cmd_checklist(ux, args):
     print(f"{len(todo)} checklist call(s) to do")
     budget, jobs = pool_args(ux, args)
     code = ev.run_pool(ux.ctx, todo, lambda u, stop: checklist_one(ux, u, budget, stop), jobs, "checklist")
-    return finish("checklist", budget, code)
+    return finish(ux, "checklist", budget, code)
 
 
 # -- pairs and the blind page ------------------------------------------------
@@ -823,9 +915,31 @@ def build_blind_html(ux, table) -> str:
             "<script>" + BLIND_JS + "</script>\n</body>\n</html>\n")
 
 
+RENDER_CHECK = "render-check.json"
+
+
+def require_render_check(ux, index):
+    """Refuse unless render-check.json exists, is newer than every page file and lists every page as passed."""
+    f = ux.root / RENDER_CHECK
+    hint = f"run scripts/quality/check_ux_pages.py --root {ux.root} --out {f}"
+    if not f.is_file():
+        raise ev.EvalError(f"{RENDER_CHECK} is missing; {hint}")
+    files = [ux.pages / f"{pid}.html" for pid in index.values()]
+    if any(p.is_file() and p.stat().st_mtime_ns >= f.stat().st_mtime_ns for p in files):
+        raise ev.EvalError(f"{RENDER_CHECK} is older than a page file; {hint}")
+    data = ev.read_json(f)
+    entries = data.get("pages") if isinstance(data, dict) and isinstance(data.get("pages"), dict) else {}
+    bad = sorted(pid for pid in index.values()
+                 if not isinstance(entries.get(pid), dict) or entries[pid].get("passed") is not True)
+    if bad:
+        raise ev.EvalError(f"the render check did not pass {len(bad)} page(s): " + ", ".join(bad[:5])
+                           + (" ..." if len(bad) > 5 else "") + "; reject them with `reject`, rebuild, and check again")
+
+
 def cmd_page(ux, args):
     index = pages_index(ux)
     required_pages(ux, index)
+    require_render_check(ux, index)
     table = load_or_create_pairs(ux, index)
     problems = []
     for p in table["pairs"]:
@@ -961,9 +1075,9 @@ def build_parser():
     common.add_argument("--evals-dir", help="evals directory (default $AGENTING_EVALS_DIR or this repo's)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    def add(name, fn, help_, spend=False):
+    def add(name, fn, help_, spend=False, lock=None):
         sp = sub.add_parser(name, parents=[common], help=help_, description=help_)
-        sp.set_defaults(fn=fn, spends=spend)
+        sp.set_defaults(fn=fn, spends=spend, lock=spend if lock is None else lock)
         if spend:
             sp.add_argument("--max-usd", type=float, help="stop launching calls once this much is spent")
             sp.add_argument("--jobs", type=int, help="parallel workers (default harness runner.jobs)")
@@ -974,6 +1088,9 @@ def build_parser():
     add("design", cmd_design, "run the designers (arms F and O)", True)
     add("build", cmd_build, "run the builder for every missing page", True)
     add("checklist", cmd_checklist, "both judges score every block-1 page", True)
+    sp = add("reject", cmd_reject, "drop one built page so `build` rebuilds it", lock=True)
+    sp.add_argument("--page", required=True, help="the page id")
+    sp.add_argument("--reason", required=True, help="why (printed back, logged with the failed attempt)")
     sp = add("page", cmd_page, "write the blind HTML file for the owner")
     sp.add_argument("--out", help="default <root>/blind.html")
     sp = add("verdict", cmd_verdict, "apply rules UQ, UB and UD to the owner's results")
@@ -987,7 +1104,7 @@ def main(argv=None, ctx=None):
     try:
         ctx = ctx or ev.Ctx(args.evals_dir)
         ux = UX(ctx, args.root or ctx.private / "ux", args.briefs_dir)
-        if args.spends:
+        if args.lock:
             with ev.exclusive_lock(ctx.lock_path):
                 return args.fn(ux, args)
         return args.fn(ux, args)

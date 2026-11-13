@@ -77,7 +77,7 @@ A run is **valid** only if: the process exited normally, the JSON parsed,
 `is_error` is false, and `modelUsage` names exactly the cell's `model_id`
 (an alias that drifted to a newer model must not be recorded under the old
 cell). Invalid runs are logged with `valid:false`, are not counted, and
-`plan` re-issues them (at most 2 retries).
+`plan` re-issues them (at most 2 retries). **An API or infrastructure error never uses up a retry**: `infra_error()` in `evalkit.py` is true for an invalid attempt with a non-null `api_error_status`, or a reason starting `spawn failed`, or a reason `is_error` / `exit_code=...` with no output (`output_tokens` 0 or null, on a line that has the `stop_reason` field) that is not a refusal; a timeout, `json_parse`, `model_mismatch` or a refusal is never one. A slot with only such errors is always re-issued (`plan` counts them), and `run` stops launching on the first one, prints `stopping: API or infrastructure error on <task> <cell> #<n> (...)` and exits 3.
 
 **Haiku 4.5 ignores effort.** Probe 2026-10-05: 15,259 thinking tokens at `low`,
 18,149 at `xhigh` on one prompt. Its cell has `effort: null` and the runner
@@ -118,13 +118,13 @@ Thresholds are set **before** any run and recorded in `task.json`.
 {"run_id","harness_version","task_id","task_hash","cell_id","cell_hash","repeat",
  "model_id_expected","model_id_observed","valid","invalid_reason",
  "effort","input_tokens","output_tokens","thinking_tokens","cache_read_tokens",
- "cost_usd","duration_ms","num_turns","stop_reason","safety_stops","cli_version","ts"}
+ "cost_usd","duration_ms","num_turns","stop_reason","safety_stops","api_error_status","cli_version","ts"}
 ```
 
 `cost_usd` is `null` with `"cost_unknown": true` when a run was killed or its output
 could not be parsed (it is then charged to `--max-usd` at the per-run cap, never
 counted as free). `cli_version` is `claude --version` at the time of the run.
-`stop_reason` (string or null) and `safety_stops` (integer, 0 when absent) are the CLI result JSON's top-level fields of the same name, kept for valid and invalid attempts whose JSON parsed; a safety-classifier refusal shows up as `stop_reason` `"refusal"` or `safety_stops` above 0, which tells it apart from a rate limit. Lines written before 2026-11-13 lack both fields: read them as null and 0.
+`stop_reason` (string or null) and `safety_stops` (integer, 0 when absent) are the CLI result JSON's top-level fields of the same name, kept for valid and invalid attempts whose JSON parsed; a safety-classifier refusal shows up as `stop_reason` `"refusal"` or `safety_stops` above 0, which tells it apart from a rate limit. `api_error_status` (integer or null) is the CLI's HTTP status of an API error (429, 529). Lines written before 2026-11-13 lack all three fields: read them as null, 0 and null.
 
 `run_id = sha1("{harness_version}|{task_id}|{task_hash}|{cell_hash}|{repeat}")[:16]`, where `cell_hash` is the sha8 of the canonical JSON of `{cell_id, model_id, effort, system_append}`. Changing any of those re-runs that cell only; a new prompt-variant cell (e.g. `sonnet-5-5@low+think`) is just another cell.
 

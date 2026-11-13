@@ -16,6 +16,11 @@ Env (all optional):
   UX_FAKE_SAFETY_MODEL a model id: its first UX_FAKE_SAFETY_FIRST calls report safety_stops 1 (stop_reason stays "end_turn")
   UX_FAKE_ERROR_MODEL  a model id: its first UX_FAKE_ERROR_FIRST calls come back with is_error true (stop_reason "end_turn",
                        safety_stops 0), as an API error or a rate limit would
+  UX_FAKE_API_ERROR_MODEL  a model id: its first UX_FAKE_API_ERROR_FIRST calls fail like a rate limit: is_error true,
+                       api_error_status UX_FAKE_API_ERROR_STATUS (default 429), no output tokens, exit status 1
+  UX_FAKE_FAIL_MODEL   a model id: its first UX_FAKE_FAIL_FIRST calls fail with is_error true, no output tokens and
+                       NO api_error_status, exit status 1
+  UX_FAKE_REFUSE_ERROR set to 1: a refusal also comes back with is_error true, no output tokens and exit status 1
   UX_FAKE_NO_BLOCK     "design" / "build" / "checklist": that kind answers without the marker block
   UX_FAKE_BAD_FIRST    the first N checklist calls (all models) answer with text that is not the JSON
   UX_FAKE_CHECK        JSON {model id: {"K1": false, ...}} overrides; every other item stays true
@@ -98,11 +103,24 @@ def main():
     if model == os.environ.get("UX_FAKE_SAFETY_MODEL") and \
             bump("safety") < int(os.environ.get("UX_FAKE_SAFETY_FIRST", "0")):
         safety = 1
-    out = base.result_json(model, text, cost, 100, is_error=is_error)
+    api_status, failed = None, False
+    if model == os.environ.get("UX_FAKE_API_ERROR_MODEL") and \
+            bump("apierr") < int(os.environ.get("UX_FAKE_API_ERROR_FIRST", "0")):
+        api_status, failed = int(os.environ.get("UX_FAKE_API_ERROR_STATUS", "429")), True
+    if model == os.environ.get("UX_FAKE_FAIL_MODEL") and \
+            bump("fail") < int(os.environ.get("UX_FAKE_FAIL_FIRST", "0")):
+        failed = True
+    if stop_reason == "refusal" and os.environ.get("UX_FAKE_REFUSE_ERROR") == "1":
+        failed = True
+    out = base.result_json(model, text, cost, 100, is_error=is_error or failed)
     out["stop_reason"] = stop_reason
     out["safety_stops"] = safety
+    out["api_error_status"] = api_status
+    if failed:
+        out["usage"]["output_tokens"] = 0
+        out["usage"]["output_tokens_details"]["thinking_tokens"] = 0
     print(json.dumps(out))
-    return 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
