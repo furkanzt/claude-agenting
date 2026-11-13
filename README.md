@@ -2,7 +2,7 @@
 
 **Subagents let one session use several model tiers at once. This plugin makes that deliberate.**
 
-A `PreToolUse` gate refuses to run a Workflow until every `agent()` call carries an explicit `model` and `effort`. In manual mode it then asks you to approve the routing plan, offering *cheaper* **and** *higher quality*, not just cheaper. When a Workflow finishes, a second hook checks its journal and warns if any agent never returned.
+A `PreToolUse` gate refuses to run a Workflow until every `agent()` call carries an explicit `model` and `effort`, and a second guard denies an `Agent` start that would take its tier by accident. In manual mode it then asks you to approve the routing plan, offering *cheaper* **and** *higher quality*, not just cheaper. When a Workflow finishes, a second hook checks its journal and warns if any agent never returned.
 
 ---
 
@@ -52,7 +52,7 @@ parallel() or pipeline() runs once per item, so the script launches more agents 
 Plan signature: haiku/lowx4|opus/xhighx2|sonnet/mediumx3
 ```
 
-Single `Agent` calls are **deliberately not gated**: one agent is bounded and cheap, and every shipped definition already pins both fields.
+**Agent guard.** A single `Agent` start is checked too (`hooks/agent-routing-guard.py`, `PreToolUse` on `Agent`). A one-off agent needs a `model` and an `effort`, on the call or pinned by its agent file; otherwise the start is denied with a reason the model can act on, so it retries routed and you are not asked. A fork passes, and so does a prompt line `routing: inherit` (offered only when you asked for the agent to run on the chat's own tier). A **teammate** (a start with a `name`, with agent teams on) takes its model from the call but its effort **only from an agent file**: an effort written on its call was ignored in every measured start. So a teammate needs an agent file, such as an `agenting:` agent. It only ever denies or says nothing; it never allows. Replayed against 165 real `Agent` starts from the owner's last 21 days, it passes 78 and denies 87. Rules: the skill's "Agent starts: what the agent guard denies".
 
 **Finish check.** A workflow script's own summary is computed from whatever agents returned; agents that died are silently missing from it. When a Workflow completes, `workflow-finish-check.py` reads the run's `journal.jsonl` and, only if something is missing, adds a line like:
 
@@ -75,7 +75,9 @@ this result (agenting skill: "When the finish check fires").
 | disposition | `fast` / `balanced` *(default)* / `quality` | How auto leans on borderline tiers. Never asked about, never suggested; changes only when you say so |
 | workflows | `on` / `off` / not opted in | Makes "use workflows for this session" survive compaction. Routing is unaffected |
 
-Change them in plain language or with `/agenting-mode` (e.g. `/agenting-mode manual quality`, `/agenting-mode workflows on`). No argument reports the recorded values.
+The line ends with `teammates=on` or `teammates=off` (agent teams switched on through `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`, read from the environment and the settings files). When they are off, the line tells the model to mention once how to turn them on if a job fits them. Its closing pointer also names the cases the skill decides: moving bulk work off the chat, and starting an agent, a teammate or a Workflow.
+
+Change them in plain language or with `/agenting-mode` (e.g. `/agenting-mode manual quality`, `/agenting-mode workflows on`). No argument reports the recorded values. `/agenting-mode workflows always` opts in once for every chat (a chat seen for the first time is seeded from it; one that already has a record is left alone, and a per-chat setting wins); `workflows never-default` removes it.
 
 **Fan-out view.** A clean run (`scripts/cleanrun.py`; or `clean_runtime.mjs`, an external runner this plugin does not ship, which runs each `agent()` call of a Workflow script as its own cleanrun and is recognised as `node …/clean_runtime.mjs <script.js> --out DIR`) is a set of separate `claude -p` processes, so Claude Code's bottom panel and `/workflows` never list it. The plugin's hooks module (`hooks/fanouts/`) shows it the same way: one row per running clean run above the prompt, laid out like the bottom panel's Workflow row, and a `/fanouts` pane laid out like `/workflows` (phases on the left, the chosen phase's agents with model, effort, tokens and time on the right). It finds runs on its own: `scripts/fanout_scan.py` reads `ps` and the run folders every 3 s while one runs, every 15 s otherwise, and writes nothing. A toast says when a run ends. **A chat shows only its own runs**, as a Workflow is shown only in the chat that started it: the scanner works for its `claude` process and lists a run that descends from it, or whose `summary.json` names it as `owner` (`cleanrun.py` writes the field from `CLAUDE_PID`, so `cmd &` or `nohup` does not lose the run; a `clean_runtime.mjs` that lost its parent counts through its calls). A run started outside any chat, or by an older `cleanrun.py` after losing its parent, is listed in no chat; `fanout_scan.py --all` lists every run on the machine.
 
@@ -108,14 +110,18 @@ Upgrading from 2.x: see the 3.0.0 entry in [CHANGELOG.md](CHANGELOG.md).
 |---|---|
 | `evals/` | The measurement harness behind the routing table: real tasks, isolated `claude -p` runs, a pinned judge, a decision bar. Incremental by design: a new model costs only its missing runs. |
 | `hooks/workflow-routing-guard.py` | The two-stage gate (`PreToolUse` on `Workflow`). |
+| `hooks/agent-routing-guard.py` | The agent guard (`PreToolUse` on `Agent`): denies a start that would take its model or effort by accident. |
 | `hooks/workflow-finish-check.py` | The finish check (`UserPromptSubmit`). Silent unless a finished Workflow lost agents. |
 | `hooks/session-continuity.py` | `SessionStart`: seeds and re-injects mode, disposition and the workflows opt-in; also the `--record` / `--status` CLI. |
 | `hooks/cache-tripwire.py` | Reports the token cost paid when a mid-session model/effort switch invalidates the prompt cache prefix. Fires once per switch, never blocks. |
-| `skills/agenting/` | `SKILL.md` (routing table, launch procedure, finish-check response), `reference/modes.md`, `reference/project-rules.md`, `external-model-options.md`. |
+| `skills/agenting/` | `SKILL.md` (where the work runs, routing table, launch procedure, agent guard rules, finish-check response), `reference/delegation.md` (vehicles, teammates), `reference/modes.md`, `reference/evidence.md` (how each routing-table cell was measured), `reference/project-rules.md`, `external-model-options.md`. |
 | `templates/AGENTING.md` | The per-project rules file. |
 | `agents/` | **20 tiered agent definitions**, every one carrying `model` + `effort`. |
 | `commands/` | `/agenting-check`, `/agenting-mode`. |
-| `scripts/check-setup.py` | End-to-end health check: it *runs* things rather than reading config. |
+| `scripts/check-setup.py` | End-to-end health check (47 checks): it *runs* things rather than reading config, including real payloads through the agent guard. |
+| `evals/probes/think_first_analysis.py` | The rule checker for the two think-first rows (design-decision, ux-design): applies the pre-registered rules to the stored runs and scores. |
+| `evals/probes/ux_blind.py` | The blind UI/UX comparison: builds sanitised pages, pairs them, and applies the pre-registered verdict rules. |
+| `scripts/quality/check_ux_pages.py` | Loads every built page in headless Chromium inside the sandboxed frame; fails a page that throws or renders nothing. |
 | `scripts/measure-tokenomics.py` | Recomputes the main/agent cost split (advisor spend included), spawn tax, and effort distribution from real transcripts; `anatomy` breaks down what a Workflow agent costs to start. Dated per-model price table, list price. |
 | `scripts/cleanrun.py` | Runs a fan-out of self-contained tasks as clean `claude -p --restricted` processes instead of Workflow agents: explicit model and effort, a check of the model that answered, process-group kills, a budget cap, resume with re-validation. 63% cheaper per task at list price on one measured pipeline. `plan`, `run`, `status`. |
 | `hooks/fanouts/` | The fan-out view, a hooks module (`register.tsx`, `look.ts`, `view.ts`): the band row and the `/fanouts` pane for clean runs. Its state contract is `types/index.d.ts`. |
@@ -141,6 +147,27 @@ Two are worth keeping regardless, because they encode a discipline rather than a
 
 - **`scanner`** (haiku/medium): counts, lists, measures. Carries a *no silent zeroes* rule: a search returning 0 must be cross-checked and the gap explained, never reported as success.
 - **`text-mechanic`** (sonnet/low): mechanical text repair with a hard **output ⊆ input** invariant, and a mandatory closing audit (`words in input but missing from output: 0`) that refuses delivery if it isn't zero.
+
+## Where the work runs
+
+The main chat is the **decider**. What it reads stays in its context and is re-read every turn, at the session's own tier, usually the most expensive one. So bulk work leaves the chat, and the chat keeps the decisions.
+
+- **Stays in the main chat:** a quick fix, rapid prototyping, a dependent chain, a debugging session, one long command.
+- **Leaves** only when it can be briefed in one message, only the result is needed, and it is big: about 5 similar items, about 10 files or 20k tokens of reading, or 2 independent parts. Time alone never decides.
+- In `auto` mode the model starts off-chat work without asking; in `manual` mode it proposes and waits.
+
+Four vehicles, cheapest first:
+
+| Vehicle | Fits when |
+|---|---|
+| One agent | One question or piece of work; only its summary returns |
+| Clean run | Many similar, self-contained, read-only items with output checkable in code |
+| Workflow | Many items or stages that need tools or the web, or a stage that depends on an earlier one |
+| Teammates | 3 to 5 long-running workers that must talk to each other or be steered |
+
+Teammates are Claude Code agent teams: experimental, off until `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`, and the most expensive vehicle (each is a full session that keeps its context). Start each one from an `agenting:` agent, because its effort comes only from an agent file, and shut it down when its part is done.
+
+The thresholds and the vehicle order are the owner's judgment rules from 2026-11-13, not measurements. The teammate effort rule is measured (see Verified facts). Examples, costs and what was not measured: [`skills/agenting/reference/delegation.md`](skills/agenting/reference/delegation.md).
 
 ## Choosing a tier
 
@@ -176,6 +203,8 @@ await agent("wants whatever the session is on", { schema: S })
 
 **Parsing.** The guard reads the inline `script` (or the file at `scriptPath`), blanks out comments, string bodies, template text and regex literals while preserving offsets, then finds `agent(` calls by balanced parentheses. The code inside a template's `${...}` is read as code, so a call written there is checked; `agent?.(` counts as a call. A script that mentions `agent` and that the guard cannot read to the end (a string that runs past its line, a template literal, `${` or comment that never closes, an `agent(` whose parentheses never close) is denied at Stage 1 as unreadable, since whatever follows would go unchecked. A template literal that closes with a name, number, quote or (after a template that is no tag's) a backtick right after it on the same line is denied at Stage 1 too, as a stray backtick: a backtick inside the template text (Markdown around a word, as in a prompt that names `` `field` ``) ended it early and the Workflow tool would refuse the script. Write a backslash before that backtick, or use double quotes. The check is narrow on purpose: a stray pair whose text starts with an operator, `.`, `/` or `-` still parses, so it is not caught, and a line end or a comment between the template and the name makes the guard read no further. A key's *presence* is checked on the blanked text, so `"model: opus"` inside a prompt is not routing; its *value* is read from the raw text. Only the options object's own keys count, quoted (`'model':`) and shorthand (`{model, effort}`) included. A key whose whole value is the literal `undefined` or `null` is no routing (`[model is undefined]`). A value read from an item (`effort: lens.effort`) is checked item by item when the items are a `const` array literal the call iterates (`map`, `forEach` or `flatMap` with an `(item)` or `(item, index)` callback, the first stage of `pipeline` with `(item)`, `for...of`) and nothing in the script can change them: the list appears only in its declaration, as the list a loop iterates, or as `.length`; every use of a loop variable over it is a property read that assigns nothing; the literal is not chained (`[...].map(...)`) and has no spread element or hole; its items hold only plain keys; and the call's options spread nothing. Then an item without a model or effort is named (`[no effort in LENSES[2]]`) and the plan shows the items' tiers (`haiku|opus/low|xhigh`). Any other variable value counts on presence alone: the guard cannot know what it holds at run time, and the plan shows `?`. Routing inside a spread (`...lens.route`) or an options variable is invisible to it; when routing is missing, the cause names the spread (`[no model, no effort; the guard cannot read ...lens.route]`) and the denial shows the explicit-keys form. `// routing: inherit` in a comment on the call's line or the line above marks deliberate inheritance; the same words in a string do not.
 
+**Agent guard.** `hooks/agent-routing-guard.py` reads the `Agent` payload. It looks up the agent file (this plugin's `agenting:<name>`, the plugin cache, the project, then the user directory) and checks that the call or the file sets both fields. Two built-in types bring their own model (`claude-code-guide` on Haiku, `statusline-setup` on Sonnet) and are asked for an effort only. A teammate whose call effort differs from its file's passes with a note. The check that every `agents/*.md` pins both fields is what makes the `agenting:` exemption sound.
+
 **Stage 1** denies when any call lacks `model`/`agentType` or lacks `effort`. It is never bypassed, in any mode.
 
 **Stage 2** builds a plan signature from the (model, effort) counts and denies until that signature's hash is approved for this `session_id`. The deny message prints the approve command with the guard's own path: `python3 "<guard>" --approve <hash> --session <id>`. Approvals live in `.routing-approvals.json`.
@@ -199,9 +228,11 @@ python3 -m pytest tests          # or, without pytest:
 python3 -m unittest discover -s tests
 ```
 
+909 tests; the whole suite takes about 2 minutes 20 seconds. `pytest.ini` limits a bare `pytest` to `tests/`, so it never walks into `evals/` (a test runner once left `.pyc` files in a gitignored task's material and silently changed its hash; `evalkit.py selfcheck` now reports such caches).
+
 The fan-out view's hooks module has its own tests, run by Claude Code's plugin test kit (no model is called): `python3 scripts/quality/run_plugin_tests.py`.
 
-Every test pipes JSON into a hook exactly as Claude Code does, with `AGENTING_STATE_DIR` set to a temporary directory. Covered: session-continuity (seeding, record/status, the workflows opt-in across compaction, legacy state, the one-line message), the routing guard (Stage 1, `agenting:<name>` agent types, manual approval round-trip, the auto-mode system message), and the finish check against three journal fixtures in `tests/fixtures/`. `scripts/check-setup.py` also honours `AGENTING_STATE_DIR`.
+Every test pipes JSON into a hook exactly as Claude Code does, with `AGENTING_STATE_DIR` set to a temporary directory. Covered: session-continuity (seeding, record/status, the workflows opt-in across compaction, legacy state, the one-line message), the routing guard (Stage 1, `agenting:<name>` agent types, manual approval round-trip, the auto-mode system message), the agent guard (`test_agent_guard.py`), the eval rule checker (`test_think_first_analysis.py`), the blind-comparison tool (`test_ux_blind.py`), the pytest config (`test_pytest_config.py`), the doc invariants that tie the skill's text to the hooks (`test_skill_docs.py`), and the finish check against three journal fixtures in `tests/fixtures/`. `scripts/check-setup.py` also honours `AGENTING_STATE_DIR`.
 
 ## Recommended settings
 
@@ -224,6 +255,16 @@ Decide by how your session is paced:
 - **Uninterrupted automation** (a workflow running turn after turn with no
   human-paced gap): leave it off. The 5-min TTL never lapses between calls,
   so the 2x write premium buys nothing.
+
+**Agent teams (teammates), off by default.** Add the variable under `"env"` in `~/.claude/settings.json`; the `[agenting]` line then reads `teammates=on`:
+
+```json
+{ "env": { "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1" } }
+```
+
+Teammates are experimental and use more tokens than subagents; see "Where the work runs".
+
+**An advisor tool is also called by Workflow agents.** If your settings name an advisor model, the agents of a Workflow can call it too, and it is billed at that model's own rate on top of the agent's. Measured once, on 2026-11-13: in one 11-agent Workflow of the think-first evals (Opus and Sonnet agents), the advisor tool, which was Fable 5.2 in that install's settings, was called 19 times and accounted for $23.94 of $58.01 at list price. One run; `scripts/measure-tokenomics.py` recomputes the advisor share from your own transcripts.
 
 **The cache-cost tripwire** (`hooks/cache-tripwire.py`) reports the token
 cost paid when a model or effort change mid-session invalidates the cache
@@ -249,6 +290,8 @@ Adjust the threshold and the glob to the project; the point is a named,
 written rule instead of a per-session guess about what's "too big."
 
 ## History
+
+**2026-11-13: the agent guard, where the work runs, and the think-first rules.** Until then only Workflow `agent()` calls were checked. In the owner's last 21 days, 87 of 165 `Agent` starts carried no model, no effort or neither, and ran on whatever the chat was on; a probe also showed that a named teammate ignores an effort written on its call. So single `Agent` starts got a guard, the skill gained a "Where the work runs" section (when work leaves the main chat, which of four vehicles carries it, how a teammate gets a tier), the session line gained `teammates=on|off` and a standing Workflows default, and three price figures were corrected. The eval harness gained Fable 5.2 cells, a second judge, a rule that an API error does not use up a run's retries, and two tools for the pre-registered think-first rows (design decisions, UI/UX design passes). Those rules were committed before any task or model output existed; their test results are not part of this entry.
 
 **Why the finish check became a hook.** On 2026-08-06/07 three workflows each
 reported a coherent-looking summary after completing, built by
@@ -388,6 +431,25 @@ distinct-agent count come from the overview, which scans every agent transcript
   script). **Inferred, a floor:** `usage.iterations` is present on only 32% of
   Workflow-agent calls (anatomy), and a missing field may mean either "no advisor
   call" or "not recorded".
+
+### Agent starts and teammates, 2026-11-13 (Claude Code 2.1.323)
+
+One sample per row unless stated. The recorded effort field of each agent's transcript is the evidence.
+
+| Start | Effort asked on the call | Effort it ran at |
+|---|---|---|
+| Named, no agent file, `model: haiku` | `xhigh` | `medium` (the settings default for that model) |
+| Named, no agent file, `model: haiku` | `low` | `medium` |
+| Unnamed, `model: haiku` | `xhigh` | `xhigh` |
+| Unnamed, `model: haiku` | `low` | `low` |
+| Named, from `agenting:coder` (file: `sonnet`/`low`) | none | `low` |
+| Named, from `agenting:coder` (file: `sonnet`/`low`) | `xhigh` | `low` |
+
+- **Measured, a teammate's effort:** it comes only from an agent file; an effort written on its call was ignored. The model is taken from the call. Split-pane teammates were not probed.
+- **Measured, built-in types started with no model from a Fable 5.2 `xhigh` chat:** `Explore` ran on Opus 5.5 at `xhigh`, `Plan` on Fable 5.2 at `xhigh`, `claude-code-guide` on Haiku 5.5 at `medium`, `statusline-setup` on Sonnet 5.5 at `medium`.
+- **Measured, Workflow `agent()` calls:** 9 of 9 probes ran at the model and effort they named, including an `effort` that overrode a typed agent's file.
+- **Measured, replay of the guard:** 165 real `Agent` starts from the last 21 days: 78 pass, 87 denied (43 named teammates with no agent file, 21 with a model but no effort, 23 with no model).
+- **Price corrections**, checked on Anthropic's pricing page on 2026-11-13: Fable 5.2 is $8 / $40 per MTok with $0.20 cache reads (the tripwire had priced it at $10, and the meter had no row for it); Sonnet 5.5 cache reads are $0.10 per MTok (the meter had $0.20, which doubled every Sonnet session's cache-read cost).
 
 ## Why the health check runs things instead of reading config
 

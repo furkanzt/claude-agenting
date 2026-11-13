@@ -1,5 +1,103 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **An agent guard for single `Agent` starts** (`hooks/agent-routing-guard.py`, `PreToolUse` on `Agent`). Until now
+  only Workflow `agent()` calls were checked. In the owner's last 21 days, 87 of 165 `Agent` starts carried no
+  model, no effort or neither, and ran on whatever the chat was on. The guard denies such a start with a reason
+  the model can act on, so it retries routed and the user is never asked; it emits deny or nothing, never allow.
+  A one-off agent needs a model and an effort, on the call or pinned by its agent file. A teammate (a name, with
+  agent teams on) takes its model from the call but ignores an effort written on the call (measured on Claude
+  Code 2.1.323: asked `xhigh` and `low`, both ran at the settings default; started from an agent file it ran at
+  the file's effort even with another effort on the call), so it needs an agent file that sets its effort. A fork
+  passes, and so does a prompt line `routing: inherit`; the denial offers that mark only when the user asked
+  for the agent to run on the chat's own tier, after a real session took it as a way round the denial. Two
+  built-in types bring their own model (`claude-code-guide` on Haiku, `statusline-setup` on Sonnet) and are asked
+  for an effort only. Replayed against the 165 real starts: 78 pass, 87 denied (43 named teammates with no agent
+  file, 21 with a model but no effort, 23 with no model). 34 tests, each red-proofed.
+- **"Where the work runs" opens the skill.** The skill said how to route an agent but not when work should leave
+  the main chat. Work stays for a quick fix, rapid prototyping, a dependent chain, a debugging session or one
+  long command; it leaves only when it can be briefed in one message, only the result is needed, and it is big
+  (about 5 similar items, about 10 files or 20k tokens of reading, or 2 independent parts). Time alone never
+  decides. Four vehicles, cheapest first: one agent, a clean run, a Workflow, teammates. In auto mode the model
+  starts off-chat work without asking; in manual mode it proposes and waits. These are the owner's judgment
+  rules of 2026-11-13, not measurements. New `skills/agenting/reference/delegation.md` holds the examples, what
+  each vehicle costs, the six teammate probes and what was not measured; `reference/modes.md` gains the off-chat
+  column. Seven doc tests tie the text to the hooks that enforce it.
+- **The session line reports teammates and a standing Workflows default.** The `[agenting]` line ends its
+  settings with `teammates=on` or `teammates=off` (from `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` in the hook's
+  environment, then the `env` of the user, project and local settings). When off, it tells the model to mention
+  once how to turn teammates on when a job fits them. `--record-default --workflows on|off|unset` keeps a
+  standing opt-in under a reserved `_defaults` key (never pruned, never counted as a session); a chat seen for the
+  first time is seeded from it and shows `workflows=on (standing: ...)`, a chat with a record is left alone, and
+  a per-chat `--record` wins. `/agenting-mode` gains `workflows always` and `workflows never-default`. The
+  closing pointer, which covered Workflows only, now also names moving bulk work off the chat and starting an
+  agent, a teammate or a Workflow. The line's fixed-text ceiling moves from 300 to 450 characters. 18 tests.
+- **The health check proves the agent guard.** `scripts/check-setup.py` pipes real `Agent` payloads into the guard:
+  an unrouted start is denied, a routed one and an `agenting:` agent pass silently, a named teammate with no agent
+  file is denied with the "only from an agent file" reason, nothing contains "allow", garbage input exits 0. It
+  checks the `Agent` wiring, and reports teammates (`ON` passes; `OFF` is a warning that never changes the exit
+  code). `/agenting-check` relays that warning once. The script reports 47 checks.
+- **Eval harness: Fable 5.2 and the think-first rows.** `cells.json` gains `fable-5-2@low`, `@medium` and `@high`
+  ($8 / $40 per MTok). `judge --judge-cell <cell>` uses another judge for one invocation, so a second judge's
+  scores sit beside the pinned judge's without orphaning the 120 stored ones. `rows.json` gains the
+  design-decision row and `tasks.json` its two tasks. Every run line now records `stop_reason` and
+  `safety_stops` (a safety refusal looks like a rate limit otherwise) and `api_error_status`.
+- **Two probes for the think-first rows.** `evals/probes/think_first_analysis.py` applies the pre-registered rules
+  (`evals/results/PREREGISTERED-2026-11-13-think-first.md` and its three addenda) to the stored runs and scores,
+  per judge model, requiring both to agree; 48 tests. `evals/probes/ux_blind.py` runs the blind UI/UX comparison:
+  sanitised pages with random ids, 24 pairs, a self-contained answer file, rules UQ, UB and UD with exact
+  fractions; 139 tests. The first version of each was committed before any task was installed and before any
+  model was run for these rows. Two later changes (API errors do not use up a slot; stricter builder rules and the
+  render check) were committed while the designer runs were in progress, before any page was built, before any
+  checklist call and before any design-decision run; the pre-registration's addenda 3 and 4 record them.
+- **A render check before the owner sees a page.** `scripts/quality/check_ux_pages.py` loads every built page in
+  headless Chromium inside the same sandboxed frame and fails a page that throws on load or on a first click, or
+  renders nothing. `ux_blind.py reject --page <id>` removes a page so it is built again, and `page` refuses to
+  assemble the owner's file without a render check newer than every page that passes all of them.
+
+### Changed
+- **Single `Agent` calls are no longer "deliberately not gated".** See the agent guard above; the README says so.
+- **The skill's measurement record moved to `skills/agenting/reference/evidence.md`.** About 70 lines on how each
+  routing-table cell was measured sat between the table and the procedure, so every load read them. They moved
+  unchanged; `SKILL.md` keeps one paragraph and a pointer (read it before changing a cell or citing a number).
+  `SKILL.md` goes from 352 to 289 lines; no rule changes.
+- **Two eval baselines match the routing table.** `rows.json` still named `haiku-4-5` as the scan baseline and
+  `sonnet-5-5@medium` as the read-report baseline; the table has used `haiku-5-5@medium` for both since 2026-10-09.
+  `decide` now prints KEEP for both (it printed NEEDS_CONFIRMATION and MOVE_TO against the old ones). Baselines
+  are not part of a run id, so no stored run is invalidated.
+- **An API or infrastructure error no longer uses up a run's retries.** Three rate-limit errors in a row used to
+  exhaust a slot for good. Such attempts (an API error status, a failed spawn, or a failed call with no model
+  output that is not a refusal) are logged in a counter of their own, `plan` re-issues the slot, and `run` stops
+  launching at the first one and exits 3, so an outage cannot burn a batch. The rule checker counts a slot lost
+  only to such errors as "lost": neither failed nor decided, it keeps its cell PENDING, and the report prints the
+  command that runs it again. A timeout, a wrong model, an unparseable reply and a refusal count as before.
+- **The agent guard's denial text** offers `routing: inherit` only for an explicit wish of the user (see above).
+
+### Fixed
+- **Prices.** Checked on Anthropic's pricing page on 2026-11-13: (1) the cache tripwire priced every id containing
+  "fable" at $10 per MTok; Fable 5.2 is $8, so a switch to or from it was overstated by a quarter, and
+  `fable-5-2` now sits ahead of `fable`; (2) the meter had no row for `claude-fable-5-2`, so a chat on it was not
+  priced; added at $8 / $40 with $0.20 cache reads; (3) the meter priced Sonnet 5.5 cache reads at $0.20 where
+  the page says $0.10, so every Sonnet session's cache-read cost was doubled.
+- **A clean run can no longer call the advisor.** A `claude -p` process can call a server-side advisor when the
+  user's settings name one; it is not in the process's tool list, so `--tools Read` did not prevent it (probed on
+  2026-11-13, Claude Code 2.1.323). The call is billed at the advisor model's rate, and it puts a second model
+  into the run's model usage, which the model check rejects: a task paid for and thrown away. `cleanrun.py` now
+  starts every process with `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1`, whatever its own environment says. The same
+  probe is why the eval harness's runs were checked: none of the stored runs had called it.
+- **`evalkit.py selfcheck` reports bytecode caches in a task's material.** On 2026-11-10 a test runner walked the
+  gitignored `evals/private` and left 34 `.pyc` files in one task's material; the hash covers every material
+  file, so that task's stored runs silently stopped counting. Nothing reported it. `selfcheck` now names such a
+  task with the count and exits non-zero, and `pytest.ini` keeps a bare `pytest` to `tests/`. The scan-03 task's
+  original fingerprint is restored (the caches removed), so its stored runs count again.
+- **The rename-integrity checks no longer fail on a clean tree** because the agent guard's file name contains the
+  old plugin id "agent-routing" and it reads `~/.claude/agents` on purpose; both checks exempt that one name, and
+  a test pins the exemption.
+
+Results of the 2026-11-13 think-first evals: to be added.
+
 ## 3.5.3 — 2026-11-10 (fan-out view: each chat shows only its own clean runs)
 
 ### Fixed
