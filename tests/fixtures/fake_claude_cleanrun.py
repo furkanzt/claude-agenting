@@ -93,7 +93,7 @@ def main():
     s = re.search(r"@@seq:([\w,]+)@@", prompt)
     mode = seq_mode(prompt, s.group(1).split(",")) if s else (m.group(1) if m else os.environ.get("FAKE_MODE", "ok"))
     log({"argv": sys.argv[1:], "files": sorted(os.listdir(".")), "tree": tree(), "prompt": prompt, "system": system,
-         "mode": mode, "pid": os.getpid()})
+         "mode": mode, "pid": os.getpid(), "advisor_off": os.environ.get("CLAUDE_CODE_DISABLE_ADVISOR_TOOL")})
     cost = float(os.environ.get("FAKE_COST", "0.05"))
     usage_mu = {"inputTokens": 3, "outputTokens": 40, "cacheReadInputTokens": 0, "cacheCreationInputTokens": 500,
                 "costUSD": cost, "contextWindow": 200000}

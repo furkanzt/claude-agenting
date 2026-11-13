@@ -6,7 +6,9 @@ processes instead of Workflow agents.
 WHY THIS EXISTS
 ---------------
 A Workflow agent starts with the whole harness context (system prompt, CLAUDE.md
-files, skill listing, tool list) and inherits the advisor. For many small,
+files, skill listing, tool list) and inherits the advisor. A clean run has no advisor:
+every child is started with CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1, because without it a
+child can call the advisor that the user's settings name (see MODEL CHECK). For many small,
 independent tasks that start-up cost dominates. On one measured pipeline (KC grade 7,
 Opus 5.5 at xhigh, 2026-10-08) clean runs cost 63% less per task at list price with
 no quality loss (evals/research/2026-10-07-launch-cost.md). The usage-window effect
@@ -87,7 +89,10 @@ PERMISSIONS (--allowed-tools)
 
 MODEL CHECK (--also-models)
   By default a run is valid only when the models in claude's modelUsage are exactly
-  [--model]. A tool that calls a helper model of its own (WebFetch runs a small Haiku
+  [--model]. The advisor is never one of them: every child starts with
+  CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1. (Measured 2026-11-13: under settings that name an
+  advisor, a child without the switch could call it server-side, at the advisor
+  model's rate, and the run then showed a second model.) A tool that calls a helper model of its own (WebFetch runs a small Haiku
   summariser) adds a second model, so such a run is rejected even when the routed model
   answered. --also-models LIST (comma separated full model ids, spaces around a comma
   ignored, aliases refused as for --model, a usage error before any launch for plan as
@@ -194,6 +199,11 @@ EFFORTS = ("low", "medium", "high", "xhigh", "max")
 TASK_ID = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 FLAGS = ["--restricted", "--strict-mcp-config", "--no-session-persistence", "--disable-slash-commands",
          "--output-format", "json"]
+# A `claude -p` child can call a server-side advisor when the user's settings name one; it is not in the
+# child's tool list (measured 2026-11-13, Claude Code 2.1.323). The call is billed at the advisor model's
+# rate and puts a second model into modelUsage, which the model check rejects. This documented switch
+# removes the advisor for the child, whatever the settings or the parent's environment say.
+CHILD_ENV = {"CLAUDE_CODE_DISABLE_ADVISOR_TOOL": "1"}
 GATE_CACHE_S = 60
 MAX_SCHEMA_BYTES = 100_000
 # 255 bytes is a file name's limit on APFS and ext4; the total leaves the kit's own temp-dir path room
@@ -816,7 +826,8 @@ class Runner:
             t0 = time.time()
             with open(io / "prompt", "rb") as fin, open(io / "stdout", "wb") as fout, open(io / "stderr", "wb") as ferr:
                 try:
-                    proc = subprocess.Popen(cmd, cwd=kit, stdin=fin, stdout=fout, stderr=ferr, start_new_session=True)
+                    proc = subprocess.Popen(cmd, cwd=kit, stdin=fin, stdout=fout, stderr=ferr, start_new_session=True,
+                                            env={**os.environ, **CHILD_ENV})
                 except OSError as e:
                     out["error"] = f"could not start claude: {e}"
                     return out

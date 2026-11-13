@@ -207,6 +207,28 @@ class Routing(Case):
         self.assertEqual(r.returncode, 2)                  # the env var points at a working fake
 
 
+class AdvisorOff(Case):
+    def test_every_child_run_starts_with_the_advisor_switched_off(self):
+        """A `claude -p` child can call a server-side advisor when the user's settings name one (measured on
+        2026-11-13; it is not in the child's tool list). The call is billed at the advisor model's rate and puts
+        a second model into modelUsage, which the model check rejects. So every child is started with the
+        documented switch set, whatever the parent's environment says."""
+        self.tasks(["first", "second"])
+        for i, parent in enumerate((None, "0", "")):
+            with self.subTest(parent=parent):
+                self.env.pop("CLAUDE_CODE_DISABLE_ADVISOR_TOOL", None)
+                if parent is not None:
+                    self.env["CLAUDE_CODE_DISABLE_ADVISOR_TOOL"] = parent
+                self.out = self.d / f"out{i}"
+                if self.log.exists():
+                    self.log.unlink()
+                r = self.run_cli(self.args())
+                self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+                calls = self.calls()
+                self.assertEqual(len(calls), 2)
+                self.assertEqual([c["advisor_off"] for c in calls], ["1", "1"])
+
+
 class AllowedTools(Case):
     """--allowed-tools: permission for tools that claude -p could not ask about."""
 

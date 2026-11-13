@@ -15,6 +15,20 @@ Feature: Clean runs fan a set of self-contained tasks out as separate claude -p 
     And the working directory of "t1" holds only "page.txt" and those of "t0" and "t2" are empty
     And outputs/t1.json holds the structured output and ledger.jsonl holds three attempt records
 
+  # Backed by: tests/test_cleanrun.py::test_every_child_run_starts_with_the_advisor_switched_off
+  Scenario Outline: Every claude process is started with the advisor switched off
+    Given a tasks file with two tasks
+    And the environment variable CLAUDE_CODE_DISABLE_ADVISOR_TOOL of cleanrun.py itself is <parent>
+    When I run cleanrun.py run
+    Then the exit code is 0
+    And claude was launched exactly twice, each time with CLAUDE_CODE_DISABLE_ADVISOR_TOOL set to "1"
+
+    Examples:
+      | parent      |
+      | not set     |
+      | set to "0"  |
+      | set to ""   |
+
   @gap @wip
   # Backed by: @gap
   Scenario: Without --tools the run is given an empty tool list

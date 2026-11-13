@@ -31,6 +31,11 @@ percent here is a list price; the usage-window effect was not measured.
   $23.94 of the run's $58.01 at list price (41%). One run, not a rate. The only
   switch is session-wide (`CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1`). Whether to change
   it is the user's decision; do not raise it.
+- **measured:** a clean run has no advisor. A `claude -p` process can call the
+  advisor that the settings name, although it is not in its tool list (probed
+  2026-11-13); the call is billed at the advisor's rate and adds a second model,
+  which the model check rejects. `cleanrun.py` therefore starts every process with
+  that switch set.
 
 ## Levers, in evidence order
 
