@@ -324,3 +324,7 @@ addendum 3 at 14:15Z (`300a520`). The order each addendum claims is right and ca
 tasks were installed at 14:00Z (`9da8208`), the designer runs of `ux-design` ran from 14:06Z to
 14:42Z, the first page was built at 14:45Z, and the first `design-decision` run started at 18:18Z.
 The headings themselves are left as written.
+
+Note added at 18:21Z, read from the clock: the time in the erratum's own heading was again an
+estimate. The erratum was committed at 18:21Z (`299df3c`), three minutes after the pilot started at
+18:18Z. From here on every time written into this file is read from the clock first.
