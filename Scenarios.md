@@ -2,7 +2,7 @@
 
 Index to `features/*.feature`, this project's executable behaviour catalogue, governed by [TDD.md](TDD.md) and [BDD.md](BDD.md).
 
-**1175 scenarios** across 18 domains — **926 ARMED**, **249 GAP**. Full breakdown: [docs/scenarios/coverage-matrix.md](docs/scenarios/coverage-matrix.md).
+**1190 scenarios** across 18 domains — **941 ARMED**, **249 GAP**. Full breakdown: [docs/scenarios/coverage-matrix.md](docs/scenarios/coverage-matrix.md).
 
 | Feature | Scenarios | ARMED | GAP | What it pins |
 |---|--:|--:|--:|---|
@@ -14,7 +14,7 @@ Index to `features/*.feature`, this project's executable behaviour catalogue, go
 | [`e1b-analysis.feature`](features/e1b-analysis.feature) | 25 | 25 | 0 |  |
 | [`effort-probe.feature`](features/effort-probe.feature) | 6 | 6 | 0 |  |
 | [`eval-grading.feature`](features/eval-grading.feature) | 115 | 92 | 23 |  |
-| [`eval-runs.feature`](features/eval-runs.feature) | 78 | 61 | 17 |  |
+| [`eval-runs.feature`](features/eval-runs.feature) | 92 | 75 | 17 |  |
 | [`fanout-view.feature`](features/fanout-view.feature) | 98 | 98 | 0 |  |
 | [`finish-check.feature`](features/finish-check.feature) | 30 | 14 | 16 |  |
 | [`plugin-docs.feature`](features/plugin-docs.feature) | 57 | 27 | 30 |  |
@@ -23,7 +23,7 @@ Index to `features/*.feature`, this project's executable behaviour catalogue, go
 | [`setup-check.feature`](features/setup-check.feature) | 64 | 18 | 46 |  |
 | [`think-first-analysis.feature`](features/think-first-analysis.feature) | 48 | 48 | 0 |  |
 | [`tokenomics.feature`](features/tokenomics.feature) | 68 | 56 | 12 |  |
-| [`ux-blind.feature`](features/ux-blind.feature) | 139 | 139 | 0 |  |
+| [`ux-blind.feature`](features/ux-blind.feature) | 140 | 140 | 0 |  |
 
 ## Conventions
 

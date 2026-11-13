@@ -1713,6 +1713,151 @@ class PublicManifest(EvalTestCase):
         self.assertEqual(ev.load_tasks(self.ctx())["n-1"]["task_hash"], before)
 
 
+class AdvisorSwitch(EvalTestCase):
+    """Every claude child starts with the advisor off; a cell that names an advisor is the one exception."""
+
+    ADV = {"setting": "fable", "model_id": "claude-test-adv"}
+    SWITCH = "CLAUDE_CODE_DISABLE_ADVISOR_TOOL"
+
+    def with_adv_cell(self):
+        self.set_cells(lambda c: c.update(adv={"model_id": "claude-test-base", "effort": "low",
+                                               "price": {"input": 1.0, "output": 5.0}, "advisor": dict(self.ADV)}))
+        rows = json.loads((self.root / "rows.json").read_text())
+        rows["rows"][0]["grid"] = rows["rows"][0]["grid"] + [{"cell": "adv", "role": "advisor_pairing"}]
+        write(self.root / "rows.json", json.dumps(rows))
+
+    def run_one(self, cell, parent=None, **env):
+        """One run of n-1 with `cell`, the parent's switch set to `parent` (None = absent)."""
+        with mock.patch.dict(os.environ):
+            os.environ.pop(self.SWITCH, None)
+            if parent is not None:
+                os.environ[self.SWITCH] = parent
+            return self.cli("run", "--tasks", "n-1", "--cells", cell, "--repeats", "1", **env)
+
+    def test_every_model_run_starts_with_the_switch_whatever_the_parent_says(self):
+        for parent in (None, "0", ""):
+            self.log.unlink(missing_ok=True)
+            self.run_one("cheap", parent=parent, FAKE_CLAUDE_COST="0.01")
+            self.assertEqual([c["advisor_switch"] for c in self.calls()], ["1"], f"parent {parent!r}")
+            (self.root / "results" / "runs.jsonl").unlink()       # the run is stored: plan again
+
+    def test_a_judge_call_starts_with_the_switch_too(self):
+        self.cli("run", "--tasks", "j-1", "--cells", "cheap", "--repeats", "1")
+        self.log.unlink()
+        with mock.patch.dict(os.environ, {self.SWITCH: "0"}):
+            self.cli("judge", FAKE_CLAUDE_ANSWER=Judging.JUDGMENT)
+        calls = self.calls()
+        self.assertEqual({c["model"] for c in calls}, {"claude-test-judge"})
+        self.assertEqual([c["advisor_switch"] for c in calls], ["1"] * len(calls))
+
+    def test_an_advisor_cell_has_no_switch_and_gets_the_settings_flag(self):
+        self.with_adv_cell()
+        self.run_one("adv", parent="1")                           # the parent has the switch: it must be removed
+        (c,) = self.calls()
+        self.assertIsNone(c["advisor_switch"])
+        self.assertEqual(c["settings"], '{"advisorModel": "fable"}')
+        i = c["argv"].index("--settings")
+        self.assertEqual(c["argv"][i + 1], '{"advisorModel": "fable"}')
+        self.log.unlink()
+        self.run_one("base", parent="1")                          # a cell without an advisor: switch, no flag
+        (c,) = self.calls()
+        self.assertEqual(c["advisor_switch"], "1")
+        self.assertNotIn("--settings", c["argv"])
+
+    def test_a_run_is_valid_with_the_cells_model_alone_or_with_the_advisors_too(self):
+        self.with_adv_cell()
+        self.run_one("adv")                                       # the advisor was never called
+        (r,) = self.runs()
+        self.assertTrue(r["valid"], r)
+        self.assertEqual(r["model_id_observed"], "claude-test-base")
+        (self.root / "results" / "runs.jsonl").unlink()           # a clean slate for the second case
+        self.run_one("adv", FAKE_CLAUDE_EXTRA_MODELS='["claude-test-adv"]')
+        (r,) = self.runs()
+        self.assertTrue(r["valid"], r)
+        self.assertEqual(r["model_id_observed"], "claude-test-adv,claude-test-base")
+
+    def test_a_third_model_is_a_mismatch_even_with_the_advisor_present(self):
+        self.with_adv_cell()
+        self.run_one("adv", FAKE_CLAUDE_EXTRA_MODELS='["claude-test-adv", "claude-test-other"]')
+        (r,) = self.runs()
+        self.assertFalse(r["valid"])
+        self.assertIn("model_mismatch", r["invalid_reason"])
+
+    def test_the_advisors_model_on_a_cell_without_an_advisor_is_a_mismatch(self):
+        self.with_adv_cell()
+        self.run_one("base", FAKE_CLAUDE_EXTRA_MODELS='["claude-test-adv"]')
+        (r,) = self.runs()
+        self.assertFalse(r["valid"])
+        self.assertIn("model_mismatch", r["invalid_reason"])
+
+    def test_an_advisor_run_line_carries_the_three_advisor_fields(self):
+        self.with_adv_cell()
+        self.run_one("adv", FAKE_CLAUDE_EXTRA_MODELS='["claude-test-adv"]', FAKE_CLAUDE_COST="0.01",
+                     FAKE_CLAUDE_EXTRA_COST="0.004", FAKE_CLAUDE_THINKING="77")
+        (r,) = self.runs()
+        self.assertEqual((r["advisor_model_id"], r["advisor_called"], r["advisor_cost_usd"]),
+                         ("claude-test-adv", True, 0.004))
+        self.assertEqual(r["cost_usd"], 0.014)                    # the CLI's total, advisor share included
+        self.assertEqual(r["thinking_tokens"], 77)                # tokens stay the cell's own model's
+        self.assertEqual(r["output_tokens"], 80)
+
+    def test_an_advisor_cell_that_never_called_it_records_called_false_and_no_cost(self):
+        self.with_adv_cell()
+        self.run_one("adv")
+        (r,) = self.runs()
+        self.assertTrue(r["valid"])
+        self.assertEqual((r["advisor_model_id"], r["advisor_called"], r["advisor_cost_usd"]),
+                         ("claude-test-adv", False, None))
+
+    def test_a_run_line_of_a_cell_without_an_advisor_has_none_of_the_three_fields(self):
+        self.run_one("cheap")
+        (r,) = self.runs()
+        for key in ("advisor_model_id", "advisor_called", "advisor_cost_usd"):
+            self.assertNotIn(key, r)
+
+    def test_an_advisor_object_without_a_setting_and_a_model_id_is_refused(self):
+        for bad in ({"setting": "fable"}, {"model_id": "m"}, {"setting": "", "model_id": "m"}, "fable"):
+            self.set_cells(lambda c: c["cheap"].update(advisor=bad))
+            with self.assertRaises(ev.EvalError, msg=repr(bad)):
+                self.ctx()
+
+
+class AdvisorIdentity(unittest.TestCase):
+    """The cell hash includes the advisor only when a cell has one, so stored run ids stay valid."""
+
+    def real_cells(self):
+        return json.loads((EVALS / "cells.json").read_text(encoding="utf-8"))["cells"]
+
+    def test_the_hashes_of_three_existing_cells_are_pinned(self):
+        cells = self.real_cells()
+        got = {k: ev.compute_cell_hash(k, cells[k]) for k in ("sonnet-5-5@xhigh", "opus-5-5@xhigh", "haiku-5-5@medium")}
+        self.assertEqual(got, {"sonnet-5-5@xhigh": "9e81ce0e", "opus-5-5@xhigh": "236d7195",
+                               "haiku-5-5@medium": "387b373c"})
+
+    def test_a_cell_with_an_advisor_hashes_differently_from_the_same_cell_without_one(self):
+        cell = {"model_id": "m", "effort": "low", "system_append": "x"}
+        plain = ev.compute_cell_hash("c", cell)
+        fable = ev.compute_cell_hash("c", {**cell, "advisor": {"setting": "fable", "model_id": "claude-fable-5-2"}})
+        self.assertNotEqual(fable, plain)
+        self.assertEqual(ev.compute_cell_hash("c", {**cell, "advisor": None}), plain)    # no advisor: same as before
+
+    def test_a_different_advisor_gives_a_different_hash(self):
+        cell = {"model_id": "m", "effort": "low"}
+        a = ev.compute_cell_hash("c", {**cell, "advisor": {"setting": "fable", "model_id": "claude-fable-5-2"}})
+        self.assertNotEqual(a, ev.compute_cell_hash("c", {**cell, "advisor": {"setting": "opus", "model_id": "claude-fable-5-2"}}))
+        self.assertNotEqual(a, ev.compute_cell_hash("c", {**cell, "advisor": {"setting": "fable", "model_id": "claude-fable-5-1"}}))
+
+    def test_the_real_advisor_cell_and_its_row_are_wired(self):
+        cells = self.real_cells()
+        cell = cells["sonnet-5-5@xhigh+fable-advisor"]
+        self.assertEqual(cell["advisor"], {"setting": "fable", "model_id": "claude-fable-5-2"})
+        self.assertEqual((cell["model_id"], cell["effort"]), ("claude-sonnet-5-5", "xhigh"))
+        self.assertEqual(cell["price"], {**cells["sonnet-5-5@xhigh"]["price"], "as_of": "2026-11-13"})
+        rows = json.loads((EVALS / "rows.json").read_text(encoding="utf-8"))["rows"]
+        grid = next(r for r in rows if r["id"] == "synthesize")["grid"]
+        self.assertIn({"cell": "sonnet-5-5@xhigh+fable-advisor", "role": "advisor_pairing"}, grid)
+
+
 class RealStateUntouched(unittest.TestCase):
     def fingerprint(self):
         files = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()

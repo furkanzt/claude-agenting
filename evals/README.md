@@ -56,7 +56,8 @@ inherit the session's context (they described the main conversation's request)
 and carry an `advisor` tool that consults a stronger model. Either would
 contaminate a capability measurement, and the effort a subagent runs at cannot
 be read from inside it. `claude -p --restricted` in an empty directory sees no
-CLAUDE.md, memory, hooks, skills, plugins or advisor, and returns the exact cost,
+CLAUDE.md, memory, hooks, skills or plugins (the advisor needs its own switch: see
+"The advisor" below), and returns the exact cost,
 token and thinking-token counts and the model that answered.
 
 One run is one process:
@@ -76,7 +77,7 @@ short neutral one (stored in `harness.json`, part of the harness version).
 A run is **valid** only if: the process exited normally, the JSON parsed,
 `is_error` is false, and `modelUsage` names exactly the cell's `model_id`
 (an alias that drifted to a newer model must not be recorded under the old
-cell). Invalid runs are logged with `valid:false`, are not counted, and
+cell; a cell with an advisor may also show the advisor's model, see "The advisor"). Invalid runs are logged with `valid:false`, are not counted, and
 `plan` re-issues them (at most 2 retries). **An API or infrastructure error never uses up a retry**: `infra_error()` in `evalkit.py` is true for an invalid attempt with a non-null `api_error_status`, or a reason starting `spawn failed`, or a reason `is_error` / `exit_code=...` with no output (`output_tokens` 0 or null, on a line that has the `stop_reason` field) that is not a refusal; a timeout, `json_parse`, `model_mismatch` or a refusal is never one. A slot with only such errors is always re-issued (`plan` counts them), and `run` stops launching on the first one, prints `stopping: API or infrastructure error on <task> <cell> #<n> (...)` and exits 3.
 
 **Haiku 4.5 ignores effort.** Probe 2026-10-05: 15,259 thinking tokens at `low`,
@@ -126,7 +127,7 @@ could not be parsed (it is then charged to `--max-usd` at the per-run cap, never
 counted as free). `cli_version` is `claude --version` at the time of the run.
 `stop_reason` (string or null) and `safety_stops` (integer, 0 when absent) are the CLI result JSON's top-level fields of the same name, kept for valid and invalid attempts whose JSON parsed; a safety-classifier refusal shows up as `stop_reason` `"refusal"` or `safety_stops` above 0, which tells it apart from a rate limit. `api_error_status` (integer or null) is the CLI's HTTP status of an API error (429, 529). Lines written before 2026-11-13 lack all three fields: read them as null, 0 and null.
 
-`run_id = sha1("{harness_version}|{task_id}|{task_hash}|{cell_hash}|{repeat}")[:16]`, where `cell_hash` is the sha8 of the canonical JSON of `{cell_id, model_id, effort, system_append}`. Changing any of those re-runs that cell only; a new prompt-variant cell (e.g. `sonnet-5-5@low+think`) is just another cell.
+`run_id = sha1("{harness_version}|{task_id}|{task_hash}|{cell_hash}|{repeat}")[:16]`, where `cell_hash` is the sha8 of the canonical JSON of `{cell_id, model_id, effort, system_append}`. A cell with an `advisor` object adds that object to the identity; a cell without one hashes exactly as before, so no stored run id moved. Changing any of those re-runs that cell only; a new prompt-variant cell (e.g. `sonnet-5-5@low+think`) is just another cell.
 
 `results/scores.jsonl`, one object per grading of a run. It is public, so `details`
 keeps only scalar aggregates (counts, booleans, short strings); `evalkit.py
@@ -235,7 +236,9 @@ Shared rules:
   repeats in the 2026-10-06 sweep) and the work of changing and re-validating a
   pin outweigh the saving; such a candidate is reported as `cheaper by only N%`
   and no confirmation runs are spent on it.
-- Any non-baseline grid cell is a candidate, whatever its `role`.
+- Any non-baseline grid cell is a candidate, whatever its `role`. The role `advisor_pairing`
+  (a cheaper cell given the advisor) is treated like `model_down`: a cheaper candidate,
+  compared on its measured `cost_usd`, which includes the advisor's share.
 - A silent-damage baseline **fails its row** if it misses any screening run; a
   noticed baseline fails if its screening pass rate is below 0.5. Then, if no
   candidate qualifies, the output is `BASELINE_FAILS` naming the cheapest
@@ -244,6 +247,31 @@ Shared rules:
 - Outputs: `KEEP`, `MOVE_TO <cell>`, `NEEDS_CONFIRMATION <cell> [missing runs]`,
   `BASELINE_FAILS <cell|null>`, `INSUFFICIENT_DATA` (baseline lacks its complete
   screening runs, no candidate is complete, or a run is ungraded).
+
+## The advisor
+
+Measured 2026-11-13 (Claude Code 2.1.323): a `claude -p` child can call a server-side advisor when the user's
+settings name one (`advisorModel`). The advisor is not in the child's tool list, so `--tools Read,Grep,Glob`
+does not stop it, and `--restricted` does not either. A call shows as a second model in `modelUsage`, and the
+run's cost includes the advisor's share. An advised run is a different thing from a plain run of the same
+cell, so it must never happen by accident.
+
+- **The rule.** Every claude child the harness starts (model runs, judge calls, and the `ux_blind` designer,
+  builder and judge children, which go through the same launcher) gets `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1`
+  in its environment, whatever the parent's value is (absent, `0` or empty). The stored runs before this
+  change were checked: none called an advisor.
+- **The one exception.** A cell may carry `"advisor": {"setting": "<value for advisorModel>", "model_id":
+  "<the id the advisor's usage is reported under>"}`, for example `{"setting": "fable", "model_id":
+  "claude-fable-5-2"}` on `sonnet-5-5@xhigh+fable-advisor`. For such a cell the switch is removed from the
+  child's environment and the command line gains `--settings '{"advisorModel": "<setting>"}'`.
+- **Validity.** A run of an advisor cell is valid when the models in `modelUsage` are exactly the cell's own
+  model, or exactly the cell's own model plus the advisor's `model_id` (a run in which the advisor was never
+  called is still valid). Any other extra model is a `model_mismatch`. A cell without an advisor keeps the
+  exact rule above, so the advisor's model there is a `model_mismatch` too.
+- **Run-line fields, advisor cells only:** `advisor_model_id` (the expected id), `advisor_called` (true when
+  that id is in `modelUsage`) and `advisor_cost_usd` (its `costUSD` from `modelUsage`, or null).
+  `cost_usd` stays the CLI's total, which already includes the advisor; the token fields stay the cell's own
+  model's.
 
 ## Known limits (state these when reporting)
 

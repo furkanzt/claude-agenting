@@ -595,3 +595,92 @@ Feature: The evalkit runner plans only the missing runs, executes each as its ow
     Given three invalid attempts with invalid_reason "is_error" and none of stop_reason, output_tokens or api_error_status
     When I run evalkit.py plan --json for that slot
     Then exhausted is 1, and a line "spawn failed: boom" is still an infra error
+
+  # ---------------------------------------------------------------- the advisor
+
+  # Backed by: tests/test_evalkit.py::test_every_model_run_starts_with_the_switch_whatever_the_parent_says
+  Scenario: Every model run starts with the advisor switched off, whatever the parent's environment says
+    Given a cell "cheap" without an advisor and a parent environment where CLAUDE_CODE_DISABLE_ADVISOR_TOOL is absent, "0" or empty
+    When I run evalkit.py run for "n-1" on cell "cheap" repeat 1 once for each of the three parent states
+    Then in each case the claude child saw CLAUDE_CODE_DISABLE_ADVISOR_TOOL equal to "1"
+
+  # Backed by: tests/test_evalkit.py::test_a_judge_call_starts_with_the_switch_too
+  Scenario: A judge call starts with the advisor switched off
+    Given a stored run of the judge-graded task "j-1" and a parent environment where CLAUDE_CODE_DISABLE_ADVISOR_TOOL is "0"
+    When I run evalkit.py judge
+    Then every judge child saw CLAUDE_CODE_DISABLE_ADVISOR_TOOL equal to "1"
+
+  # Backed by: tests/test_evalkit.py::test_an_advisor_cell_has_no_switch_and_gets_the_settings_flag
+  Scenario: A cell that names an advisor runs without the switch and with --settings naming the advisor
+    Given a cell "adv" with advisor setting "fable" and a parent environment where CLAUDE_CODE_DISABLE_ADVISOR_TOOL is "1"
+    When I run evalkit.py run for "n-1" on cell "adv" repeat 1
+    Then the child had no CLAUDE_CODE_DISABLE_ADVISOR_TOOL and its command line holds --settings followed by {"advisorModel": "fable"}
+    And the same run on cell "base" has the switch "1" and no --settings
+
+  # Backed by: tests/test_evalkit.py::test_a_run_is_valid_with_the_cells_model_alone_or_with_the_advisors_too
+  Scenario: A run of an advisor cell is valid with the cell's model alone or with the cell's model plus the advisor's
+    Given a cell "adv" with advisor model_id "claude-test-adv"
+    When modelUsage names only "claude-test-base", and then both "claude-test-base" and "claude-test-adv"
+    Then both runs are valid and the second records model_id_observed "claude-test-adv,claude-test-base"
+
+  # Backed by: tests/test_evalkit.py::test_a_third_model_is_a_mismatch_even_with_the_advisor_present
+  Scenario: A third model in modelUsage makes an advisor cell's run a model_mismatch
+    Given a cell "adv" with advisor model_id "claude-test-adv"
+    When modelUsage names the cell's model, the advisor's model and "claude-test-other"
+    Then the run is invalid with an invalid_reason starting "model_mismatch"
+
+  # Backed by: tests/test_evalkit.py::test_the_advisors_model_on_a_cell_without_an_advisor_is_a_mismatch
+  Scenario: The advisor's model in modelUsage of a cell without an advisor is a model_mismatch
+    Given a cell "base" without an advisor
+    When modelUsage names "claude-test-base" and "claude-test-adv"
+    Then the run is invalid with an invalid_reason starting "model_mismatch"
+
+  # Backed by: tests/test_evalkit.py::test_an_advisor_run_line_carries_the_three_advisor_fields
+  Scenario: An advisor cell's run line carries advisor_model_id, advisor_called and advisor_cost_usd
+    Given a cell "adv" and a run whose modelUsage holds the advisor with costUSD 0.004 beside the cell's model at 0.01
+    When the run line is read
+    Then advisor_model_id is "claude-test-adv", advisor_called is true, advisor_cost_usd is 0.004 and cost_usd is 0.014
+    And the token fields are those of the cell's own model
+
+  # Backed by: tests/test_evalkit.py::test_an_advisor_cell_that_never_called_it_records_called_false_and_no_cost
+  Scenario: An advisor cell whose advisor was never called records advisor_called false and a null advisor cost
+    Given a cell "adv" and a run whose modelUsage holds only the cell's model
+    When the run line is read
+    Then the run is valid, advisor_called is false and advisor_cost_usd is null
+
+  # Backed by: tests/test_evalkit.py::test_a_run_line_of_a_cell_without_an_advisor_has_none_of_the_three_fields
+  Scenario: A run line of a cell without an advisor has none of the three advisor fields
+    Given a cell "cheap" without an advisor
+    When the run line is read
+    Then it holds no advisor_model_id, advisor_called or advisor_cost_usd
+
+  # Backed by: tests/test_evalkit.py::test_an_advisor_object_without_a_setting_and_a_model_id_is_refused
+  Scenario: An advisor object without a setting and a model_id is refused when the cells are loaded
+    Given a cell whose advisor lacks a model_id, lacks a setting, has an empty setting or is a string
+    When the evals directory is loaded
+    Then an EvalError is raised in each case
+
+  # Backed by: tests/test_evalkit.py::test_the_hashes_of_three_existing_cells_are_pinned
+  Scenario: The cell hashes of three cells in evals/cells.json are pinned
+    Given the cell definitions of evals/cells.json
+    When compute_cell_hash runs on them
+    Then sonnet-5-5@xhigh is "9e81ce0e", opus-5-5@xhigh is "236d7195" and haiku-5-5@medium is "387b373c"
+
+  # Backed by: tests/test_evalkit.py::test_a_cell_with_an_advisor_hashes_differently_from_the_same_cell_without_one
+  Scenario: A cell with an advisor hashes differently from the same cell without one
+    Given a cell "c" and the same cell with advisor setting "fable" and model_id "claude-fable-5-2"
+    When both hashes are computed
+    Then they differ, and an advisor of null hashes as the cell without one
+
+  # Backed by: tests/test_evalkit.py::test_a_different_advisor_gives_a_different_hash
+  Scenario: A different advisor gives a different cell hash
+    Given three copies of one cell whose advisors differ in the setting or in the model_id
+    When the hashes are computed
+    Then all three differ
+
+  # Backed by: tests/test_evalkit.py::test_the_real_advisor_cell_and_its_row_are_wired
+  Scenario: The advisor cell sits in evals/cells.json and in the grid of the synthesize row as advisor_pairing
+    Given evals/cells.json and evals/rows.json
+    When "sonnet-5-5@xhigh+fable-advisor" is read
+    Then it has model claude-sonnet-5-5, effort xhigh, the price of sonnet-5-5@xhigh as of 2026-11-13 and advisor {"setting": "fable", "model_id": "claude-fable-5-2"}
+    And the synthesize grid holds it with the role "advisor_pairing"

@@ -22,6 +22,12 @@ FAKE_CLAUDE_STOP_REASON and FAKE_CLAUDE_SAFETY_STOPS, when set, add the top-leve
 FAKE_CLAUDE_API_ERROR_STATUS adds `api_error_status` (an HTTP status, as the CLI reports on an API error) and
 FAKE_CLAUDE_OUTPUT_TOKENS overrides `usage.output_tokens`, both only when set.
 
+FAKE_CLAUDE_EXTRA_MODELS (a JSON list of model ids) adds one modelUsage entry per id, as an advisor's usage
+appears in the real result; each gets costUSD FAKE_CLAUDE_EXTRA_COST (default 0.004) and total_cost_usd
+becomes the run's cost plus those shares, as the real CLI's total includes the advisor.
+Each FAKE_CLAUDE_LOG line also carries `advisor_switch` (the value of CLAUDE_CODE_DISABLE_ADVISOR_TOOL in
+the child's environment, or null when it is absent) and `settings` (the value after --settings, or null).
+
 `--version` prints FAKE_CLAUDE_VERSION (default "9.9.9 (Fake)") and exits 0 before anything
 else happens: no stdin read, no FAKE_CLAUDE_LOG line. FAKE_CLAUDE_VERSION_LOG, if set, gets
 one line per such call so a test can count them.
@@ -45,6 +51,7 @@ def parse_args():
     p.add_argument("--tools", nargs="*")
     p.add_argument("--system-prompt")
     p.add_argument("--max-budget-usd")
+    p.add_argument("--settings")
     p.add_argument("--output-format")
     p.add_argument("prompt", nargs="?")
     args, _ = p.parse_known_args()
@@ -57,7 +64,8 @@ def log_call(args, prompt):
         return
     entry = {"argv": sys.argv[1:], "cwd": os.getcwd(), "files": sorted(os.listdir(".")),
              "prompt": prompt, "model": args.model, "effort": args.effort, "tools": args.tools,
-             "system_prompt": args.system_prompt}
+             "system_prompt": args.system_prompt, "settings": args.settings,
+             "advisor_switch": os.environ.get("CLAUDE_CODE_DISABLE_ADVISOR_TOOL")}
     with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
 
@@ -138,7 +146,13 @@ def main():
     elif mode == "error":
         print(json.dumps(with_stop_fields(result_json(model, "API Error: overloaded", 0.0, 0, is_error=True))))
         return 1
-    print(json.dumps(with_stop_fields(result_json(model, text, cost, thinking))))
+    result = result_json(model, text, cost, thinking)
+    for extra in json.loads(os.environ.get("FAKE_CLAUDE_EXTRA_MODELS", "[]")):
+        share = float(os.environ.get("FAKE_CLAUDE_EXTRA_COST", "0.004"))
+        result["modelUsage"][extra] = {"inputTokens": 1, "outputTokens": 1, "cacheReadInputTokens": 0,
+                                       "cacheCreationInputTokens": 0, "costUSD": share}
+        result["total_cost_usd"] += share
+    print(json.dumps(with_stop_fields(result)))
     return 0
 
 

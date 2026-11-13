@@ -838,3 +838,9 @@ Feature: The UX blind probe compares design passes for UI/UX work and applies th
     Given a root with four pages: one that renders text and a working button, one that throws on load, one that is blank, and one whose button throws
     When check_ux_pages.py runs headless against the root
     Then the first page passes; the second fails with an uncaught error on load, the third fails with rendered nothing, the fourth fails with an uncaught error on first click; the exit code is 1 and render-check.json lists every page id with scalar values only
+
+  # Backed by: tests/test_ux_blind.py::test_designer_and_builder_children_start_with_the_advisor_switch_whatever_the_parent_says
+  Scenario: Designer and builder children start with the advisor switched off
+    Given a parent environment where CLAUDE_CODE_DISABLE_ADVISOR_TOOL is "0"
+    When the design and build steps run for one brief
+    Then every designer child and every builder child saw CLAUDE_CODE_DISABLE_ADVISOR_TOOL equal to "1"

@@ -524,6 +524,14 @@ class DesignTests(UXTestCase):
         self.assertEqual(self.design_file("O", 1)["model_observed"], "claude-test-opus-5-5")
         self.assertEqual(self.plan()["designs_missing"], 0)
 
+    def test_designer_and_builder_children_start_with_the_advisor_switch_whatever_the_parent_says(self):
+        with self.env(CLAUDE_CODE_DISABLE_ADVISOR_TOOL="0"):
+            self.pipeline("design", "build")
+        for kind in ("design", "build"):
+            rows = self.calls(kind=kind)
+            self.assertTrue(rows, kind)
+            self.assertEqual({c["advisor_switch"] for c in rows}, {"1"}, kind)
+
     def test_a_missing_answer_block_is_a_failed_design_retried_twice(self):
         with self.env(UX_FAKE_NO_BLOCK="design"):
             self.pipeline("design")

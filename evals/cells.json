@@ -1,5 +1,5 @@
 {
-  "_note": "Prices are list $/MTok, verified 2026-10-05 against the Anthropic pricing page (research/2026-10-05-models.md); the Haiku 5.5 cells were added and priced on 2026-10-09 from the same page. Decisions use measured cost_usd per run, not these. A cell's identity for caching is its cell_hash: sha8 of {cell_id, model_id, effort, system_append}; changing any of them re-runs that cell only. The three fable-5-2 cells were added on 2026-11-13 and priced at $8 / $40 per MTok from the Anthropic pricing page the same day; the fable-5-1 cells are untouched because fable-5-1@high is the pinned judge and has stored runs.",
+  "_note": "Prices are list $/MTok, verified 2026-10-05 against the Anthropic pricing page (research/2026-10-05-models.md); the Haiku 5.5 cells were added and priced on 2026-10-09 from the same page. Decisions use measured cost_usd per run, not these. A cell's identity for caching is its cell_hash: sha8 of {cell_id, model_id, effort, system_append}; changing any of them re-runs that cell only. The three fable-5-2 cells were added on 2026-11-13 and priced at $8 / $40 per MTok from the Anthropic pricing page the same day; the fable-5-1 cells are untouched because fable-5-1@high is the pinned judge and has stored runs. A cell may carry an advisor object {setting, model_id}: the child then gets the server-side advisor (--settings {\"advisorModel\": setting}, no off switch) and its cell_hash includes the object; a cell without one hashes as before. The cell sonnet-5-5@xhigh+fable-advisor was added on 2026-11-13.",
   "cells": {
     "fable-5-1@high": {
       "model_id": "claude-fable-5-1",
@@ -204,6 +204,21 @@
         "output": 10.0,
         "as_of": "2026-10-05"
       }
+    },
+    "sonnet-5-5@xhigh+fable-advisor": {
+      "model_id": "claude-sonnet-5-5",
+      "alias": "sonnet",
+      "effort": "xhigh",
+      "price": {
+        "input": 2.0,
+        "output": 10.0,
+        "as_of": "2026-11-13"
+      },
+      "advisor": {
+        "setting": "fable",
+        "model_id": "claude-fable-5-2"
+      },
+      "system_append": "Besides the tools named above you have one more: a server-side tool named advisor, backed by a stronger model. It takes no parameters and reads your whole conversation. Call it once before you commit to your final answer, and again only if you are stuck. Weigh its advice against what the files say."
     }
   }
 }

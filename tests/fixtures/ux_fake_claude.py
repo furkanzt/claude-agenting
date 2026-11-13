@@ -8,7 +8,8 @@ It reuses tests/fixtures/fake_claude.py for the JSON shape and answers by prompt
   checklist prompt  "You are checking one prototype page ..." -> {"K1": true, ..., "K8": true}
 
 Env (all optional):
-  UX_FAKE_LOG          append one JSON line per call: argv, cwd, files, prompt, model, system_prompt
+  UX_FAKE_LOG          append one JSON line per call: argv, cwd, files, prompt, model, system_prompt, advisor_switch
+                       (the value of CLAUDE_CODE_DISABLE_ADVISOR_TOOL in the child's environment, null when absent)
   UX_FAKE_STATE        a JSON counter file (flock-guarded); needed by the *_FIRST switches
   UX_FAKE_COST         cost per call (default 0.01)
   UX_FAKE_WRONG_MODEL  a model id: its first UX_FAKE_WRONG_FIRST calls answer as another model
@@ -71,7 +72,8 @@ def main():
         with open(log, "a", encoding="utf-8") as f:
             f.write(json.dumps({"argv": sys.argv[1:], "cwd": os.getcwd(), "files": sorted(os.listdir(".")),
                                 "prompt": prompt, "model": args.model,
-                                "system_prompt": args.system_prompt}) + "\n")
+                                "system_prompt": args.system_prompt,
+                                "advisor_switch": os.environ.get("CLAUDE_CODE_DISABLE_ADVISOR_TOOL")}) + "\n")
     model, kind = args.model, kind_of(prompt)
     run = bump("calls")
     cost = float(os.environ.get("UX_FAKE_COST", "0.01"))

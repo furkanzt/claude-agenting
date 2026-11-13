@@ -40,7 +40,7 @@ GRADING SAFETY
   it as a missing run. A harness fault is never recorded as a model failure.
 
 VALIDITY (README): process exited 0, JSON parsed, is_error false, and
-  modelUsage names exactly the cell's model_id. Invalid runs are logged with
+  modelUsage names exactly the cell's model_id (a cell with an advisor may also show the advisor's). Invalid runs are logged with
   valid:false and re-planned up to harness max_retries_invalid times, except API
   or infrastructure errors (infra_error: a rate limit, an overload), which never
   use up retries; `run` stops launching on the first one and exits 3. A missing
@@ -222,6 +222,12 @@ class Ctx:
         self.harness = read_json(self.root / "harness.json")
         self.cells = read_json(self.root / "cells.json")["cells"]
         self.rows = read_json(self.root / "rows.json")["rows"]
+        for cid, cell in self.cells.items():
+            adv = cell.get("advisor")
+            if adv is not None and not (isinstance(adv, dict) and all(
+                    isinstance(adv.get(k), str) and adv[k] for k in ("setting", "model_id"))):
+                raise EvalError(f"cell {cid}: advisor must be an object with a non-empty "
+                                '"setting" and "model_id"')
         self.private = self.root / "private"
         self.tasks_dir = self.private / "tasks"
         self.answers_dir = self.private / "answers"
@@ -360,6 +366,8 @@ def compute_cell_hash(cell_id, cell):
     """sha8 of the canonical JSON of the fields that define what a cell *is*."""
     ident = {"cell_id": cell_id, "model_id": cell["model_id"], "effort": cell.get("effort"),
              "system_append": cell.get("system_append") or ""}
+    if advisor_of(cell):                 # only a cell with an advisor carries the key: every other hash stays
+        ident["advisor"] = advisor_of(cell)
     return sha256_bytes(canon(ident).encode("utf-8"))[:8]
 
 
@@ -550,11 +558,33 @@ def kill_group(proc):
         pass
 
 
+ADVISOR_SWITCH = "CLAUDE_CODE_DISABLE_ADVISOR_TOOL"
+
+
+def advisor_of(cell):
+    """The cell's advisor object ({"setting", "model_id"}), or None for a cell without one."""
+    return cell.get("advisor") or None
+
+
+def child_env(cell):
+    """The environment of a claude child. The advisor switch is on for every child, whatever the
+    parent's environment says, unless the cell names an advisor: then it is removed, so the
+    child has the advisor the cell asks for."""
+    env = dict(os.environ)
+    if advisor_of(cell):
+        env.pop(ADVISOR_SWITCH, None)
+    else:
+        env[ADVISOR_SWITCH] = "1"
+    return env
+
+
 def build_cmd(ctx, cell, tools, system_prompt):
     r = ctx.harness["runner"]
     cmd = shlex.split(r["claude_bin"]) + ["-p", "--model", cell["model_id"]]
     if cell.get("effort"):
         cmd += ["--effort", cell["effort"]]
+    if advisor_of(cell):
+        cmd += ["--settings", json.dumps({"advisorModel": advisor_of(cell)["setting"]})]
     return cmd + list(r["flags"]) + ["--tools", tools, "--system-prompt", system_prompt,
                                      "--max-budget-usd", str(r["max_budget_usd_per_run"])]
 
@@ -566,7 +596,7 @@ def call_claude(ctx, cell, prompt, cwd, tools, system_prompt, stop):
     try:
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, cwd=cwd, text=True, encoding="utf-8",
-                                start_new_session=True)
+                                start_new_session=True, env=child_env(cell))
     except OSError as e:
         out["error"] = f"spawn failed: {e}"
         return out
@@ -584,8 +614,9 @@ def call_claude(ctx, cell, prompt, cwd, tools, system_prompt, stop):
     return out
 
 
-def parse_call(call, model_id):
-    """(valid, invalid_reason, data) following the README validity rules."""
+def parse_call(call, model_id, advisor_id=None):
+    """(valid, invalid_reason, data) following the README validity rules. `advisor_id` is the
+    advisor model id of a cell that names one: modelUsage may then hold that model too."""
     if call["error"]:
         return False, call["error"], None
     if call["timeout"]:
@@ -601,7 +632,8 @@ def parse_call(call, model_id):
         return False, f"exit_code={call['returncode']}", data
     if data.get("is_error"):
         return False, "is_error", data
-    if observed != [model_id]:
+    allowed = {model_id, advisor_id} if advisor_id else {model_id}
+    if observed != sorted(allowed) and observed != [model_id]:
         return False, f"model_mismatch: observed {observed}", data
     return True, None, data
 
@@ -819,6 +851,17 @@ def stop_fields(data):
             "safety_stops": integer(stops, 0), "api_error_status": integer(status, None)}
 
 
+def advisor_fields(cell, data):
+    """The three run-line fields of a cell with an advisor ({} for any other cell)."""
+    adv = advisor_of(cell)
+    if not adv:
+        return {}
+    used = ((data or {}).get("modelUsage") or {}).get(adv["model_id"])
+    cost = used.get("costUSD") if isinstance(used, dict) else None
+    return {"advisor_model_id": adv["model_id"], "advisor_called": used is not None,
+            "advisor_cost_usd": cost if isinstance(cost, (int, float)) and not isinstance(cost, bool) else None}
+
+
 def run_record(ctx, item, call, valid, reason, data):
     cell, model = ctx.cells[item["cell"]], ctx.model_id(item["cell"])
     cost, unknown = call_cost(call, data)
@@ -828,6 +871,7 @@ def run_record(ctx, item, call, valid, reason, data):
             "model_id_observed": ",".join(sorted((data or {}).get("modelUsage") or {})) or None,
             "valid": valid, "invalid_reason": reason, "effort": cell.get("effort"),
             **usage_of(data, model), "cost_usd": cost, **({"cost_unknown": True} if unknown else {}),
+            **advisor_fields(cell, data),
             "duration_ms": (data or {}).get("duration_ms"), "num_turns": (data or {}).get("num_turns"),
             **stop_fields(data), "cli_version": ctx.cli_version, "ts": now()}
 
@@ -869,7 +913,8 @@ def execute_one(ctx, task, item, budget, stop):
         shutil.rmtree(wd, ignore_errors=True)
     if was_cancelled(call, stop):
         return None
-    valid, reason, data = parse_call(call, ctx.model_id(item["cell"]))
+    valid, reason, data = parse_call(call, ctx.model_id(item["cell"]),
+                                     (advisor_of(ctx.cells[item["cell"]]) or {}).get("model_id"))
     rec = run_record(ctx, item, call, valid, reason, data)
     budget.add(rec["cost_usd"])
     if valid and has_valid_run(ctx, item["run_id"]):
@@ -1053,7 +1098,7 @@ def judge_attempt(ctx, task, block, cell, budget, stop):
         shutil.rmtree(wd, ignore_errors=True)
     if was_cancelled(call, stop):
         return None, None, 0.0
-    valid, reason, data = parse_call(call, cell["model_id"])
+    valid, reason, data = parse_call(call, cell["model_id"], (advisor_of(cell) or {}).get("model_id"))
     cost, _ = call_cost(call, data)            # None = unknown: the budget is charged the cap
     budget.add(cost)
     if not valid:

@@ -1,5 +1,5 @@
 {
-  "_note": "role: baseline = the cell the plugin table uses today; effort_down / model_down = the neighbours; up_reference = a stronger cell to fall back to if the baseline fails; ceiling = Fable 5.1 as an upper reference (NOT a safe ceiling for dont-guess: research shows the highest hallucination rate and least abstention); research_candidate = added because the 2026-10-05 research names it. tier: silent_damage rows need confirmation tasks before a change. control_weak = a deliberately weaker cell, run only to show whether a task can separate cells at all. paid_upgrade = a dearer cell tested as an upgrade under a pre-registered rule; decide ignores it because it is never cheaper.",
+  "_note": "role: baseline = the cell the plugin table uses today; effort_down / model_down = the neighbours; up_reference = a stronger cell to fall back to if the baseline fails; ceiling = Fable 5.1 as an upper reference (NOT a safe ceiling for dont-guess: research shows the highest hallucination rate and least abstention); research_candidate = added because the 2026-10-05 research names it. tier: silent_damage rows need confirmation tasks before a change. control_weak = a deliberately weaker cell, run only to show whether a task can separate cells at all. advisor_pairing = a cheaper cell given the server-side advisor (decide treats it like model_down: a cheaper candidate, judged on its measured cost, which includes the advisor); paid_upgrade = a dearer cell tested as an upgrade under a pre-registered rule; decide ignores it because it is never cheaper.",
   "rows": [
     {
       "id": "scan",
@@ -232,6 +232,10 @@
         {
           "cell": "haiku-5-5@xhigh",
           "role": "new_generation"
+        },
+        {
+          "cell": "sonnet-5-5@xhigh+fable-advisor",
+          "role": "advisor_pairing"
         }
       ],
       "tasks": [
