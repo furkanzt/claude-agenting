@@ -179,3 +179,26 @@ is "not below" arm O's when `mean_F >= mean_O - 0.05`.
   session has more context and tools.
 - The session that wrote these rules and orchestrates the round runs on Fable 5.2. That is why no
   Fable model builds or marks anything, and why the rules were fixed before the tasks existed.
+
+## Addendum 1, 2026-11-13T13:35Z: clarifications made before the first run
+
+Written before any task was installed and before any model output existed for these rows. Each
+point says how a rule above is carried out; none changes a threshold.
+
+1. **How a refusal is recognised.** By the CLI's own result fields, checked on Claude Code 2.1.323:
+   `stop_reason` equal to `refusal`, or `safety_stops` above 0. An API error, a rate limit, a
+   usage limit or a timeout is not a refusal: the attempt is invalid and retried, and it does not
+   fail a slot by itself. "Answered by a different model" is the harness's `model_mismatch`.
+2. **A failed Fable slot in `ux-design`.** Section 2 applies to the designer runs of arm F. A pair
+   whose F page comes from a failed F slot counts as "F not preferred" in its block, whatever the
+   owner picked. The owner's raw count and the counted number are both reported; rules UQ, UB and
+   UD use the counted number.
+3. **"Not below".** `mean_F >= mean_O - 0.05` is computed with exact fractions, not floats.
+4. **A builder rule added for every arm alike.** Pages are shown in frames sandboxed without
+   same-origin, where browser storage throws. The builder prompt therefore forbids browser storage,
+   and a page that uses it is rejected and rebuilt, like a page with a network request.
+5. **Blinding check.** A built page that names a model or the vendor is rejected and rebuilt.
+6. **Counting for the rules of section 3.** A cell's fail count under a judge is its solid fails
+   under that judge plus its failed slots; a failed slot counts under both judges. A cell with any
+   fail under either judge is out of rules Q, B and `fast`. A disposition is reported only when
+   every cell that could still take it has all 12 slots decided.
