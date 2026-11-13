@@ -77,9 +77,10 @@ from collections import Counter, defaultdict, namedtuple
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-PRICES_AS_OF = "2026-10-09"
+PRICES_AS_OF = "2026-11-13"
 PRICE_SOURCE = ("evals/research/2026-10-05-models.md, section 1; Haiku 5.5 from the "
-                "Anthropic pricing page, 2026-10-09")
+                "Anthropic pricing page, 2026-10-09; Fable 5.2 and the Sonnet 5.5 cache read from the "
+                "pricing page, 2026-11-13")
 
 Price = namedtuple("Price", "input output read write_5m write_1h derived")
 
@@ -96,8 +97,9 @@ PRICES = {
     "claude-haiku-4-5-20251001": _price(1, 5, 0.10),
     "claude-haiku-4-5": _price(1, 5, 0.10),
     "claude-haiku-5-5": _price(0.10, 0.50, 0.01),
-    "claude-sonnet-5-5": _price(2, 10, 0.20),
+    "claude-sonnet-5-5": _price(2, 10, 0.10),
     "claude-opus-5-5": _price(4, 20, 0.20),
+    "claude-fable-5-2": _price(8, 40, 0.20),
     "claude-fable-5-1": _price(10, 50, 0.25),
     # previous generation: still common in older transcripts
     "claude-opus-5": _price(5, 25, 0.50, derived=True),

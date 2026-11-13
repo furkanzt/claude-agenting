@@ -38,14 +38,15 @@ STATE_DIR = os.path.expanduser(os.environ.get("AGENTING_STATE_DIR") or "~/.claud
 STATE_PATH = os.path.join(STATE_DIR, ".cache-tripwire-state.json")
 
 # Approximate list-price input $/MTok, matched by substring against message.model.
-# Verified 2026-10-05 for Haiku 4.5, Sonnet 5.5, Opus 5.5, Fable 5.1; Haiku 5.5 on 2026-10-09.
-# The first key found in the model id wins, so "haiku-5" must stay ahead of "haiku". Haiku 5.5 is $0.10
+# Verified 2026-10-05 for Haiku 4.5, Sonnet 5.5, Opus 5.5, Fable 5.1; Haiku 5.5 on 2026-10-09; Fable 5.2 on 2026-11-13.
+# The first key found in the model id wins, so "haiku-5" must stay ahead of "haiku" and "fable-5-2" ahead of "fable". Haiku 5.5 is $0.10
 # for prompts up to 100k tokens and $0.50 above; a switch estimate uses the lower rate.
 PRICES_PER_MTOK = {
     "haiku-5": 0.10,
     "haiku": 1.00,
     "sonnet": 2.00,
     "opus": 4.00,
+    "fable-5-2": 8.00,
     "fable": 10.00,
 }
 # 5-min ephemeral write; a 1h write is 2x. Local transcripts show almost every cache write is a 1h write

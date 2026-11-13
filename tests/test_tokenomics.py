@@ -32,12 +32,14 @@ def load(path, name):
 
 tok = load(SCRIPT, "measure_tokenomics_under_test")
 
-# $/MTok from evals/research/2026-10-05-models.md section 1: input, output, cache read, write 5m, write 1h.
+# $/MTok from evals/research/2026-10-05-models.md section 1 and the pricing page read on 2026-11-13
+# (Fable 5.2, Sonnet 5.5 cache read $0.10): input, output, cache read, write 5m, write 1h.
 PRICE_PAGE = {
     "claude-haiku-4-5-20251001": (1, 5, 0.10, 1.25, 2),
     "claude-haiku-5-5": (0.10, 0.50, 0.01, 0.125, 0.20),
-    "claude-sonnet-5-5": (2, 10, 0.20, 2.50, 4),
+    "claude-sonnet-5-5": (2, 10, 0.10, 2.50, 4),
     "claude-opus-5-5": (4, 20, 0.20, 5, 8),
+    "claude-fable-5-2": (8, 40, 0.20, 10, 16),
     "claude-fable-5-1": (10, 50, 0.25, 12.50, 20),
     "claude-opus-5": (5, 25, 0.50, 6.25, 10),
 }
@@ -124,7 +126,8 @@ class PriceTable(unittest.TestCase):
     def test_input_prices_agree_with_the_cache_tripwire_hook(self):
         tripwire = load(ROOT / "hooks" / "cache-tripwire.py", "cache_tripwire_under_test")
         ours = {"haiku-5": "claude-haiku-5-5", "haiku": "claude-haiku-4-5", "sonnet": "claude-sonnet-5-5",
-                "opus": "claude-opus-5-5", "fable": "claude-fable-5-1"}
+                "opus": "claude-opus-5-5", "fable": "claude-fable-5-1",
+                "fable-5-2": "claude-fable-5-2"}
         for family, price in tripwire.PRICES_PER_MTOK.items():
             with self.subTest(family=family):
                 self.assertEqual(price, tok.price_for(ours[family]).input)
@@ -135,6 +138,24 @@ class PriceTable(unittest.TestCase):
         tripwire = load(ROOT / "hooks" / "cache-tripwire.py", "cache_tripwire_family_order")
         self.assertEqual(tripwire.price_for_model("claude-haiku-5-5"), 0.10)
         self.assertEqual(tripwire.price_for_model("claude-haiku-4-5-20251001"), 1.00)
+
+
+    def test_tripwire_prices_fable_5_2_at_8_and_fable_5_1_at_10(self):
+        # "fable" is a substring of both ids; the first key found wins, so "fable-5-2" must come first.
+        tripwire = load(ROOT / "hooks" / "cache-tripwire.py", "cache_tripwire_fable_order")
+        self.assertEqual(tripwire.price_for_model("claude-fable-5-2"), 8.00)
+        self.assertEqual(tripwire.price_for_model("claude-fable-5-1"), 10.00)
+
+    def test_meter_prices_fable_5_2_input_output_and_cache_read(self):
+        usd, _, priced, _ = tok.usage_parts(usage(inp=M, out=M, read=M), "claude-fable-5-2")
+        self.assertTrue(priced)
+        self.assertAlmostEqual(usd["input"], 8.00)
+        self.assertAlmostEqual(usd["output"], 40.00)
+        self.assertAlmostEqual(usd["cache_read"], 0.20)
+
+    def test_meter_prices_sonnet_5_5_cache_reads_at_ten_cents(self):
+        usd, _, _, _ = tok.usage_parts(usage(read=M), "claude-sonnet-5-5")
+        self.assertAlmostEqual(usd["cache_read"], 0.10)
 
 
 class LongPromptTier(unittest.TestCase):

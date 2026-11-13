@@ -391,9 +391,15 @@ Feature: The tripwire nudges once per mid-session model or effort switch with th
 
   # Backed by: tests/test_tokenomics.py::test_input_prices_agree_with_the_cache_tripwire_hook
   Scenario: Every tripwire input price equals the meter's input price for the same family
-    Given the tripwire price table with keys "haiku-5", "haiku", "sonnet", "opus" and "fable"
-    When each price is compared with the meter's input price for claude-haiku-5-5, claude-haiku-4-5, claude-sonnet-5-5, claude-opus-5-5 and claude-fable-5-1
-    Then all five are equal
+    Given the tripwire price table with keys "haiku-5", "haiku", "sonnet", "opus", "fable" and "fable-5-2"
+    When each price is compared with the meter's input price for claude-haiku-5-5, claude-haiku-4-5, claude-sonnet-5-5, claude-opus-5-5, claude-fable-5-1 and claude-fable-5-2
+    Then all six are equal
+
+  # Backed by: tests/test_tokenomics.py::test_tripwire_prices_fable_5_2_at_8_and_fable_5_1_at_10
+  Scenario: Fable 5.2 is priced at $8 per MTok and Fable 5.1 at $10
+    Given the tripwire price table
+    When the price of "claude-fable-5-2" and of "claude-fable-5-1" is looked up
+    Then the first is 8.00 and the second is 10.00
 
   @gap @wip
   # Backed by: @gap

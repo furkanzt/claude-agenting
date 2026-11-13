@@ -6,9 +6,21 @@ Feature: The meter prices Claude Code transcripts at list price per category and
   Scenario: Every price row prices input, output, cache read and both cache writes from the price page
     Given a call on model "claude-sonnet-5-5" with 1,000,000 tokens in each of input, output, cache read, 5-minute write and 1-hour write
     When the meter prices the call
-    Then the dollars are $2.00 input, $10.00 output, $0.20 cache read, $2.50 5-minute write and $4.00 1-hour write
-    And the same check holds for every row on the price page, which are the six rows of PRICE_PAGE
+    Then the dollars are $2.00 input, $10.00 output, $0.10 cache read, $2.50 5-minute write and $4.00 1-hour write
+    And the same check holds for every row on the price page, which are the seven rows of PRICE_PAGE
     And "claude-haiku-5-5" is checked with 20,000 tokens in each category (a prompt of 80,000) at $0.10, $0.50, $0.01, $0.125 and $0.20 per MTok, because a prompt over 100,000 tokens pays the long-prompt row
+
+  # Backed by: tests/test_tokenomics.py::test_meter_prices_fable_5_2_input_output_and_cache_read
+  Scenario: Fable 5.2 is priced at $8 input, $40 output and $0.20 cache read, not at the Fable 5.1 rates
+    Given a call on model "claude-fable-5-2" with 1,000,000 input, output and cache read tokens
+    When the meter prices the call
+    Then the dollars are $8.00 input, $40.00 output and $0.20 cache read
+
+  # Backed by: tests/test_tokenomics.py::test_meter_prices_sonnet_5_5_cache_reads_at_ten_cents
+  Scenario: Sonnet 5.5 cache reads cost $0.10 per MTok
+    Given a call on model "claude-sonnet-5-5" with 1,000,000 cache read tokens
+    When the meter prices the call
+    Then the cache read dollars are $0.10
 
   # Backed by: tests/test_tokenomics.py::test_previous_generation_is_not_priced_as_5_5
   Scenario: The previous generation of a model keeps its own price row
@@ -41,7 +53,7 @@ Feature: The meter prices Claude Code transcripts at list price per category and
 
   # Backed by: tests/test_tokenomics.py::test_input_prices_agree_with_the_cache_tripwire_hook
   Scenario: The meter's input prices agree with the cache tripwire's prices
-    Given the cache tripwire hook with its PRICES_PER_MTOK families haiku-5, haiku, sonnet, opus and fable
+    Given the cache tripwire hook with its PRICES_PER_MTOK families haiku-5, haiku, sonnet, opus, fable and fable-5-2
     When each family price is compared with the meter's input price for the matching model id
     Then every family price equals the meter's input price
 
