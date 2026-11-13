@@ -5,7 +5,7 @@
 
 ## P. After the Fable 5.2 round and the advisor work (2026-11-13 and 14)
 
-**Nothing is running and nothing is half done.** Release 3.6.0 is committed and not pushed.
+**Nothing is running and nothing is half done.** Release 3.6.0 is committed (`589e1eb`) and not pushed.
 
 ### P.1 What was found
 
@@ -68,7 +68,7 @@ report, the research note and the two pre-registrations.
 
 ```
 git status --short                      # expect only: M .gitignore (not from this work; never stage it)
-git log origin/main..HEAD --oneline     # expect 45 unpushed commits
+git log origin/main..HEAD --oneline     # expect 43 unpushed commits
 python3 -m pytest tests -q              # expect 995 passed (about 2.5 minutes)
 python3 scripts/check-setup.py          # expect 53 passed, 0 failed
 python3 evals/evalkit.py selfcheck      # expect 29 tasks, 0 problems
