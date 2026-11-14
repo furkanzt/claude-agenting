@@ -82,12 +82,14 @@ end.** Nothing of it is built yet unless a line below says so.
 2. The coding experiment. Rules: committed on 2026-11-14 after three independent reviews, with
    Addendum 1 (eleven readings the tool fixed) appended before any run. **Done:** the side tool
    `evals/probes/code_bench.py` and its analysis `code_bench_analysis.py`, built in three stages, each
-   checked by a second agent, 209 tests; the six tasks, all first choices, installed and checked
+   checked by a second agent, 211 tests; the six tasks, all first choices, installed and checked
    (`python3 evals/probes/code_bench.py install`; records in `evals/private/code/tasks.json`; Addendum
    2 of the rules says how the leak check was corrected on the way); the pilot's probe on a toy project
    (Addendum 3: the write tools, a refused path outside the copy, no instruction file loaded, the cost
-   cap, and the spend stop lowered to $224, so every model command takes `--max-usd 224`). **Next, in
-   this order:** the pilot on one real task end to end (`code-04`); the spend projection
+   cap, and the spend stop lowered to $224, now the tool's default); the pilot on one real task
+   (`code-04`: 8 of 8 suites fit, 9 of 9 coding runs correct, $9.67; Addendum 4, with the guard against
+   an outage: exit code 4 means a run ended on API errors and nothing new was started, so start the
+   same command again later). **Next, in this order:** the spend projection
    (`code_bench.py plan`); step T (`write-tests`), `fix-suites`, step C (`code`, one round at a time,
    with `plan` between rounds), `cross`, then `code_bench_analysis.py` and the audited report. Every
    model command needs the CLI pinned to 2.1.325 on `PATH` (the tool refuses another version) and no

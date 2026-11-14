@@ -131,7 +131,7 @@ def test_the_planned_runs_are_the_rules_tables():
     assert {c: ("".join(arms), n) for c, arms, n in an.C_PLAN} == RULES_C_PLAN
     assert an.Q1_CELLS == (HM, HH, SL, SM) and an.REFERENCE_CELL == OH and an.Q3_CELL == HH
     assert an.Q2_THRESHOLD == {HM: 15.0, HH: 15.0, SL: 30.0}
-    assert (an.STOP_USD, an.UNKNOWN_COST_USD) == (226.0, 6.0)
+    assert (an.STOP_USD, an.UNKNOWN_COST_USD) == (224.0, 6.0)
 
 
 def test_an_empty_record_runs_and_says_what_is_pending(tmp_path):

@@ -576,10 +576,22 @@ Feature: The code bench runs test suites in a sandbox, installs the coding tasks
     Then the second process gets the same prompt in a copy without that file, the model lines are try 1 attempt 1 infra and try 1 attempt 2 valid, and one red_first line exists
 
   # Backed by: tests/test_code_bench.py::test_three_api_errors_end_the_run
-  Scenario: Three API errors end the run in step T and in step C
+  Scenario: Three API errors end the run, and the command starts nothing new
     Given a writer and a coder whose processes always fail with an API error
-    When write-tests and then code run
-    Then the suite is stored with ended infra, no file and 3 processes and no check line; the arm-B run ends infra, not correct and not finished
+    When write-tests and then code (arms B and C, two rounds) run
+    Then the suite is stored with ended infra, no file and 3 processes and no check line, and run 2 of the cell is never started; the arm-B run ends infra, not correct and not finished, the arm-C run and round 2 are never started; each command prints "stopped, a run ended on API errors; no new process started" and exits 4
+
+  # Backed by: tests/test_code_bench.py::test_an_api_error_is_followed_by_a_wait_before_the_next_attempt
+  Scenario: An API error is followed by a wait before the next attempt
+    Given waits of 30 and 120 seconds and a coder whose first two processes fail with an API error
+    When code runs one arm-A run
+    Then the tool waits 30 seconds, then 120 seconds, the model lines are attempts 1 and 2 infra and attempt 3 valid, and the run is correct
+
+  # Backed by: tests/test_code_bench.py::test_the_wait_between_attempts_ends_at_once_on_a_stop_request
+  Scenario: The wait between attempts ends at once on a stop request
+    Given a stop request that is already set
+    When a wait of 60 seconds is asked for
+    Then it ends within 5 seconds and the run is cancelled; a wait of 0 seconds returns at once
 
   # Backed by: tests/test_code_bench.py::test_a_time_out_and_a_budget_cap_are_tries_and_an_unknown_cost_is_charged_the_cap
   Scenario: A time-out and a budget stop are tries, and an unknown cost is charged the $6 cap
@@ -699,7 +711,7 @@ Feature: The code bench runs test suites in a sandbox, installs the coding tasks
   Scenario: plan and status count what is missing and the spend
     Given six installed tasks, then two step-T runs that cost $1 each
     When plan runs, then plan --json and status run
-    Then plan prints "step T: 0 of 48 suites stored", "step C: 0 of 180 runs stored (A 0/66, B 0/90, C 0/24)" and "projected unknown; stop at $226.00", then 2 stored and 46 missing and a spend of $2.00, and status prints "code-01: installed ok, T 2/8, fit 0, given pending, C 0"
+    Then plan prints "step T: 0 of 48 suites stored", "step C: 0 of 180 runs stored (A 0/66, B 0/90, C 0/24)" and "projected unknown; stop at $224.00", then 2 stored and 46 missing and a spend of $2.00, and status prints "code-01: installed ok, T 2/8, fit 0, given pending, C 0"
 
   # Backed by: tests/test_code_bench.py::test_no_private_text_reaches_the_public_record_or_the_terminal_in_the_model_steps
   Scenario: No private text reaches the public record or the terminal in the model steps

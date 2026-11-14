@@ -12,7 +12,8 @@ evals/results/PREREGISTERED-2026-11-14-coding.md).
     python3 evals/probes/code_bench.py status [--json]
 
 Exit codes: 0 done; 1 a task failed its installation or the self-test failed; 2 an error (one code
-word, see ERROR_WORDS); 3 the spend stop was reached; 130 interrupted.
+word, see ERROR_WORDS); 3 the spend stop was reached; 4 a run ended on API errors and the command
+stopped; 130 interrupted.
 
 Options shared by the commands: --root (default <evals>/private/code), --results (default
 <evals>/results/code-runs.jsonl; with a custom --root the default is <root>/code-runs.jsonl, so a
@@ -147,7 +148,7 @@ are other versions; --allow-version, for tests only, names another whole version
 self-test (fail closed). Before EVERY model process the spend total is
 read from the public record (all invocations): the sum of cost_usd over the model lines, the harness's
 per-process cap (6 USD) for a line whose cost is unknown; no process starts at or above --max-usd
-(default 226). Validity is evalkit's parse_call; a refusal and a budget stop are invalid too. Reason
+(default 224). Validity is evalkit's parse_call; a refusal and a budget stop are invalid too. Reason
 words, first match: spawn_failed, timeout, json_parse, budget_cap (the CLI's subtype names the
 budget), refusal, model_mismatch, is_error. An attempt is an infra error by evalkit's infra_error
 reading (never a budget stop or a refusal): it is NOT a try; the working copy is put back as it was
@@ -185,6 +186,14 @@ non-test overlay) triple already run reuses its result (cross.json). Before the 
 copy of arms A and C that ended normally gets one public `copy` line (step cross, suite null, result
 `changed` or `unchanged`), once, so the analysis can tell from the public record alone which copies
 cross has seen and which are left out because their source is unchanged.
+
+API ERRORS: WAIT, THEN STOP. An attempt that is an API or infrastructure error is followed by a wait
+before the next attempt of the same try (INFRA_WAITS_S: 30 s, then 120 s), so three attempts span
+about two and a half minutes and a short outage ends no run. When a run does end on three such
+attempts, it is stored as the rules say (ended on infra errors), and write-tests and code start no new
+model process: the runs in flight are cut (not stored, made again by the next invocation) and the
+command ends with exit code 4. An outage therefore costs at most the runs that were in flight, never
+the rest of the plan.
 
 CHECK_INFRA IS A STOP. In write-tests, fix-suites, code and cross a test run that comes back
 check_infra (the runner could not start) is the runner's failure, never a result: its public check line
@@ -1834,7 +1843,8 @@ C_ROUNDS = max(n for _, _, n in C_PLAN)
 MAX_TRIES = {"T": 3, "A": 1, "B": 3, "C": 3}
 MAX_ATTEMPTS = 3
 FIT_REFERENCE_RUNS = 2
-DEFAULT_MAX_USD = 226.0
+DEFAULT_MAX_USD = 224.0                  # rules, Addendum 3: lowered from 226 after the cap overshoot
+INFRA_WAITS_S = (30.0, 120.0)            # the waits before attempts 2 and 3 of a try
 REQUIRED_VERSION = "2.1.325"
 MODEL_TOOLS = "Read,Grep,Glob,Write,Edit"
 PERMISSION_FLAGS = ("--permission-mode", "dontAsk", "--allowedTools", "Read", "Grep", "Glob", "Write", "Edit")
@@ -1915,6 +1925,17 @@ class SpendStop(Exception):
 
 class Cancelled(Exception):
     """Ctrl-C killed a model process."""
+
+
+class ApiErrorsStop(Exception):
+    """A run ended on API or infrastructure errors (an outage?): no new model process starts."""
+
+
+def infra_wait(seconds: float, stop) -> None:
+    """Wait before the next attempt of a try whose last attempt was an API or infrastructure error.
+    A stop request (Ctrl-C) ends the wait and cancels the run."""
+    if seconds > 0 and stop.event.wait(seconds):
+        raise Cancelled()
 
 
 @dataclass
@@ -2208,6 +2229,7 @@ class Steps:
         self.installed = {t.code: read_installed(app.root, t.code) or {} for t in tasks}
         self.spend_stopped = False
         self.infra_stopped = False
+        self.api_stopped = False
         self.lock = threading.Lock()
 
     def limit(self, task: Task) -> float:
@@ -2226,6 +2248,8 @@ class Steps:
         """Before every model process: no new process after a check_infra stop, nor at the spend stop."""
         if self.infra_stopped:
             raise CheckInfraStop()
+        if self.api_stopped:
+            raise ApiErrorsStop()
         total, _ = self.spend()
         if total >= self.max_usd:
             with self.lock:
@@ -2256,6 +2280,8 @@ class Steps:
         Returns the try's process, or None after MAX_ATTEMPTS infra errors. Before every process the
         spend total is checked (SpendStop). One model line per attempt; `spent` collects the costs."""
         for attempt in range(1, MAX_ATTEMPTS + 1):
+            if attempt > 1:
+                infra_wait(INFRA_WAITS_S[min(attempt - 2, len(INFRA_WAITS_S) - 1)], stop)
             self.check_spend()
             snap = snapshot(self.model_work(), copy)
             try:
@@ -2285,6 +2311,8 @@ class Steps:
             spent.append(proc)
             if not proc.infra:
                 return proc
+        with self.lock:                  # three API errors in a row: an outage, so nothing new starts
+            self.api_stopped = True
         return None
 
 
@@ -2843,6 +2871,8 @@ def _pool(st: Steps, units: list, worker: Callable, jobs: int, label: str) -> in
             msg = worker(unit, stop)
         except SpendStop:
             return None
+        except ApiErrorsStop:
+            return None
         except Cancelled:
             return None
         except CheckInfraStop as e:          # the runner failed: nothing stored, no new process starts
@@ -2874,6 +2904,9 @@ def cmd_write_tests(app: App, args) -> int:
     if st.infra_stopped:
         raise BenchError("check_infra")
     total, unknown = st.spend()
+    if st.api_stopped:
+        say(f"write-tests: stopped, a run ended on API errors; no new process started (spend ${total:.2f})")
+        return 4
     if st.spend_stopped:
         say(f"write-tests: spend stop reached (${total:.2f} of ${st.max_usd:.2f}); no new process started")
         return 3
@@ -2921,11 +2954,14 @@ def cmd_code(app: App, args) -> int:
             say(f"code: round {n}, {len(units)} runs")
             code = _pool(st, units, lambda u, stop: c_run(st, u[1], u[2], u[3], u[0], stop),
                          args.jobs or st.launcher.jobs, f"C round {n}")
-            if code or st.spend_stopped or st.infra_stopped:
+            if code or st.spend_stopped or st.infra_stopped or st.api_stopped:
                 break
     if st.infra_stopped:
         raise BenchError("check_infra")
     total, _ = st.spend()
+    if st.api_stopped:
+        say(f"code: stopped, a run ended on API errors; no new process started (spend ${total:.2f})")
+        return 4
     if st.spend_stopped:
         say(f"code: spend stop reached (${total:.2f} of ${st.max_usd:.2f}); no new process started")
         return 3

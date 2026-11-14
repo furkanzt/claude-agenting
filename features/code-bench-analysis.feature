@@ -5,7 +5,7 @@ Feature: The coding analysis tool applies the pre-registered rules for who write
   every question", question 1 (bulk coding, arm B), question 2 (tests first), question 3 (who writes the tests,
   haiku-5-5@high arms B and C), question 4 (plan and tests, step T and cross) and "Missing and invalid runs". A
   run is read from its final incarnation (from its last model line with try 1 and attempt 1); check lines with
-  result check_infra are ignored. --cut names what the spend rule cut; --stop-usd is the spend stop (226). The
+  result check_infra are ignored. --cut names what the spend rule cut; --stop-usd is the spend stop (224). The
   tests build synthetic record lines in memory or in a temp file and never read the real record or
   evals/private. Exit code 0 when everything planned has ended and cross is complete, 3 when something is
   PENDING, 2 when the record or an option cannot be read.
@@ -14,7 +14,7 @@ Feature: The coding analysis tool applies the pre-registered rules for who write
   Scenario: The planned runs are the rules' tables
     Given the analysis module
     When an empty record is analysed
-    Then 48 step-T runs and 180 step-C runs are planned (66 in arm A, 90 in B, 24 in C), the cells, arms, runs, thresholds 15 and 30, the $226 stop and the $6 charge are the rules' own
+    Then 48 step-T runs and 180 step-C runs are planned (66 in arm A, 90 in B, 24 in C), the cells, arms, runs, thresholds 15 and 30, the $224 stop and the $6 charge are the rules' own
 
   # Backed by: tests/test_code_bench_analysis.py::test_an_empty_record_runs_and_says_what_is_pending
   Scenario: An empty or missing record runs and says what is pending

@@ -1217,6 +1217,7 @@ class MB:
         monkeypatch.delenv("CODE_FAKE_VERSION", raising=False)
         monkeypatch.delenv("DISABLE_AUTOUPDATER", raising=False)
         _fast_selftest(monkeypatch, ok=selftest_ok)
+        monkeypatch.setattr(cb, "INFRA_WAITS_S", (0.0, 0.0))      # no test waits between attempts
         self.script()
 
     def script(self, **kinds):
@@ -1375,16 +1376,45 @@ def test_an_api_error_is_an_attempt_not_a_try_and_leaves_no_trace(tmp_path, monk
 def test_three_api_errors_end_the_run(tmp_path, monkeypatch):
     b = MB(tmp_path, monkeypatch)
     b.script(T=[{"mode": "api_error", "write": SUITE_GOOD}], B=[{"mode": "api_error", "write": CODE_GOOD}])
-    assert b.cli("write-tests", "--cells", "sonnet-5-5@high")[0] == 0
+    code, out, _ = b.cli("write-tests", "--cells", "sonnet-5-5@high")
+    assert code == 4 and "write-tests: stopped, a run ended on API errors; no new process started" in out
     m = b.suite_meta("sonnet-5-5@high", 1)
     assert m["ended"] == "infra" and m["files"] == [] and m["processes"] == 3
     assert [x["attempt"] for x in b.public(kind="model", run=1)] == [1, 2, 3]
     assert b.public(kind="check", step="T") == []
+    # the outage stop: run 2 of the cell was never started, and nothing is stored for it
+    assert len(b.calls()) == 3 and b.public(kind="model", run=2) == []
+    assert not (cb.suite_dir(b.root, "code-01", "sonnet-5-5@high", 2) / "meta.json").exists()
     b.seed_suite("sonnet-5-5@xhigh", 1, SUITE_GOOD, fit=True)
     b.give("sonnet-5-5@xhigh#1")
-    assert b.cli("code", "--cells", "haiku-5-5@high", "--arms", "B", "--rounds", "1")[0] == 0
+    code, out, _ = b.cli("code", "--cells", "haiku-5-5@high", "--arms", "B,C", "--rounds", "2")
+    assert code == 4 and "code: stopped, a run ended on API errors; no new process started" in out
     r = b.run_meta("haiku-5-5@high", "B")
     assert r["ended"] == "infra" and r["correct"] is False and r["finished"] is False and r["tries"] == 0
+    assert not (cb.run_dir_of(b.root, "code-01", "haiku-5-5@high", "C", 1) / "meta.json").exists()   # never started
+    assert "round 2" not in out
+
+
+def test_an_api_error_is_followed_by_a_wait_before_the_next_attempt(tmp_path, monkeypatch):
+    b = MB(tmp_path, monkeypatch)
+    monkeypatch.setattr(cb, "INFRA_WAITS_S", (30.0, 120.0))
+    waits = []
+    monkeypatch.setattr(cb, "infra_wait", lambda seconds, stop: waits.append(seconds))
+    b.script(A=[{"mode": "api_error"}, {"mode": "api_error"}, {"write": CODE_GOOD}])
+    assert b.cli("code", "--cells", "haiku-5-5@medium", "--arms", "A", "--rounds", "1")[0] == 0
+    assert waits == [30.0, 120.0]
+    assert [(x["attempt"], x["infra"]) for x in b.public(kind="model")] == [(1, True), (2, True), (3, False)]
+    assert b.run_meta("haiku-5-5@medium", "A")["correct"] is True
+
+
+def test_the_wait_between_attempts_ends_at_once_on_a_stop_request():
+    stop = ev.Stop()
+    cb.infra_wait(0.0, stop)                       # no wait asked: returns
+    stop.event.set()
+    started = time.monotonic()
+    with pytest.raises(cb.Cancelled):
+        cb.infra_wait(60.0, stop)
+    assert time.monotonic() - started < 5
 
 
 def test_a_time_out_and_a_budget_cap_are_tries_and_an_unknown_cost_is_charged_the_cap(tmp_path, monkeypatch):
@@ -1689,7 +1719,7 @@ def test_plan_counts_what_is_missing_and_the_spend(tmp_path, monkeypatch):
     assert "plan: 6 tasks, 6 installed" in out
     assert "step T: 0 of 48 suites stored, 48 to run" in out
     assert "step C: 0 of 180 runs stored (A 0/66, B 0/90, C 0/24), 180 to run, 0 left out" in out
-    assert "spend: $0.00 so far" in out and "projected unknown; stop at $226.00" in out
+    assert "spend: $0.00 so far" in out and "projected unknown; stop at $224.00" in out
     b.script(T=[{"write": SUITE_GOOD, "cost": 1.0}])
     assert b.cli("write-tests", "--task", "code-01", "--cells", "sonnet-5-5@high")[0] == 0
     code, out, _ = b.cli("plan", "--json")

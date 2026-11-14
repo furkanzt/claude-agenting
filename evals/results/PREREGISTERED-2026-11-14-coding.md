@@ -362,3 +362,28 @@ Two changes follow, both made before any run on a real task:
 
 Not probed with a real model: a failing given suite and a time limit that is too short. Both are
 covered by the tool's tests, which make real sandboxed test runs with a stand-in model.
+
+## Addendum 4: the pilot on one real task, and a guard against an outage (2026-11-14, 22:43Z)
+
+**The pilot** ran on `code-04`, as ordinary runs: its eight test-writing runs, the fit check, and one run
+of every coder cell and arm.
+
+- Step T: 8 runs, $7.83, 11 minutes with four at a time. All eight suites were red on the start state
+  at the first try, and all eight are fit. The given suite is the first in the fixed order.
+- Step C: 9 runs, $1.84, 8 minutes. All nine are correct.
+- No API error, no refused write, no instruction file, no time-out.
+
+**Projection** by the tool's `plan` command from these costs: about $70 for all 228 runs, against the
+$205 expected and the $224 stop. Nothing is cut. A Haiku coding run cost $0.02 to $0.13 here, not the
+$0.20 to $0.40 written under "What to expect".
+
+**One guard added before the rest of the runs,** because they run unattended for hours. The rules say
+an API or infrastructure error is not a try and the same try runs again, up to three attempts. The tool
+made those attempts one right after the other, so an outage of a minute could have ended every run in
+flight and every run after it. Now:
+
+1. The tool waits 30 seconds before the second attempt of a try and 120 seconds before the third.
+2. When a run still ends on three such attempts, it is stored as the rules say, and the command starts
+   no new model process. The runs it had in flight are made again at the next start.
+
+This changes no rule and no count. It limits what an outage can cost to the runs that were in flight.

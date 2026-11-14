@@ -234,7 +234,7 @@ python3 -m pytest tests          # or, without pytest:
 python3 -m unittest discover -s tests
 ```
 
-1,252 tests; the whole suite takes about 6 minutes (the 158 tests of the coding experiment's tool make real sandboxed test runs and take about 3 of them; they are skipped where macOS `sandbox-exec` or node is missing). `pytest.ini` limits a bare `pytest` to `tests/`, so it never walks into `evals/` (a test runner once left `.pyc` files in a gitignored task's material and silently changed its hash; `evalkit.py selfcheck` now reports such caches).
+1,254 tests; the whole suite takes about 6 minutes (the 160 tests of the coding experiment's tool make real sandboxed test runs and take about 3 of them; they are skipped where macOS `sandbox-exec` or node is missing). `pytest.ini` limits a bare `pytest` to `tests/`, so it never walks into `evals/` (a test runner once left `.pyc` files in a gitignored task's material and silently changed its hash; `evalkit.py selfcheck` now reports such caches).
 
 The fan-out view's hooks module has its own tests, run by Claude Code's plugin test kit (no model is called): `python3 scripts/quality/run_plugin_tests.py`.
 

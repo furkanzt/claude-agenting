@@ -19,7 +19,7 @@ that is not a JSON object of kind model or check) or an option is wrong.
 sonnet-5-5@medium), the arm C, or a smaller number of runs per task as <cell>:<n> (haiku-5-5@medium:3,
 haiku-5-5@high:3, sonnet-5-5@low:2). The planned runs that a cut removes are not pending and are listed
 as cut; runs of a cut cell that did end are still counted. Arm C cut makes question 3 "not measured".
---stop-usd (default 226) is the spend stop: once the record's spend total reaches it, every planned run
+--stop-usd (default 224) is the spend stop: once the record's spend total reaches it, every planned run
 that has not ended was never started (or was cut half way) because of the spend stop: it is listed,
 left out of every share, and not pending.
 
@@ -99,7 +99,7 @@ MAX_TRIES = {"T": 3, "A": 1, "B": 3, "C": 3}
 MAX_ATTEMPTS = 3
 FIT_REFERENCE_RUNS = 2
 UNKNOWN_COST_USD = 6.0
-STOP_USD = 226.0
+STOP_USD = 224.0                                    # rules, Addendum 3 (226 before the pilot)
 RED = frozenset({"fail", "timeout", "load_error_missing_name"})
 INFRA_RESULT = "check_infra"
 
