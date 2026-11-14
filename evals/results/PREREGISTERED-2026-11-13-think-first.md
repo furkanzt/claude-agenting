@@ -359,3 +359,26 @@ was read from the clock. Nothing here changes a threshold.
 5. **Settings changes, from now on.** The modification time of the settings file is noted before
    and after each batch. A change during a batch counts as evidence in the sense of addendum 4,
    point 5, exactly like a failed watchdog check.
+
+## Note on commit hashes, 2026-11-14T14:36Z (after all runs; changes no rule)
+
+The working commits of this round were grouped before they were pushed, so the hashes cited above
+exist only on the operator's local branch. In the pushed history:
+
+| Working commit, as cited above | Pushed commit | Its time, 2026-11-13 |
+|---|---|---|
+| the rules | `68c02a4`, unchanged | 12:49Z |
+| `5d38e1e` (addendum 1) | `28bf436` | 13:21Z |
+| `4e2f1cc` (addendum 2) | `74ee0cc` | 13:57Z |
+| `9da8208` (the tasks installed) and `300a520` (addendum 3) | `46fcbea`, one commit of four steps | 14:15Z |
+| addendum 4 | `e60fbde` | 17:57Z |
+| `299df3c` (the erratum) | `fff5bc2` | 18:21Z |
+| the note under the erratum | `0884f3a` | 18:24Z |
+| addendum 5 | `d5a1749` | 18:47Z |
+
+Every commit in the table kept the time of its working commit. `46fcbea` holds four working commits
+(14:00Z to 14:15Z) and carries the time of the last, addendum 3; they had to become one commit because
+the first two carried task titles that were too specific. The pushed history therefore still shows
+addendum 3 at 14:15Z, but it no longer shows on its own that the tasks were installed at 14:00Z: that
+time is stated in the commit's message. The message of addendum 4's commit was corrected on the way
+(it had named a network interruption as the cause of the stall; see addendum 5, point 4), and says so.

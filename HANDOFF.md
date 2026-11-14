@@ -5,7 +5,7 @@
 
 ## P. After the Fable 5.2 round and the advisor work (2026-11-13 and 14)
 
-**Nothing is running and nothing is half done.** Release 3.6.0 is committed (`589e1eb`) and not pushed.
+**Nothing is running and nothing is half done.** Release 3.6.0 is committed (`e736e02`) and was pushed on 2026-11-14.
 
 ### P.1 What was found
 
@@ -46,12 +46,12 @@ report, the research note and the two pre-registrations.
 
 ### P.3 Decisions waiting for the owner
 
-1. **Push.** Squash into bites first. Two things to respect when building them:
-   - `9da8208` to `300a520` must end up in one bite: the first two carry an earlier `evals/tasks.json`
-     whose task titles were too specific, and `300a520` made them neutral.
-   - Three messages carry small errors that a bite's message should not repeat: `3dc7da2` ("six per cell
-     and task combination" is three; "all valid on the first attempt" holds for the decision runs only),
-     and `286130c` (it names a network interruption; the cause was not established).
+1. **Push: done on 2026-11-14.** The 43 working commits went out as 30, plus one commit that brought the
+   cited hashes up to date. Every pre-registration commit kept its own commit and its time. The four from
+   the task installation to addendum 3 are one commit (`46fcbea`), because the first two carried an
+   earlier `evals/tasks.json` whose task titles were too specific. Two messages were corrected on the way
+   and say so: `bbf9b40` (run counts) and `e60fbde` (the cause of the stall was not established). The
+   working commits are on the local branch `backup/pre-squash-2f6df2c`.
 2. **Install 3.6.0.** The new hooks reach a chat only after the plugin is updated to the new version.
    Until then chats run 3.5.3: no agent guard, no advisor rule.
 3. **The advisor setting.** The owner's settings name no advisor since 2026-11-13 17:36Z. With 3.6.0
@@ -68,7 +68,7 @@ report, the research note and the two pre-registrations.
 
 ```
 git status --short                      # expect only: M .gitignore (not from this work; never stage it)
-git log origin/main..HEAD --oneline     # expect 43 unpushed commits
+git log origin/main..HEAD --oneline     # expect nothing right after the push of 2026-11-14
 python3 -m pytest tests -q              # expect 995 passed (about 2.5 minutes)
 python3 scripts/check-setup.py          # expect 53 passed, 0 failed
 python3 evals/evalkit.py selfcheck      # expect 29 tasks, 0 problems
