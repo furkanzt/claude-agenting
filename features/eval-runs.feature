@@ -684,3 +684,13 @@ Feature: The evalkit runner plans only the missing runs, executes each as its ow
     When "sonnet-5-5@xhigh+fable-advisor" is read
     Then it has model claude-sonnet-5-5, effort xhigh, the price of sonnet-5-5@xhigh as of 2026-11-13 and advisor {"setting": "fable", "model_id": "claude-fable-5-2"}
     And the synthesize grid holds it with the role "advisor_pairing"
+
+  # Backed by: tests/test_evalkit.py::test_the_four_advisor_pair_cells_of_2026_11_14_are_wired
+  Scenario: The four advisor-pair cells of 2026-11-14 sit in evals/cells.json and in the grids of the rows they run on
+    Given evals/cells.json and evals/rows.json
+    When the four cells "opus-5-5@xhigh+fable-advisor", "opus-5-5@high+fable-advisor", "sonnet-5-5@xhigh+opus-advisor" and "sonnet-5-5@high+opus-advisor" are read
+    Then each has the model, the effort and the price of the plain cell it is named after, as of 2026-11-14
+    And each Opus cell names a Fable 5.2 advisor and each Sonnet cell an Opus 5.5 advisor, never its own model
+    And each tells the model about the advisor tool and asks for one status line: "ADVISOR: answered", "ADVISOR: failed" or "ADVISOR: not called"
+    And the design-decision grid holds all four with the role "advisor_pairing", and the synthesize grid the two Sonnet cells
+    And no other cell in evals/cells.json has an advisor, except "sonnet-5-5@xhigh+fable-advisor"

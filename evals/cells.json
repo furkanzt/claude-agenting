@@ -219,6 +219,66 @@
         "model_id": "claude-fable-5-2"
       },
       "system_append": "Besides the tools named above you have one more: a server-side tool named advisor, backed by a stronger model. It takes no parameters and reads your whole conversation. Call it once before you commit to your final answer, and again only if you are stuck. Weigh its advice against what the files say."
+    },
+    "opus-5-5@xhigh+fable-advisor": {
+      "model_id": "claude-opus-5-5",
+      "alias": "opus",
+      "effort": "xhigh",
+      "price": {
+        "input": 4.0,
+        "output": 20.0,
+        "as_of": "2026-11-14"
+      },
+      "advisor": {
+        "setting": "fable",
+        "model_id": "claude-fable-5-2"
+      },
+      "system_append": "Besides the tools named above you have one more: a server-side tool named advisor, backed by a stronger model. It takes no parameters and reads your whole conversation. Call it once before you commit to your final answer, and again only if you are stuck. Weigh its advice against what the files say. On the last line before the answer block write exactly one of these three: ADVISOR: answered, ADVISOR: failed (the call returned an error or timed out), or ADVISOR: not called."
+    },
+    "opus-5-5@high+fable-advisor": {
+      "model_id": "claude-opus-5-5",
+      "alias": "opus",
+      "effort": "high",
+      "price": {
+        "input": 4.0,
+        "output": 20.0,
+        "as_of": "2026-11-14"
+      },
+      "advisor": {
+        "setting": "fable",
+        "model_id": "claude-fable-5-2"
+      },
+      "system_append": "Besides the tools named above you have one more: a server-side tool named advisor, backed by a stronger model. It takes no parameters and reads your whole conversation. Call it once before you commit to your final answer, and again only if you are stuck. Weigh its advice against what the files say. On the last line before the answer block write exactly one of these three: ADVISOR: answered, ADVISOR: failed (the call returned an error or timed out), or ADVISOR: not called."
+    },
+    "sonnet-5-5@xhigh+opus-advisor": {
+      "model_id": "claude-sonnet-5-5",
+      "alias": "sonnet",
+      "effort": "xhigh",
+      "price": {
+        "input": 2.0,
+        "output": 10.0,
+        "as_of": "2026-11-14"
+      },
+      "advisor": {
+        "setting": "opus",
+        "model_id": "claude-opus-5-5"
+      },
+      "system_append": "Besides the tools named above you have one more: a server-side tool named advisor, backed by a stronger model. It takes no parameters and reads your whole conversation. Call it once before you commit to your final answer, and again only if you are stuck. Weigh its advice against what the files say. On the last line before the answer block write exactly one of these three: ADVISOR: answered, ADVISOR: failed (the call returned an error or timed out), or ADVISOR: not called."
+    },
+    "sonnet-5-5@high+opus-advisor": {
+      "model_id": "claude-sonnet-5-5",
+      "alias": "sonnet",
+      "effort": "high",
+      "price": {
+        "input": 2.0,
+        "output": 10.0,
+        "as_of": "2026-11-14"
+      },
+      "advisor": {
+        "setting": "opus",
+        "model_id": "claude-opus-5-5"
+      },
+      "system_append": "Besides the tools named above you have one more: a server-side tool named advisor, backed by a stronger model. It takes no parameters and reads your whole conversation. Call it once before you commit to your final answer, and again only if you are stuck. Weigh its advice against what the files say. On the last line before the answer block write exactly one of these three: ADVISOR: answered, ADVISOR: failed (the call returned an error or timed out), or ADVISOR: not called."
     }
   }
 }

@@ -1857,6 +1857,31 @@ class AdvisorIdentity(unittest.TestCase):
         grid = next(r for r in rows if r["id"] == "synthesize")["grid"]
         self.assertIn({"cell": "sonnet-5-5@xhigh+fable-advisor", "role": "advisor_pairing"}, grid)
 
+    def test_the_four_advisor_pair_cells_of_2026_11_14_are_wired(self):
+        cells = self.real_cells()
+        rows = json.loads((EVALS / "rows.json").read_text(encoding="utf-8"))["rows"]
+        grids = {r["id"]: r["grid"] for r in rows}
+        fable = {"setting": "fable", "model_id": "claude-fable-5-2"}
+        opus = {"setting": "opus", "model_id": "claude-opus-5-5"}
+        want = {"opus-5-5@xhigh+fable-advisor": (fable, {"design-decision"}),
+                "opus-5-5@high+fable-advisor": (fable, {"design-decision"}),
+                "sonnet-5-5@xhigh+opus-advisor": (opus, {"design-decision", "synthesize"}),
+                "sonnet-5-5@high+opus-advisor": (opus, {"design-decision", "synthesize"})}
+        for cid, (advisor, in_rows) in want.items():
+            with self.subTest(cell=cid):
+                cell, plain = cells[cid], cells[cid.split("+")[0]]
+                self.assertEqual((cell["model_id"], cell["effort"]), (plain["model_id"], plain["effort"]))
+                self.assertEqual(cell["price"], {**plain["price"], "as_of": "2026-11-14"})
+                self.assertEqual(cell["advisor"], advisor)
+                self.assertNotEqual(cell["advisor"]["model_id"], cell["model_id"])
+                self.assertIn("a server-side tool named advisor", cell["system_append"])
+                for status in ("ADVISOR: answered", "ADVISOR: failed", "ADVISOR: not called"):
+                    self.assertIn(status, cell["system_append"])
+                held = {rid for rid, grid in grids.items() if {"cell": cid, "role": "advisor_pairing"} in grid}
+                self.assertEqual(held, in_rows)
+        advised = {cid for cid, cell in cells.items() if cell.get("advisor")}
+        self.assertEqual(advised, set(want) | {"sonnet-5-5@xhigh+fable-advisor"})
+
 
 class RealStateUntouched(unittest.TestCase):
     def fingerprint(self):

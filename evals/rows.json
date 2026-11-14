@@ -236,6 +236,14 @@
         {
           "cell": "sonnet-5-5@xhigh+fable-advisor",
           "role": "advisor_pairing"
+        },
+        {
+          "cell": "sonnet-5-5@xhigh+opus-advisor",
+          "role": "advisor_pairing"
+        },
+        {
+          "cell": "sonnet-5-5@high+opus-advisor",
+          "role": "advisor_pairing"
         }
       ],
       "tasks": [
@@ -389,6 +397,22 @@
         {
           "cell": "fable-5-2@high",
           "role": "paid_upgrade"
+        },
+        {
+          "cell": "opus-5-5@xhigh+fable-advisor",
+          "role": "advisor_pairing"
+        },
+        {
+          "cell": "opus-5-5@high+fable-advisor",
+          "role": "advisor_pairing"
+        },
+        {
+          "cell": "sonnet-5-5@xhigh+opus-advisor",
+          "role": "advisor_pairing"
+        },
+        {
+          "cell": "sonnet-5-5@high+opus-advisor",
+          "role": "advisor_pairing"
         }
       ],
       "tasks": [
