@@ -172,7 +172,7 @@ arm (c_units). Arms B and C wait for the task's given suite and are left out whe
 run: a working copy (arm B: the given suite's files written into it); up to three tries (arm A one);
 after each try: arm B puts the given suite's files and the runner_config files back as they were
 (a change = check result locked_changed, counted as files_dropped; the suite is still run so the next
-try sees its output); the check (arm A none; arm B the given suite on start + the copy's overlay with
+try sees its output, after a note that names the files that were put back); the check (arm A none; arm B the given suite on start + the copy's overlay with
 the suite written last; arm C own_check); then the hidden tests on start + overlay with the hidden
 files written last, never shown to the model. A try whose check is not `pass` and that is not the last
 gets the next try in the same copy with the check's output. Stored: overlay/, deleted.json and
@@ -2126,22 +2126,29 @@ def settle_suite(copy: Path, start: Path, task: Task) -> tuple[list[str], int]:
     return suite, dropped
 
 
-def restore_locked(copy: Path, locked: Mapping[str, bytes | None]) -> int:
-    """Arm B: put every locked file back as it was (None = it did not exist). Returns how many had
-    changed."""
-    changed = 0
+def restore_locked(copy: Path, locked: Mapping[str, bytes | None]) -> list[str]:
+    """Arm B: put every locked file back as it was (None = it did not exist). Returns the paths that
+    had changed, sorted."""
+    changed = []
     for rel, data in locked.items():
         p = copy / rel
         now = p.read_bytes() if (p.is_file() and not p.is_symlink()) else None
         if p.is_symlink() or p.is_dir() or now != data:
-            changed += 1
+            changed.append(rel)
             if p.is_dir() and not p.is_symlink():
                 shutil.rmtree(p)
             if data is None:
                 _remove(p)
             else:
                 _write_file(p, data)
-    return changed
+    return sorted(changed)
+
+
+def locked_note(paths: Sequence[str]) -> str:
+    """NOTE_LOCKED plus the names of the files that were put back (at most ten), so the coder knows
+    which of its own changes was refused."""
+    shown = ", ".join(paths[:10]) + (f" and {len(paths) - 10} more" if len(paths) > 10 else "")
+    return f"{NOTE_LOCKED} Put back: {shown}."
 
 
 def store_tree_files(dest: Path, src_root: Path, paths: Iterable[str]) -> None:
@@ -2375,10 +2382,11 @@ def c_run(st: Steps, task: Task, cell: str, arm: str, run: int, stop) -> str:
                 p = start / rel
                 locked.setdefault(rel, p.read_bytes() if p.is_file() else None)
         for try_no in range(1, MAX_TRIES[arm] + 1):
-            hit = {"n": 0}
+            hit = {"n": 0, "paths": []}
 
             def settle():
-                hit["n"] = restore_locked(copy, locked) if arm == "B" else 0
+                hit["paths"] = restore_locked(copy, locked) if arm == "B" else []
+                hit["n"] = len(hit["paths"])
                 return hit["n"]
             proc = st.one_try(step="C", task=task, cell=cell, arm=arm, run=run, try_no=try_no,
                               prompt=build_prompt(arm, brief, sorted(given_files), feedback), copy=copy,
@@ -2392,7 +2400,7 @@ def c_run(st: Steps, task: Task, cell: str, arm: str, run: int, stop) -> str:
             if arm == "B":
                 res = st.suite_check(task, start, given_files, overlay=ov_files, deleted=ov.deleted)
                 word = "locked_changed" if hit["n"] else res.result
-                detail = with_note(NOTE_LOCKED, res.detail) if hit["n"] else res.detail
+                detail = with_note(locked_note(hit["paths"]), res.detail) if hit["n"] else res.detail
                 st.app.records.check(step="C", task=task.code, what="given", res=res, result=word, cell=cell,
                                      arm=arm, run=run, try_=try_no, suite=given_sid)
                 no_infra(res, task.code)

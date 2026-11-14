@@ -335,3 +335,30 @@ run is correct only when all of them pass.
 **What this reading does not catch.** A note that describes a change without using a new name, which a
 check by names never could. And a comment in a code file that names a function ahead of time; the
 first version caught that only outside the task's own source files.
+
+## Addendum 3: the pilot's probe on a toy project, before any run on a real task (2026-11-14, 22:10Z)
+
+The rules ask for a scripted probe of the write tools on a toy project before the first real run. It ran
+through the tool itself, on a toy task with its own record (not `code-runs.jsonl`): 8 test-writing runs,
+the fit check, one round of all coder cells and arms (9 runs), the cross check and the analysis. Then a
+separate two-run test with a half-cent cost cap, and a separate six-process check of instruction files.
+Cost of all of it: $0.93. None of these runs is one of the 228 planned runs.
+
+| Checked | Result |
+|---|---|
+| A new file in a new folder, and an edit | Worked in every run. |
+| A path outside the copy | Refused in 28 of 29 processes; the other one did not try it. Nothing was written outside. |
+| An instruction file in the folder (`CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`) | Not loaded: 6 of 6 processes (3 Haiku, 2 Sonnet, 1 Opus) asked for it without tools had none in context. A model can still read such a file with its read tool, as any file. |
+| A locked file changed in arm B (planted: the brief asked for a file the task record locks) | Put back, and the try counted as failed, in 15 of 15 tries. The hidden tests still ran. |
+| A process that hits its cost cap | Stopped, recorded with the reason `budget_cap` and its cost. It counts as a try and its files are checked. It overshot: $0.011 against a cap of $0.005, one more turn than the cap allowed. |
+| Every command end to end | 8 of 8 toy suites fit, 9 of 9 coding runs correct, 32 cross pairs, the analysis read the record. |
+
+Two changes follow, both made before any run on a real task:
+
+1. **The spend stop is $224, not $226.** A process can pass its cap by one turn. One turn of the
+   largest model on these tasks is put at $0.50 at most, and four processes run at a time.
+2. **The note after a locked file was changed now names the files that were put back.** In the toy, a
+   coder that was not told which file had been refused changed it again in every try.
+
+Not probed with a real model: a failing given suite and a time limit that is too short. Both are
+covered by the tool's tests, which make real sandboxed test runs with a stand-in model.

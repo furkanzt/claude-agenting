@@ -1543,6 +1543,8 @@ def test_arm_b_a_coder_that_edits_a_locked_file_fails_the_try_and_the_file_is_pu
     assert b.cli("code", "--cells", "haiku-5-5@medium", "--arms", "B", "--rounds", "1")[0] == 0
     calls = b.calls()
     assert cb.NOTE_LOCKED in calls[1]["prompt"] and cb.NOTE_LOCKED in calls[2]["prompt"]
+    assert "Put back: tests/test_mul_w.py." in calls[1]["prompt"] and "Put back: pytest.ini." in calls[2]["prompt"]
+    assert cb.locked_note([f"t{i}.py" for i in range(12)]).endswith("t9.py and 2 more.")
     assert "pytest.ini" not in calls[2]["files"]
     assert [x["result"] for x in b.public(what="given")] == ["locked_changed", "locked_changed", "pass"]
     assert [x["files_dropped"] for x in b.public(kind="model")] == [1, 1, 0]
