@@ -120,6 +120,7 @@ Upgrading from 2.x: see the 3.0.0 entry in [CHANGELOG.md](CHANGELOG.md).
 | `commands/` | `/agenting-check`, `/agenting-mode`. |
 | `scripts/check-setup.py` | End-to-end health check (53 checks): it *runs* things rather than reading config, including real payloads through the agent guard. |
 | `evals/probes/think_first_analysis.py` | The rule checker for the two think-first rows (design-decision, ux-design): applies the pre-registered rules to the stored runs and scores. |
+| `evals/probes/advisor_pairs_analysis.py` | The rule checker for the advisor-pairs test of 2026-11-14 (Opus with a Fable advisor, Sonnet with an Opus advisor, each against Opus alone): applies the pre-registered rules to the stored runs and scores. |
 | `evals/probes/ux_blind.py` | The blind UI/UX comparison: builds sanitised pages, pairs them, and applies the pre-registered verdict rules. |
 | `scripts/quality/check_ux_pages.py` | Loads every built page in headless Chromium inside the sandboxed frame; fails a page that throws or renders nothing. |
 | `scripts/measure-tokenomics.py` | Recomputes the main/agent cost split (advisor spend included), spawn tax, and effort distribution from real transcripts; `anatomy` breaks down what a Workflow agent costs to start. Dated per-model price table, list price. |
