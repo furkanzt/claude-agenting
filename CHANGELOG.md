@@ -22,6 +22,18 @@
   before its answer (`ADVISOR: answered`, `failed` or `not called`), because a run line can only show an advisor
   that answered.
 - `evals/probes/advisor_pairs_analysis.py`, the rule checker of that test.
+- **The tool of the coding experiment** (rules: `evals/results/PREREGISTERED-2026-11-14-coding.md`; no run yet).
+  `evals/probes/code_bench.py` gives a model file tools (read, search, write, edit; it can run nothing) in a
+  throwaway copy of a project and runs the tests itself in a macOS sandbox: no network, no write outside the
+  copy, no reading of file contents under the home folder, no signal to an outside process, a time limit and an
+  output limit. A self-test with canary tests runs before every command, and the command refuses to go on when
+  a canary gets through. Commands: `selftest`, `install` (builds a task's start and reference state from two
+  commits and checks that its hidden tests fail before the change and pass after it), `write-tests`,
+  `fix-suites`, `code`, `cross`, `plan`, `status`. The public record, `evals/results/code-runs.jsonl`, holds one
+  line per model process and per test run: task code, cell, arm, run, try, fixed words and numbers only.
+  `evals/probes/code_bench_analysis.py` applies the four pre-registered questions to that file alone. 208
+  tests, red-proofed with about 140 mutations on copies of the tool. The suite now takes about 6 minutes
+  instead of 2.5.
 
 ## 3.6.0 — 2026-11-14 (agent guard, where the work runs, workers work alone; Fable 5.2 measured, not adopted)
 

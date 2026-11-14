@@ -258,3 +258,44 @@ measured here and keeps the cell of the verify row.
   has decided.
 - **Claude Code 2.1.325.** Every invocation checks the version and stops if it differs; the automatic
   updater is switched off for the processes the tool starts, and the advisor is off for every run.
+
+## Addendum 1: readings fixed with the tool, before any run (2026-11-14, 21:42Z)
+
+Written after the tool and its analysis were built and tested, and before any task was installed or any
+model run was made. No number of the plan changes. Each point says how the tool reads a sentence above
+that could be read two ways, or states a limit more exactly.
+
+1. **"Loads" (red on the start state, fit).** Every test file handed to the test runner must load. One
+   file that fails to load for another reason than a listed missing name makes the run a load error,
+   even when another file has a failing test. The exact reading per test runner is in the docstring of
+   `evals/probes/code_bench.py` and in its tests.
+2. **Question 4, "fewer than 10 such pairs".** Each rate is counted over its own pairs: the catch rate
+   over pairs of a fit suite and a copy that is not correct, the wrong-rejection rate over pairs of a fit
+   suite and a correct copy. A rate with fewer than 10 pairs of its own is "too few to tell".
+3. **Running a suite on a copy.** Every path under the task's test patterns is first put back to the
+   start state: test files the run added are removed, as written above, and a start-state test file
+   that the run changed or deleted is restored too. A suite is judged on the copy's source only.
+4. **Correct at the first try, for a run that ended on infrastructure errors.** Such a run is not
+   correct and not finished, as written. It still counts as correct at the first try when its hidden
+   tests passed after try 1, because that try was measured.
+5. **A run that was cut** (by the spend stop, by a test runner that could not start, or by the
+   operator) is made again from try 1 in a fresh copy. The cost of the cut part counts in the spend
+   total and is listed in the report. It is not part of the run's cost.
+6. **A test runner that cannot start** (the sandbox refuses, a program is missing) is not a result. The
+   tool stops, stores nothing for that run and makes it again at the next start.
+7. **Rounds and the spend stop.** The stop is checked before every process, so it can leave the round
+   in progress partly done. To keep rounds whole, a round is started only when the projection says it
+   fits under the stop. If the stop still cuts a round, the report lists the runs that were never made.
+8. **A process that answered with another model than its cell's** counts as a try, as everywhere in
+   the harness. The report lists every such process.
+9. **Arm B's locked files** are the given suite's files and the test runner's configuration files named
+   in the task record, including names that do not exist at the start (a `conftest.py` that a coder
+   might add).
+10. **Scratch copies** live in the system's temporary folder, outside the repository, because pytest
+    reads its configuration from the folders above a project.
+11. **Limit 10, more exactly.** The sandbox also denies signals to processes outside it, and the tool
+    kills the processes a test leaves behind. A run whose output passes 64 MB is stopped and counts as
+    a time-out. The sandbox does not hide the names and sizes of files in the home folder (only their
+    contents), everything outside the home folder can be read, name lookups through system services
+    were not tested, and a test file that ends the test runner on purpose with a success code reads as
+    passed.

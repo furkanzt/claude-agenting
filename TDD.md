@@ -47,7 +47,7 @@ Shared helpers: `tests/_util.py` (`HookTestCase`, script paths). Stubs: `tests/f
 
 | What | Command |
 |---|---|
-| Whole suite (about 2 min 20 s) | `python3 -m pytest tests -q` |
+| Whole suite (about 6 min) | `python3 -m pytest tests -q` |
 | One file | `python3 -m pytest tests/test_routing_guard.py -q` |
 | One test | `python3 -m pytest tests/test_tokenomics.py -k long_prompt -q` |
 | Plugin health (end to end, not config reading) | `python3 scripts/check-setup.py` |

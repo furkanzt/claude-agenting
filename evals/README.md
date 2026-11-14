@@ -278,6 +278,26 @@ cell, so it must never happen by accident.
   `cost_usd` stays the CLI's total, which already includes the advisor; the token fields stay the cell's own
   model's.
 
+## The coding experiment (`probes/code_bench.py`)
+
+A side tool for the pre-registered coding experiment of 2026-11-14
+(`results/PREREGISTERED-2026-11-14-coding.md`): who writes the tests and who writes the code. It uses
+`evalkit.py`'s launcher, per-process cost cap and lock, so the two never run at the same time.
+
+- **What is different from `evalkit.py run`.** The model gets write tools (read, search, write, edit; it can
+  run nothing) inside a throwaway copy of a project. The tool then runs the tests itself, in a macOS sandbox:
+  no network, no write outside the copy, no reading of file contents under the home folder, no signal to an
+  outside process, a time limit and an output limit. macOS only.
+- **`selftest`** proves the sandbox with canary tests (a network call, a write outside, a read in the home
+  folder, a signal to an outside process). Every other command runs it first and refuses to go on when a
+  canary gets through.
+- **Private:** `private/code/` (task records, briefs, start and reference trees, hidden tests, suites, runs,
+  and `attempts.jsonl` with the test output).
+- **Public:** `results/code-runs.jsonl`, one line per model process and per test run: task code, cell, arm,
+  run, try, a word from a fixed list, and numbers. No path, no test name, no output text.
+- **`probes/code_bench_analysis.py`** applies the rules to the public file alone.
+- Commands, the exact reading of every test runner's result, and the limits: the docstrings of the two files.
+
 ## Known limits (state these when reporting)
 
 - Three repeats resolve large differences, not small ones. "Passed 3 of 3" is

@@ -79,10 +79,17 @@ end.** Nothing of it is built yet unless a line below says so.
 1. Report of the advisor-pairs comparison of 2026-11-14: done,
    `evals/results/REPORT-2026-11-14-advisor-pairs.md` (Opus with a Fable advisor: no better judgment;
    Sonnet with an Opus advisor: no replacement for Opus on synthesis). Then install 3.6.0.
-2. The coding experiment. Rules: committed on 2026-11-14 after three independent reviews. Next, in
-   this order: the side tool `evals/probes/code_bench.py` and its analysis, with tests; the six tasks
-   with their installation check (the chosen candidates are in `evals/private/code/selection.json`); the
-   pilot; step T; step C.
+2. The coding experiment. Rules: committed on 2026-11-14 after three independent reviews, with
+   Addendum 1 (eleven readings the tool fixed) appended before any run. **Done:** the side tool
+   `evals/probes/code_bench.py` and its analysis `code_bench_analysis.py`, built in three stages, each
+   checked by a second agent, 208 tests. **Next, in this order:** the six tasks with their installation
+   check (`python3 evals/probes/code_bench.py install`; the records are in
+   `evals/private/code/tasks.json`, the replacement candidates in `selection.json`); the pilot (the
+   write-tools probe on a toy root, then one task end to end); the spend projection
+   (`code_bench.py plan`); step T (`write-tests`), `fix-suites`, step C (`code`, one round at a time,
+   with `plan` between rounds), `cross`, then `code_bench_analysis.py` and the audited report. Every
+   model command needs the CLI pinned to 2.1.325 on `PATH` (the tool refuses another version) and no
+   other `evalkit.py run` at the same time (one lock).
 3. The new `fast` column from stored data, shown to the owner.
 4. Modes, the two words, plan detection, the prototype rule, the build rows; tests and scenarios.
 5. One release; pushing is the owner's decision.

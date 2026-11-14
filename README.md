@@ -122,6 +122,8 @@ Upgrading from 2.x: see the 3.0.0 entry in [CHANGELOG.md](CHANGELOG.md).
 | `evals/probes/think_first_analysis.py` | The rule checker for the two think-first rows (design-decision, ux-design): applies the pre-registered rules to the stored runs and scores. |
 | `evals/probes/advisor_pairs_analysis.py` | The rule checker for the advisor-pairs test of 2026-11-14 (Opus with a Fable advisor, Sonnet with an Opus advisor, each against Opus alone): applies the pre-registered rules to the stored runs and scores. |
 | `evals/probes/ux_blind.py` | The blind UI/UX comparison: builds sanitised pages, pairs them, and applies the pre-registered verdict rules. |
+| `evals/probes/code_bench.py` | The tool of the coding experiment of 2026-11-14 (who writes the tests, who writes the code): a model gets file tools in a throwaway copy of a project, the tool runs the tests itself in a macOS sandbox, and the public record holds fixed words and numbers only. macOS only. |
+| `evals/probes/code_bench_analysis.py` | The rule checker for that experiment: applies the pre-registered rules to the public record alone. |
 | `scripts/quality/check_ux_pages.py` | Loads every built page in headless Chromium inside the sandboxed frame; fails a page that throws or renders nothing. |
 | `scripts/measure-tokenomics.py` | Recomputes the main/agent cost split (advisor spend included), spawn tax, and effort distribution from real transcripts; `anatomy` breaks down what a Workflow agent costs to start. Dated per-model price table, list price. |
 | `scripts/cleanrun.py` | Runs a fan-out of self-contained tasks as clean `claude -p --restricted` processes instead of Workflow agents: explicit model and effort, a check of the model that answered, process-group kills, a budget cap, resume with re-validation. 63% cheaper per task at list price on one measured pipeline. `plan`, `run`, `status`. |
@@ -232,7 +234,7 @@ python3 -m pytest tests          # or, without pytest:
 python3 -m unittest discover -s tests
 ```
 
-1,037 tests; the whole suite takes about 2 minutes 30 seconds. `pytest.ini` limits a bare `pytest` to `tests/`, so it never walks into `evals/` (a test runner once left `.pyc` files in a gitignored task's material and silently changed its hash; `evalkit.py selfcheck` now reports such caches).
+1,251 tests; the whole suite takes about 6 minutes (the 157 tests of the coding experiment's tool make real sandboxed test runs and take about 3 of them; they are skipped where macOS `sandbox-exec` or node is missing). `pytest.ini` limits a bare `pytest` to `tests/`, so it never walks into `evals/` (a test runner once left `.pyc` files in a gitignored task's material and silently changed its hash; `evalkit.py selfcheck` now reports such caches).
 
 The fan-out view's hooks module has its own tests, run by Claude Code's plugin test kit (no model is called): `python3 scripts/quality/run_plugin_tests.py`.
 

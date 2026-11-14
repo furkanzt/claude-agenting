@@ -10,7 +10,7 @@ No server.
 
 | What | Command |
 |---|---|
-| Whole test suite (about 2 min 20 s) | `python3 -m pytest tests -q` |
+| Whole test suite (about 6 min) | `python3 -m pytest tests -q` |
 | Plugin health check (end to end) | `python3 scripts/check-setup.py` |
 | Eval harness self-check | `python3 evals/evalkit.py selfcheck` |
 | Fan-out view tests (hooks module) | `python3 scripts/quality/run_plugin_tests.py` |
