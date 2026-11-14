@@ -82,9 +82,9 @@ end.** Nothing of it is built yet unless a line below says so.
 2. The coding experiment. Rules: committed on 2026-11-14 after three independent reviews, with
    Addendum 1 (eleven readings the tool fixed) appended before any run. **Done:** the side tool
    `evals/probes/code_bench.py` and its analysis `code_bench_analysis.py`, built in three stages, each
-   checked by a second agent, 208 tests. **Next, in this order:** the six tasks with their installation
-   check (`python3 evals/probes/code_bench.py install`; the records are in
-   `evals/private/code/tasks.json`, the replacement candidates in `selection.json`); the pilot (the
+   checked by a second agent, 209 tests; the six tasks, all first choices, installed and checked
+   (`python3 evals/probes/code_bench.py install`; records in `evals/private/code/tasks.json`; Addendum
+   2 of the rules says how the leak check was corrected on the way). **Next, in this order:** the pilot (the
    write-tools probe on a toy root, then one task end to end); the spend projection
    (`code_bench.py plan`); step T (`write-tests`), `fix-suites`, step C (`code`, one round at a time,
    with `plan` between rounds), `cross`, then `code_bench_analysis.py` and the audited report. Every

@@ -118,10 +118,14 @@ case, .claude and .github at any depth, docs and features at the tree root and a
 reference/ = start with every source file read from `after` (`cat-file -e` says whether `after` has
 it; a path it lacks is deleted; a path that neither commit has is task_invalid);
 hidden/ = every hidden test file from `after`. Links in the archive that leave the tree are skipped
-and counted (links_skipped). Then the leak check: a name is ADDED by the change when
-it does not occur as a whole token (not inside a longer identifier) in the `before` version of any
-source file; no added name may occur as a whole token in any file of the stripped start tree, nor
-in the path of one (a file or folder that already carries the name). Then,
+and counted (links_skipped). Then the leak check (rules: "no name the change adds, and the hidden
+tests need, occurs in what is left"). A listed name is ADDED by the change when the project does not
+have it yet: it does not occur as a whole token (not inside a longer identifier) in the `before`
+version of any source file, nor in the contents or the path of any file of the stripped start tree
+that is not prose (code, tests, data, configuration; an existing file a test reads and an existing
+field a test checks are names the project already has). No added name may occur in a prose file that
+is left (PROSE_ENDINGS, or a name with no ending), in its contents or its path: that is a note about
+the change, and the task fails with `leak`. Then,
 through the sandbox with a 60 s limit: the run files on start + hidden must be red; on reference +
 hidden they must be `pass` three times out of three (a time-out there = reference_slow). check_infra
 on any of these runs is the reason check_infra (the runner failed, not the task). A task that fails
@@ -297,6 +301,7 @@ MODEL_KEYS = ("kind", "step", "task", "cell", "arm", "run", "try", "attempt", "v
 FIXED_STRIP_FILES = ("CLAUDE.md", "AGENTS.md", "PLAN.md", "QUESTIONS.md", "HANDOFF.md",
                      "CHANGELOG.md", "TDD.md", "BDD.md")
 FIXED_STRIP_FILES_LOWER = frozenset(f.lower() for f in FIXED_STRIP_FILES)   # Changelog.md goes too
+PROSE_ENDINGS = (".md", ".mdx", ".markdown", ".txt", ".rst", ".adoc", ".org")  # where a note can live
 FIXED_STRIP_DIRS_ANYWHERE = (".claude", ".github")
 FIXED_STRIP_DIRS_AT_ROOTS = ("docs", "features")
 
@@ -1425,25 +1430,41 @@ def added_names(names: Iterable[str], before_sources: Iterable[bytes]) -> list[s
     return [n for n in names if not any(token_re(n).search(b) for b in blobs)]
 
 
+def is_prose(rel: str) -> bool:
+    """A file people write notes in: Markdown or plain text by its ending, or a name with no ending."""
+    base = os.path.basename(rel).lower()
+    return base.endswith(PROSE_ENDINGS) or "." not in base
+
+
 def find_leaks(tree: Path, names: Iterable[str]) -> list[tuple[str, str]]:
-    """[(name, tree-relative path)] for every added name that occurs in the tree: as a whole token in
-    a file's contents, or in a file's own path (a file or folder that already carries the name)."""
+    """[(name, tree-relative path)]: the notes that mention a name the project does not have yet.
+    A name counts as found in a file when it is a whole token of the file's contents or of its path.
+    Found in any file that is not prose (code, a test, data, configuration): the project already has
+    the name, the change does not add it, and it is never a leak. Found in prose files only: every
+    such file is a hit."""
     pats = [(n, token_re(n)) for n in names]
-    hits = []
     if not pats:
-        return hits
+        return []
+    notes: dict[str, list[str]] = {n: [] for n, _ in pats}
+    existing: set[str] = set()
     for dirpath, dirnames, filenames in os.walk(tree):
         for fn in filenames:
             full = Path(dirpath) / fn
             rel = os.path.relpath(full, tree)
             rel_bytes = rel.encode("utf-8", "surrogateescape")
+            prose = is_prose(rel)
             data = b"" if full.is_symlink() or not full.is_file() else full.read_bytes()
             for n, pat in pats:
-                if pat.search(rel_bytes):
-                    hits.append((n, rel + " (its path)"))
-                elif pat.search(data):
-                    hits.append((n, rel))
-    return hits
+                if n in existing:
+                    continue
+                in_path = bool(pat.search(rel_bytes))
+                if not in_path and not pat.search(data):
+                    continue
+                if prose:
+                    notes[n].append(rel + (" (its path)" if in_path else ""))
+                else:
+                    existing.add(n)
+    return [(n, path) for n, _ in pats if n not in existing for path in sorted(notes[n])]
 
 
 def task_hash(start: Path, hidden: Path, brief: bytes) -> str:

@@ -31,7 +31,7 @@
   commits and checks that its hidden tests fail before the change and pass after it), `write-tests`,
   `fix-suites`, `code`, `cross`, `plan`, `status`. The public record, `evals/results/code-runs.jsonl`, holds one
   line per model process and per test run: task code, cell, arm, run, try, fixed words and numbers only.
-  `evals/probes/code_bench_analysis.py` applies the four pre-registered questions to that file alone. 208
+  `evals/probes/code_bench_analysis.py` applies the four pre-registered questions to that file alone. 209
   tests, red-proofed with about 140 mutations on copies of the tool. The suite now takes about 6 minutes
   instead of 2.5.
 

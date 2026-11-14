@@ -299,3 +299,39 @@ that could be read two ways, or states a limit more exactly.
     contents), everything outside the home folder can be read, name lookups through system services
     were not tested, and a test file that ends the test runner on purpose with a success code reads as
     passed.
+
+## Addendum 2: the leak check corrected at installation, before any model run (2026-11-14, 22:02Z)
+
+**What happened.** The first installation attempt stopped all six tasks at the leak check. As first
+built, the check counted a listed name as "added by the change" whenever the task's own source files
+did not have it before the change. But a task's list holds every name the hidden tests need, and many
+of those already exist elsewhere in the project: an existing file that a test reads, an existing field
+that a test checks. The change does not add those.
+
+**The corrected reading,** now in the tool with its tests. A listed name is added by the change when
+the project does not have it yet: it occurs neither in the before version of the task's source files
+nor in the text or the path of any other file of the start state that is not prose (code, tests, data,
+configuration). The check confirms that no added name occurs in a prose file that is left (Markdown,
+plain text, a file with no ending), in its text or in its path.
+
+**What was looked at before correcting.** For every listed name of the six tasks, where it occurs in
+the start state. No name that a project's code, tests and data lack occurs in any prose file. The
+stopped names were existing paths, existing fields and common words.
+
+**Result.** All six first choices pass the installation check; no task was replaced.
+
+| Task | Language, rating | Tests in the hidden files | Failing on the start state | One reference run |
+|---|---|---|---|---|
+| `code-01` | Python, easy | 29 | 3 | 4.3 s |
+| `code-02` | Python, medium | 96 | 3 | 8.9 s |
+| `code-03` | TypeScript, medium | 171 | 4 | 0.9 s |
+| `code-04` | TypeScript, medium | 60 | 7 | 2.1 s |
+| `code-05` | TypeScript, hard | 102 | 6 | 0.5 s |
+| `code-06` | TypeScript, hard | 242 | 41 | 2.7 s |
+
+The hidden files hold the project's older tests too, so most of their tests pass before the change. A
+run is correct only when all of them pass.
+
+**What this reading does not catch.** A note that describes a change without using a new name, which a
+check by names never could. And a comment in a code file that names a function ahead of time; the
+first version caught that only outside the task's own source files.

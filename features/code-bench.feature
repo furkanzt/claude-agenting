@@ -334,11 +334,18 @@ Feature: The code bench runs test suites in a sandbox, installs the coding tasks
     When the added names of add, mul and div are found and the tree is searched
     Then mul and div are added, mul is found in README.txt, div and multiply are not found
 
-  # Backed by: tests/test_code_bench.py::test_leak_check_reads_the_path_of_a_file_too
-  Scenario: The leak check also reads the path of every file
-    Given a tree with lib/fancy_newthing.py, notes/readme.txt, newmod/data.json and src/other_newmod.py
-    When the tree is searched for the added names fancy_newthing.py, readme, newmod and thing
-    Then the first three are found in a path (a file name, a file name without its ending, a folder name) and thing is not
+  # Backed by: tests/test_code_bench.py::test_a_name_the_project_already_has_is_not_added_and_never_a_leak
+  Scenario: A name the project already has is not added by the change and is never a leak
+    Given a tree whose README mentions old_helper, lib/older_part.ts, fancy_newthing.py and brand_new_thing, with a test that imports old_helper, the files lib/older_part.ts and lib/fancy_newthing.py, a data file with known_word, and two notes with plan_only_word
+    When the tree is searched for each name
+    Then old_helper, lib/older_part.ts, fancy_newthing.py and known_word give no hit, brand_new_thing is found in README.md, and plan_only_word in both notes
+    And a file is prose when it ends in .md or .txt (in any letter case) or has no ending, and a .py, .json or .test.ts file is not
+
+  # Backed by: tests/test_code_bench.py::test_leak_check_reads_the_path_of_a_note_too
+  Scenario: The leak check also reads the path of a note
+    Given a tree with notes/plan-newthing.md, newmod/data.json and src/other_newmod.py
+    When the tree is searched for the names newthing, newmod and thing
+    Then newthing is found in the note's path, newmod gives no hit because a data folder carries it, and thing gives no hit
 
   # Backed by: tests/test_code_bench.py::test_install_fails_a_task_with_a_source_file_that_neither_commit_has
   Scenario: install fails a task whose record lists a source file that neither commit has

@@ -715,13 +715,28 @@ def test_leak_check_ignores_names_the_before_source_already_has(tmp_path):
     assert cb.find_leaks(tree, ["multiply"]) == []
 
 
-def test_leak_check_reads_the_path_of_a_file_too(tmp_path):
-    tree = project(tmp_path, {"lib/fancy_newthing.py": "x = 1\n", "notes/readme.txt": "nothing\n",
-                              "newmod/data.json": "{}\n", "src/other_newmod.py": "y = 2\n"})
-    assert cb.find_leaks(tree, ["fancy_newthing.py"]) == [("fancy_newthing.py", "lib/fancy_newthing.py (its path)")]
-    assert cb.find_leaks(tree, ["readme"]) == [("readme", "notes/readme.txt (its path)")]
-    assert cb.find_leaks(tree, ["newmod"]) == [("newmod", "newmod/data.json (its path)")]   # a folder name
-    assert cb.find_leaks(tree, ["thing"]) == []                                             # whole tokens only
+def test_a_name_the_project_already_has_is_not_added_and_never_a_leak(tmp_path):
+    tree = project(tmp_path, {
+        "README.md": "calls old_helper and brand_new_thing; see lib/older_part.ts and notes on fancy_newthing.py\n",
+        "lib/older_part.ts": "export const x = 1\n", "lib/fancy_newthing.py": "x = 1\n",
+        "tests/test_old.py": "from mod import old_helper\n", "data/words.json": '{"w": "known_word"}\n',
+        "TODO": "known_word and plan_only_word\n", "notes/plan.txt": "plan_only_word will be added\n"})
+    # found in a code file, a test file, a data file, or as the path of one: the project has it already
+    for name in ("old_helper", "lib/older_part.ts", "fancy_newthing.py", "known_word"):
+        assert cb.find_leaks(tree, [name]) == [], name
+    # found in notes only: every note is a hit
+    assert cb.find_leaks(tree, ["brand_new_thing"]) == [("brand_new_thing", "README.md")]
+    assert cb.find_leaks(tree, ["plan_only_word"]) == [("plan_only_word", "TODO"), ("plan_only_word", "notes/plan.txt")]
+    assert cb.is_prose("docs/a.MD") and cb.is_prose("TODO") and cb.is_prose("x/notes.txt")
+    assert not cb.is_prose("a.py") and not cb.is_prose("data.json") and not cb.is_prose("x/y.test.ts")
+
+
+def test_leak_check_reads_the_path_of_a_note_too(tmp_path):
+    tree = project(tmp_path, {"notes/plan-newthing.md": "nothing here\n", "newmod/data.json": "{}\n",
+                              "src/other_newmod.py": "y = 2\n"})
+    assert cb.find_leaks(tree, ["newthing"]) == [("newthing", "notes/plan-newthing.md (its path)")]
+    assert cb.find_leaks(tree, ["newmod"]) == []        # a folder of data files: the project has the name
+    assert cb.find_leaks(tree, ["thing"]) == []         # whole tokens only
 
 
 def test_install_fails_a_task_with_a_source_file_that_neither_commit_has(tmp_path, toy, capsys):
