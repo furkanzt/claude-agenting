@@ -42,10 +42,15 @@ end.** Nothing of it is built yet unless a line below says so.
    asked; work leaves the main chat only for jobs about twice as big as today's rule; a tip to keep the
    advisor off. **Bulk coding is not cut:** once the main chat has the plan and the tests, the coding
    goes to cheap workers through the smallest vehicle that fits (one agent, a clean run, a Workflow of
-   fewer than 5 agents); the experiment measures which vehicle is cheapest.
+   fewer than 5 agents). Which vehicle is cheapest gets a small test of its own in a live session: the
+   eval harness runs one process per run and cannot compare vehicles.
 8. **The coding experiment, at most $250.** Real past features with hidden tests from five projects the
-   owner named, this plugin and four others (read-only use of their
-   history; material stays in `evals/private/`). With and without tests-first; the test writer both
+   owner named (this plugin and four others; their names and the candidate changes are in
+   `evals/private/session-2026-11-14/scout/`). Read-only use of their history; material stays in
+   `evals/private/`. Rules: `evals/results/PREREGISTERED-2026-11-14-coding.md` (six tasks; 48 test-writing
+   runs and 180 coding runs; 4 runs a task for Haiku and 3 for Sonnet, because a Haiku run that reads a
+   repository costs $0.20 to $0.40 and six runs each would have passed the ceiling; about $205 expected,
+   no process starts after $226). With and without tests-first; the test writer both
    ways (a stronger model writes locked tests, or the coder writes its own); Haiku and Sonnet as
    coders, Opus as reference. The owner's TDD+BDD harness is the tests-first arm's method.
 9. **The yardstick is list price.** No check on a real $20 account; the docs say it is a stand-in.
@@ -74,7 +79,10 @@ end.** Nothing of it is built yet unless a line below says so.
 1. Report of the advisor-pairs comparison of 2026-11-14: done,
    `evals/results/REPORT-2026-11-14-advisor-pairs.md` (Opus with a Fable advisor: no better judgment;
    Sonnet with an Opus advisor: no replacement for Opus on synthesis). Then install 3.6.0.
-2. Pre-register the coding experiment, then extend the harness, then build the tasks, then run.
+2. The coding experiment. Rules: committed on 2026-11-14 after three independent reviews. Next, in
+   this order: the side tool `evals/probes/code_bench.py` and its analysis, with tests; the six tasks
+   with their installation check (the chosen candidates are in `evals/private/code/selection.json`); the
+   pilot; step T; step C.
 3. The new `fast` column from stored data, shown to the owner.
 4. Modes, the two words, plan detection, the prototype rule, the build rows; tests and scenarios.
 5. One release; pushing is the owner's decision.
