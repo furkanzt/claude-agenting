@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Measured
+- **Two advisor pairs against Opus alone (2026-11-14, 33 runs, rules committed first;
+  `evals/results/REPORT-2026-11-14-advisor-pairs.md`).** Opus 5.5 `xhigh` with a Fable 5.2 advisor did not judge
+  better than Opus alone on the harder decision task: 4.08 of 6 pitfalls handled against 4.04, no passing run
+  against 2 of 6, $3.13 a run against $2.13. Sonnet 5.5 with an Opus 5.5 advisor did not replace Opus on
+  synthesis (`xhigh`: $2.59 against $2.38, slower, the same 3 of 69 items missed as Sonnet alone; `high`: 2 of 9
+  runs did not pass). On the decision task both Sonnet pairs were cheaper, faster and near Opus alone in
+  quality, and so was Sonnet `xhigh` with no advisor. No routing cell changes by the rules.
+
+### Fixed
+- **The record of the first pairing test.** The 3.6.0 notes and the report of 2026-11-13 said the Fable advisor
+  "was called in 4 of 8 runs". The stored answers show it answered in 4, and that in 3 of the others Sonnet did
+  call it and the call timed out. The verdict is unchanged.
+
+### Added (eval harness)
+- Four advisor cells (`opus-5-5@xhigh+fable-advisor`, `opus-5-5@high+fable-advisor`,
+  `sonnet-5-5@xhigh+opus-advisor`, `sonnet-5-5@high+opus-advisor`). Each asks the model for one status line
+  before its answer (`ADVISOR: answered`, `failed` or `not called`), because a run line can only show an advisor
+  that answered.
+- `evals/probes/advisor_pairs_analysis.py`, the rule checker of that test.
+
 ## 3.6.0 — 2026-11-14 (agent guard, where the work runs, workers work alone; Fable 5.2 measured, not adopted)
 
 ### Added
@@ -142,9 +165,10 @@
 
 - **A cheaper worker with an advisor, measured once and not adopted.** Sonnet 5.5 `xhigh` with a Fable 5.2
   advisor against Opus 5.5 `xhigh` alone on the three synthesis tasks, by a rule committed first. A run in which
-  the advisor was called cost $3.19 ($2.00 of it the advisor) against $2.38 for Opus alone. The advisor was
-  called in 4 of 8 runs, never on the one task where Sonnet alone misses an item, so no gain was shown. The
-  routing table has no cell that depends on an advisor.
+  the advisor answered cost $3.19 ($2.00 of it the advisor) against $2.38 for Opus alone. The advisor answered
+  in 4 of 8 runs (in 3 of the others Sonnet called it and the call timed out; corrected on 2026-11-14),
+  never on the one task where Sonnet alone misses an item, so no gain was shown. The routing table has no cell
+  that depends on an advisor.
 
 ### Added (skill and roster)
 - **"Think first?", the third step of "Where the work runs".** It is the owner's procedure of 2026-11-13; the

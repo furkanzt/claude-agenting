@@ -14,8 +14,8 @@
     ],
     "tools_files": "Read,Grep,Glob",
     "tools_inline": "",
-    "timeout_s": 1800,
-    "max_budget_usd_per_run": 10,
+    "timeout_s": 1200,
+    "max_budget_usd_per_run": 6,
     "jobs": 4,
     "system_prompt": "You are a careful assistant completing one task. The task message says what to do and which files, if any, are in your working directory; work only from those files and your own reasoning. Only the tools you were given exist, so never attempt to call any other tool. End with the final answer in exactly the format the task requires."
   },

@@ -268,6 +268,11 @@ cell, so it must never happen by accident.
   model, or exactly the cell's own model plus the advisor's `model_id` (a run in which the advisor was never
   called is still valid). Any other extra model is a `model_mismatch`. A cell without an advisor keeps the
   exact rule above, so the advisor's model there is a `model_mismatch` too.
+- **A failed call leaves no trace in a run line.** A run in which the model called the advisor and the call
+  failed or timed out looks exactly like a run that never called it. The four advisor cells of 2026-11-14
+  therefore ask the model for one status line before its answer block (`ADVISOR: answered`, `ADVISOR: failed` or
+  `ADVISOR: not called`); `evals/probes/advisor_pairs_analysis.py` reads it from the private answer file and
+  reports counts only.
 - **Run-line fields, advisor cells only:** `advisor_model_id` (the expected id), `advisor_called` (true when
   that id is in `modelUsage`) and `advisor_cost_usd` (its `costUSD` from `modelUsage`, or null).
   `cost_usd` stays the CLI's total, which already includes the advisor; the token fields stay the cell's own

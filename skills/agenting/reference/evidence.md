@@ -126,12 +126,30 @@ Claude Code 2.1.323, list prices.
   stored in October report one model each too; they predate Fable 5.2, and October's versions of
   Claude Code were not re-tested. The harness now switches the advisor off for every run. What an advisor does to worker
   agents in real sessions, and the rule that follows: [delegation.md](delegation.md).
-- **A cheaper worker with an advisor: measured once, not adopted.** Sonnet 5.5 `xhigh` with a Fable
-  5.2 advisor on the three synthesis tasks (rule committed first, 8 valid runs). A run in which the
-  advisor was called cost $3.19, $2.00 of it the advisor; Opus `xhigh` alone costs $2.38. The
-  advisor was called in 4 of 8 runs although the prompt asked for it every time, and never on the
-  one task where Sonnet alone misses an item that Opus finds, so no gain was shown. No cell of the
-  table depends on an advisor.
+- **A cheaper worker with an advisor: measured twice, not adopted.** First, Sonnet 5.5 `xhigh` with
+  a Fable 5.2 advisor on the three synthesis tasks (rule committed first, 8 valid runs). A run in
+  which the advisor answered cost $3.19, $2.00 of it the advisor; Opus `xhigh` alone costs $2.38. The
+  advisor answered in 4 of 8 runs; in 3 of the others Sonnet called it and the call timed out
+  (corrected on 2026-11-14 from the stored answers; the first report said "called in 4 of 8").
+  No gain was shown. Second, on 2026-11-14 (`evals/results/REPORT-2026-11-14-advisor-pairs.md`,
+  33 runs, rules committed first), Sonnet with an Opus 5.5 advisor against Opus `xhigh` alone:
+  - *Synthesis, 9 runs a cell.* Sonnet `xhigh` with the advisor cost $2.59 (Opus alone $2.38), took
+    695 s (539 s) and missed the same 3 of 69 items that Sonnet misses alone, although the advisor
+    answered every time. Sonnet `high` with the advisor cost $1.90 and took 422 s, but 2 of 9 runs
+    failed. Opus `high` alone costs $1.63, takes 276 s and missed 2 of 69.
+  - *The harder decision task, 3 runs a cell.* Both pairs were cheaper than Opus `xhigh` alone (the
+    `xhigh` pair only just: $1.59 against a bar of $1.60), faster, and near it in quality (4.08 and
+    4.17 of 6 pitfalls handled against 4.04). Sonnet `xhigh` alone had handled 4.33 for $1.04, so
+    the advisor added cost and no measured quality.
+  No cell of the table depends on an advisor.
+- **A stronger advisor for the decider: no gain measured.** Opus 5.5 `xhigh` with a Fable 5.2
+  advisor on the harder decision task (6 runs against 6 stored runs alone, same report): 4.08 of 6
+  pitfalls handled against 4.04, no run passed against 2 of 6, $3.13 a run against $2.13 and 709 s
+  against 612 s (60% more cost in the 5 runs where the advisor answered). At `high` the cost nearly
+  doubled ($2.16 against $1.12) for 4.08 against 3.58, which is below the margin set beforehand.
+  One task with six runs a side shows a large difference only (a gain under about 1 pitfall of 6 is
+  not excluded), and a single task is not a long chat. Across both pairs the advisor answered in 31 of 33
+  runs and was 42% of the cost of those runs.
 - **Limits.** Two decision tasks and four briefs, all from one owner's projects; twelve runs or
   twelve pairs show a large gap only; both judge models come from one vendor; a clean read-only run
   is not a design agent inside a session.

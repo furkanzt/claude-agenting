@@ -1,7 +1,83 @@
 # HANDOFF: start here
 
-> **State on 2026-11-14.** Section P is the live state; read it first. Sections 0 to 9 below describe
-> October. Their history is right, their counts (tests, commits) are old.
+> **State on 2026-11-14.** Sections Q and P are the live state; read them first. Q is the work that was
+> agreed on 2026-11-14 and is in progress, P the released state it starts from. Sections 0 to 9 below
+> describe October. Their history is right, their counts (tests, commits) are old.
+
+## Q. Work in progress: two modes, the $20 plan, build rows (agreed 2026-11-14)
+
+The owner fixed this scope in a 19-question interview on 2026-11-14 and said go. **One release at the
+end.** Nothing of it is built yet unless a line below says so.
+
+### Q.1 What was decided
+
+1. **Two modes: `fast` and `balanced`. `quality` is removed.** Two words work for one job only:
+   "throwaway" sends it down the cheap path, "critical" sends it to the careful models (the cells
+   `quality` had: Opus for don't-guess and verify, Sonnet `high` for read and classify).
+2. **`balanced` gets rows for building software** (plan, write tests, bulk coding, review), and the nine
+   document rows are looked at again. `fast` gets the same rows on cheaper cells.
+3. **The plan sets the starting mode, and the session line says so.** Pro ($20) starts in `fast`, Max in
+   `balanced`, only for a chat with no choice of its own; the owner's choice always wins. A plan that
+   cannot be read changes nothing. Approved wording:
+   `plan=Pro · mode=fast (set for your plan: cheaper models, fewer agents). Tip: <main-chat tip>. Change mode: /agenting-mode balanced`
+   and `plan=Max · mode=balanced (set for your plan). To save usage: /agenting-mode fast`, plus
+   `plan changed from Pro to Max · new chats now start in balanced.` after an upgrade.
+4. **The main-chat tip names a model and an effort, decided by measurement** (the experiment's "plan
+   and write tests" step: Sonnet `high`/`xhigh` against Opus `medium`/`high`). It also says that a long
+   chat favours the cheaper input price. Sonnet may lose; nothing is fixed beforehand.
+5. **Prototypes.** Manual mode asks once ("throwaway, or will you keep building on it?", both paths
+   explained). Auto mode decides and says which path it took: throwaway for a quick look (quick, try,
+   idea, demo; one new file outside the real code), keep when it will be implemented if approved or
+   changes real files, **keep when unclear**. Throwaway skips tests and review; keep is the mode's
+   normal build path.
+6. **What decides a cell in `fast`: measured cost per finished task, never the price list.** Opus stays
+   wherever the difference per task is small. The bar, by whether a check catches a wrong result:
+   - checked work (tests or a validator): the cheapest cell per finished task, every retry counted, at
+     most 3 tries;
+   - unchecked work: at most about 1 failed run in 10, and the docs list what goes wrong;
+   - don't-guess and verify: at most about 1 in 100.
+   The owner called this "between a small loss and mostly works". The new `fast` column is shown to the
+   owner as a table before it goes into the skill.
+7. **What `fast` cuts besides models:** no Workflows or teammates for reading and exploring unless
+   asked; work leaves the main chat only for jobs about twice as big as today's rule; a tip to keep the
+   advisor off. **Bulk coding is not cut:** once the main chat has the plan and the tests, the coding
+   goes to cheap workers through the smallest vehicle that fits (one agent, a clean run, a Workflow of
+   fewer than 5 agents); the experiment measures which vehicle is cheapest.
+8. **The coding experiment, at most $250.** Real past features with hidden tests from five projects the
+   owner named, this plugin and four others (read-only use of their
+   history; material stays in `evals/private/`). With and without tests-first; the test writer both
+   ways (a stronger model writes locked tests, or the coder writes its own); Haiku and Sonnet as
+   coders, Opus as reference. The owner's TDD+BDD harness is the tests-first arm's method.
+9. **The yardstick is list price.** No check on a real $20 account; the docs say it is a stand-in.
+
+### Q.2 Facts the design rests on
+
+- **Reading the plan.** Claude Code keeps it in `~/.claude.json` under `oauthAccount`
+  (`organizationRateLimitTier`, `billingType`, `planDisplayName`, `seatTier`). A Max plan shows
+  a value that holds the word `max`; the value for Pro was not observed. The fields are not documented, so the
+  hook must treat anything unknown as "no plan".
+- **What Anthropic's pages say about Pro** (read by a research agent on 2026-11-14, not re-checked line
+  by line): Opus is included and is the default model; Fable needs paid credits; one 5-hour limit and
+  one weekly limit cover all models, chat and Claude Code together; no numbers on how each model
+  counts; every subagent, Workflow agent and teammate draws on the same limit; teammates use about 7
+  times a normal chat in plan mode; Workflows on Pro are off until switched on and default to fewer
+  than 5 agents; Max starts at $100 with 5 times Pro's usage.
+- **The eval harness cannot run coding tasks yet.** It gives a model three read-only tools. It must
+  learn to let a model write files and to run hidden tests on the result.
+- **Stored numbers that already bear on `fast`:** on synthesis Opus `high` alone ($1.63, 276 s, 2 of 69
+  items missed) beats Sonnet `xhigh` alone ($1.47, 577 s, 3 missed) on time and quality at nearly the
+  same cost. Haiku 5.5 changed words in 7 of 9 cleanup runs and confirmed a false finding in 6 of 12
+  verify runs at `medium`.
+
+### Q.3 Order of work
+
+1. Report of the advisor-pairs comparison of 2026-11-14: done,
+   `evals/results/REPORT-2026-11-14-advisor-pairs.md` (Opus with a Fable advisor: no better judgment;
+   Sonnet with an Opus advisor: no replacement for Opus on synthesis). Then install 3.6.0.
+2. Pre-register the coding experiment, then extend the harness, then build the tasks, then run.
+3. The new `fast` column from stored data, shown to the owner.
+4. Modes, the two words, plan detection, the prototype rule, the build rows; tests and scenarios.
+5. One release; pushing is the owner's decision.
 
 ## P. After the Fable 5.2 round and the advisor work (2026-11-13 and 14)
 
@@ -69,7 +145,7 @@ report, the research note and the two pre-registrations.
 ```
 git status --short                      # expect only: M .gitignore (not from this work; never stage it)
 git log origin/main..HEAD --oneline     # expect nothing right after the push of 2026-11-14
-python3 -m pytest tests -q              # expect 995 passed (about 2.5 minutes)
+python3 -m pytest tests -q              # expect 1037 passed (about 2.5 minutes)
 python3 scripts/check-setup.py          # expect 53 passed, 0 failed
 python3 evals/evalkit.py selfcheck      # expect 29 tasks, 0 problems
 python3 evals/probes/think_first_analysis.py   # prints the round's verdict again
@@ -79,6 +155,15 @@ python3 evals/probes/think_first_analysis.py   # prints the round's verdict agai
 
 - **A named `Agent` start is a teammate while agent teams are on,** and a teammate ignores an effort
   written on its call. Start one-off helpers without a name.
+- **An agent's failed `cd` runs the rest of its command in this repo.** On 2026-11-14 a Workflow agent that
+  was told to work in a throwaway clone sent `cd <clone>` on one line and `git checkout -f ...; git clean
+  -fd` on the next. The path was wrong, so both ran here: HEAD went to an old commit, uncommitted work was
+  discarded and an untracked link deleted. Everything was restored (the commit helper still held a copy).
+  Commit before launching any agent that has Bash, and make such agents write `git -C <clone>` on every
+  git command, so that a wrong path fails instead of landing here.
+- **Never cite the short hash of an unpushed commit in a tracked file.** Grouping the commits for a push
+  changes every hash; on 2026-11-14 three documents had to be corrected for it. Name a commit by its
+  message and time.
 - **Never write a clock time into a pre-registration from memory.** Four headings of the rules file carry
   estimated times; read the clock (`date -u`) first.
 - **`ux_blind.py` and `evalkit.py` share one lock.** They do not run at the same time, and a harness

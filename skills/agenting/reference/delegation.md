@@ -166,9 +166,14 @@ rule for `advisor`, and the `--disallowedTools` flag. Neither stopped the call.
 - Split-pane teammates (`teammateMode` other than in-process) were not probed; the docs say they
   ignore an agent file's `effort`.
 - The advisor test used one task and at most 5 agents per arm, each started once.
-- One comparison of a worker with an advisor against a stronger worker alone was run (Sonnet `xhigh`
-  with a Fable advisor against Opus `xhigh` on synthesis): not cheaper, no gain shown
-  ([evidence.md](evidence.md)). No other pairing, row or instruction was measured.
+- A worker with an advisor against a stronger worker alone was compared twice, on single read-only
+  tasks: Sonnet with a Fable advisor on synthesis (2026-11-13), and Sonnet with an Opus advisor on
+  synthesis and on one decision task (2026-11-14). Neither replaced Opus on synthesis, and on the
+  decision task Sonnet alone was already near Opus ([evidence.md](evidence.md)). Opus with a Fable
+  advisor was compared with Opus alone on that decision task: no difference shown, 47% more cost. No long chat,
+  no other row and no other instruction about when to call the advisor was measured.
+- An advisor call can fail. In the first comparison 3 of 8 runs report a call that timed out; in the
+  second, 2 of 33 calls failed. A run goes on without the advice, and only the model's own words say so.
 - The sentence was not tested on teammates, or on the built-in Explore and Plan agents.
 - An advisor given only on the command line (the `--advisor` flag, or `--settings` with inline JSON)
   is not seen by the hooks, which read the environment variable and the settings files only.
