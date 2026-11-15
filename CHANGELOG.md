@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 3.7.0 — 2026-11-15 (three modes: cheapest, fast, balanced; the plan sets where a chat starts; rows for building software; architecture on Sonnet xhigh)
 
 The owner fixed the scope in an interview on 2026-11-14 and decided the cells on 2026-11-15, on the reports of
 that day. Every figure is list price: how a plan counts each model against its limit is not published, and
