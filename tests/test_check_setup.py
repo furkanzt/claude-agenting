@@ -29,6 +29,7 @@ class CheckSetupCase(unittest.TestCase):
     ADVISOR_SWITCH = None    # value of CLAUDE_CODE_DISABLE_ADVISOR_TOOL in the child; None removes it
     RECORD_DEFAULT = None    # "on"/"off": record the standing Workflows default first
     PLUGIN_HOOKS_JSON = None  # text of hooks/hooks.json in a temp plugin root (implies EMPTY_PLUGIN_ROOT)
+    PLAN_ACCOUNT = None      # the oauthAccount object of <HOME>/.claude.json; None = no such file (no plan)
 
     @classmethod
     def setUpClass(cls):
@@ -41,6 +42,8 @@ class CheckSetupCase(unittest.TestCase):
             d.mkdir(parents=True)
         if cls.SETTINGS is not SETTINGS_MISSING:
             (home / ".claude" / "settings.json").write_text(cls.SETTINGS, encoding="utf-8")
+        if cls.PLAN_ACCOUNT is not None:
+            (home / ".claude.json").write_text(json.dumps({"oauthAccount": cls.PLAN_ACCOUNT}), encoding="utf-8")
         if cls.PLUGIN_HOOKS_JSON is not None:
             (plugin / "hooks").mkdir()
             (plugin / "hooks" / "hooks.json").write_text(cls.PLUGIN_HOOKS_JSON, encoding="utf-8")
@@ -48,6 +51,7 @@ class CheckSetupCase(unittest.TestCase):
                    CLAUDE_PLUGIN_ROOT=str(plugin if cls.EMPTY_PLUGIN_ROOT or cls.PLUGIN_HOOKS_JSON is not None else ROOT))
         env.pop("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", None)
         env.pop("CLAUDE_CODE_DISABLE_ADVISOR_TOOL", None)
+        env.pop("AGENTING_PLAN_FILE", None)      # the plan is read from <temp HOME>/.claude.json
         if cls.ADVISOR_SWITCH is not None:
             env["CLAUDE_CODE_DISABLE_ADVISOR_TOOL"] = cls.ADVISOR_SWITCH
         if cls.TEAMS is not None:
@@ -227,6 +231,28 @@ class TestTeammatesOff(CheckSetupCase):
     def test_should_keep_exit_code_0_when_only_the_teammates_warning_fires(self):
         self.assertRanToTheEnd()
         self.assertNotIn("FAIL]", self.result.stdout)
+        self.assertEqual(self.result.returncode, 0)
+
+
+SEEDED = "disposition is seeded immediately (balanced, or fast on a Pro plan), never null/unset"
+RECORDED = "--record persists mode, disposition and the workflows opt-in"
+PRO_START = "a Pro plan starts a new chat in fast and the user is told once"
+
+
+class TestSessionChecksWithoutAPlan(CheckSetupCase):
+    def test_should_pass_the_session_checks_and_the_made_up_pro_plan_check_when_no_plan_can_be_read(self):
+        for name in (SEEDED, RECORDED, PRO_START, "--status reports what --record persisted"):
+            self.assertCheck(name, "PASS")
+        self.assertRanToTheEnd()
+
+
+class TestSessionChecksOnAProPlan(CheckSetupCase):
+    PLAN_ACCOUNT = {"organizationType": "claude_pro"}
+
+    def test_should_pass_the_session_checks_when_the_account_is_on_a_pro_plan(self):
+        for name in (SEEDED, RECORDED, PRO_START):
+            self.assertCheck(name, "PASS")
+        self.assertRanToTheEnd()
         self.assertEqual(self.result.returncode, 0)
 
 

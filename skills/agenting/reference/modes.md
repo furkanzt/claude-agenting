@@ -2,11 +2,12 @@
 
 All three belong to one chat continuum. They are keyed on `session_id`, which
 survives compaction; a new conversation or `/clear` starts from the defaults
-(`auto`, `balanced`, and the workflows opt-in the standing default names, else
-not opted in). On every SessionStart the hook prints them in one `[agenting]`
-line together with the recorder path and the session id. The same line carries
-`teammates=on|off`: a fact read from the environment and the settings files, not
-a value this plugin records.
+(`auto`; `balanced`, or the plan's disposition, below; and the workflows opt-in
+the standing default names, else not opted in). On every SessionStart the hook
+prints them in one `[agenting]` line together with the recorder path and the
+session id. The same line carries `teammates=on|off`, the advisor and, when it
+can be read, `plan=Pro|Max`: facts read from the environment and the settings
+files, not values this plugin records.
 
 ## Recording a change
 
@@ -15,7 +16,7 @@ the next compaction.
 
 ```
 python3 "<recorder path from the [agenting] line>" --record --session <id> \
-    [--mode auto|manual] [--disposition fast|balanced|quality] [--workflows on|off]
+    [--mode auto|manual] [--disposition fast|balanced] [--workflows on|off]
 ```
 
 `--status --session <id>` prints the recorded values. Use the recorder path the
@@ -43,26 +44,26 @@ line prints, not under whatever id a later hook reports. The plan the guard show
 counts `agent()` call sites; a call inside a loop, `map()`, `parallel()` or
 `pipeline()` runs more than once, so say so when you present it.
 
-## Disposition: fast | balanced | quality
+## Disposition: fast | balanced
 
-Sets how auto mode leans when it decides. It starts at `balanced` and stays
-where the user put it: it changes only on the user's explicit request, in words
-("quality mode", "go fast on this one") or with `/agenting-mode <value>`. Claude
-never asks about it and never proposes a change. That holds when auto keeps
-choosing opus too: under `balanced` that means the work needs opus, and nothing
-counts or reports how often it happens.
+Sets how auto mode leans when it decides. Users call it the mode ("fast mode",
+"balanced mode"). A new chat starts in `balanced`, or in the plan's disposition
+(next section), and stays where the user put it: it changes only on the user's
+explicit request, in words ("go fast", "back to balanced") or with
+`/agenting-mode <value>`. Claude never asks about it and never proposes a
+change. That holds when auto keeps choosing opus too: under `balanced` that
+means the work needs opus, and nothing counts or reports how often it happens.
 
-Disposition is a standing reliability target, not a per-row pin:
+Disposition is a standing lean, not a per-row pin:
 
-| Disposition | Target | Lean |
-|---|---|---|
-| `fast` | ~90–95% | The cheaper pick wherever near-certainty isn't needed; still opus for a task that needs it |
-| `balanced` | ~95–99% | The routing table per task, no lean either way |
-| `quality` | ~99%+ | Pay for extra certainty even where a cheaper tier could plausibly do the job |
+| Disposition | Lean |
+|---|---|
+| `fast` | The cheaper pick wherever near-certainty isn't needed; still opus for a task that needs it |
+| `balanced` | The routing table per task, no lean either way |
 
-Baseline per disposition:
+Baseline per disposition, and the cell the word "critical" picks for one job:
 
-| Routing-table row | `fast` | `balanced` | `quality` |
+| Routing-table row | `fast` | `balanced` | "critical" |
 |---|---|---|---|
 | List / count | `haiku`/`medium` | `haiku`/`medium` | `haiku`/`medium` |
 | Mechanical cleanup | `sonnet`/`low` | `sonnet`/`low` | `sonnet`/`low` |
@@ -74,12 +75,41 @@ Baseline per disposition:
 | Architecture or approach decision | `opus`/`xhigh` | `opus`/`xhigh` | `opus`/`xhigh` |
 | UI/UX design before a build | `opus`/`xhigh` | `opus`/`xhigh` | `opus`/`xhigh` |
 
+**"critical" is a word for one job, not a setting.** When the user says a job
+is critical ("critical: check these 40 answers", "this one must be right"),
+route that job by the third column and say so in one line. Nothing is
+recorded, and the next job is back on the session's disposition. Until 3.6.0
+this column was a third disposition, `quality`; a chat recorded with it reads
+as `balanced`, and its `[agenting]` line says what to say instead.
+
+## The plan sets where a new chat starts
+
+When the hook can read the account's plan, a chat seen for the first time starts
+in `fast` on a Pro plan and in `balanced` on a Max plan. The `[agenting]` line
+then reads `disposition=fast (set for the Pro plan)` and ends its facts with
+`plan=Pro`, and Claude Code shows the user one line at that first start, for
+example `[agenting] plan=Pro · mode=fast (set for your plan: cheaper models,
+fewer agents). Change mode: /agenting-mode balanced`.
+
+- The user is told by the hook. Add nothing and ask nothing; route by the
+  disposition on the line.
+- The user's own choice wins: once a disposition is recorded for the chat, the
+  note is gone and the plan no longer plays a part in that chat.
+- A project whose `agenting/AGENTING.md` names an `auto-disposition-default`
+  made its own choice: the plan does not start chats there
+  ([project-rules.md](project-rules.md)).
+- No plan on the line means it could not be read (the fields are not
+  documented): the chat starts in `balanced`, as before.
+- List price is the yardstick behind `fast`. How a plan counts each model
+  against its usage limit is not published, so "cheaper" here is a stand-in for
+  "uses less of the limit".
+
 `fast` and `balanced` are the measured cells (2026-10-06 and 2026-10-09, `evals/`).
 For verification and BELİRSİZ `fast` and `balanced` use Sonnet: on the first round's items it matched
 Opus on every measured run at about half the cost, and the closed-book gap in the vendor cards is knowledge, not
 abstention discipline. That was a bounded null, and a later one was less clean: on 120 harder near-miss
 unanswerable items (2026-10-10, `evals/results/REPORT-2026-10-10-E1.md`) Sonnet `xhigh` hallucinated 10 of 720
-item-runs and Opus `xhigh` none of 360, so `quality` keeps Opus; a pre-registered round on 120 fresh items (2026-10-11,
+item-runs and Opus `xhigh` none of 360, so "critical" picks Opus; a pre-registered round on 120 fresh items (2026-10-11,
 `evals/results/REPORT-2026-10-11-E1b.md`) then found Sonnet and Opus both clean (0 of 720 each), so `balanced` stays Sonnet. Haiku 5.5 does not get BELİRSİZ: at `high` it
 hallucinated 11 of 720 on the same items, the same as Sonnet within noise and above the 1% line the pre-registered
 rule set for `fast`, so `fast` reverted to Sonnet; `haiku`/`xhigh` made 5 of 720 there and 1 of 720 on the fresh items (Sonnet 0),
@@ -89,16 +119,16 @@ Training-knowledge traps did not trip any cell. The 16x cost gap holds for promp
 (about 4x on input above it). A pinned effort is applied to Workflow
 `agent()` calls and to plugin agents (checked 2026-10-09 from the effort recorded in
 the subagent transcripts); an unpinned Haiku agent runs at its default `medium`, not
-the session's effort. List/count uses Haiku 5.5 at `medium` in all three dispositions (`low`
+the session's effort. List/count uses Haiku 5.5 at `medium` in both dispositions (`low`
 missed 6 of 36 exact-count runs). Read-and-report uses Haiku 5.5 at `medium` for
-`fast` and `balanced` (measured on exact-answer lookups only); `quality` keeps
+`fast` and `balanced` (measured on exact-answer lookups only); "critical" picks
 `sonnet`/`high`. For
 synthesis Sonnet does not match Opus (it missed a subtle planted item in 3 of 3
-runs on one task), so `balanced` and `quality` keep `opus`/`xhigh`; `fast` uses
+runs on one task), so `balanced` keeps `opus`/`xhigh`; `fast` uses
 `opus`/`high`, which saves about a third and missed one planted item in 2 of 9
 runs.
 
-The two think-first rows are `opus`/`xhigh` in all three dispositions (2026-11-13,
+The two think-first rows are `opus`/`xhigh` in both dispositions (2026-11-13,
 `evals/results/REPORT-2026-11-13.md`). On the architecture row every cell passed the easier task in
 every run, and on the harder one Fable 5.2 passed 0 of 9 runs, Opus `xhigh` 2 of 6, Sonnet `xhigh`
 1 of 3 and Opus `high` 0 of 3, so no cheaper cell earned `fast` and Fable 5.2 was not adopted. On the
@@ -108,7 +138,7 @@ in 8 of 12 pairs. No designer below Opus `xhigh` was tested for that row.
 Deviate from the baseline per task, silently and in either direction, whenever
 that task's own stakes call for it, including a different model rather than
 only a different effort. A `fast` session still sends one calibration-critical
-call to `opus`/`xhigh`; a `quality` session may send one unusually consequential
+call to `opus`/`xhigh`; a `balanced` session may send one unusually consequential
 classify call to opus. That latitude is what lets auto run unattended.
 
 Precedence, strongest first: project Rules (`agenting/AGENTING.md`), then

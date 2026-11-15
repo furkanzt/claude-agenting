@@ -39,6 +39,56 @@ when it is big; the look-and-steer loop after it stays.
 | Find every use of a function across a repo | Off | Much reading, only the result matters |
 | Review a big diff from three angles | Off | Independent parts |
 
+## In `fast`: fewer agents, bulk coding kept
+
+`fast` is where a chat on a Pro plan starts, and a small usage limit pays for every agent start
+(about 44k tokens of context before any work, [fan-outs.md](fan-outs.md)). The owner fixed these on
+2026-11-14; they are judgment rules, not measurements.
+
+- **The bar for leaving the chat is twice as high:** about 10 or more similar items; or about 20
+  or more files or 40k or more tokens of reading; or 4 or more independent parts.
+- **Reading and exploring** runs as a Workflow or as teammates only when the user asks for one. One
+  agent or a clean run still fits a job that clears the higher bar.
+- **Bulk coding is not cut.** Once the main chat has the plan and the tests, the coding goes to
+  cheap workers, through the smallest vehicle that fits: one agent for one piece, a clean run when
+  the pieces are self-contained and a test checks each, a Workflow of fewer than 5 agents when they
+  need tools. That is where a small limit gains most: the expensive model
+  plans, the cheap one types.
+- **The advisor:** when the `[agenting]` line shows an advisor in a `fast` chat, tell the user once,
+  in one line, that each advisor call re-reads the whole conversation at the advisor's price and
+  that `/advisor off` turns it off.
+
+| Task in a `fast` chat | Where | Why |
+|---|---|---|
+| Read 12 files to answer one question | Main chat | Under the higher bar |
+| Summarise 30 documents the same way | Off, as a clean run | 30 similar items; no Workflow needed |
+| "Explore the repo and tell me how auth works" | Main chat, or one agent if it is big | Exploring gets no Workflow unless asked |
+| Implement 6 functions whose tests are written | Off, to cheap workers | Bulk coding is kept |
+
+## A prototype: throwaway or keep
+
+| | Throwaway | Keep |
+|---|---|---|
+| Cells | `fast`, in either disposition | The session's own |
+| Tests, review, design pass | None | As for any feature |
+| What the user gets | Something to look at, soon and cheap | Code that stays |
+| Afterwards | Keeping it means building it again on the keep path | Nothing more |
+
+The user's word decides. Without one, `manual` mode asks once before building ("Throwaway, or will
+you keep building on it?", with the two columns above in a sentence each), and `auto` mode decides
+and says in one line which path it took:
+
+| What the user said | Path in `auto` | Why |
+|---|---|---|
+| "Quick demo of the lobby screen" | Throwaway | A quick look |
+| "Try an idea: what if the score pulsed?" in a new scratch file | Throwaway | One new file outside the real code |
+| "Prototype the new settings page; if I like it we ship it" | Keep | It will be implemented if approved |
+| "Prototype a faster matcher in `lib/match.ts`" | Keep | It changes real files |
+| "Make a prototype of the report" | Keep | Unclear, so keep |
+
+A throwaway that the user then wants to keep is not patched into shape: it is built again on the
+keep path, with the throwaway as the reference for what it should do.
+
 ## The four vehicles
 
 Pick the cheapest that fits.

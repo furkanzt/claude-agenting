@@ -1,5 +1,5 @@
 Feature: Session continuity carries mode, disposition and workflows opt-in across compaction of one chat
-  hooks/session-continuity.py keeps a session record per session_id in .agenting-session-state.json and re-injects it as one [agenting] line on every SessionStart.
+  hooks/session-continuity.py keeps a session record per session_id in .agenting-session-state.json and re-injects it as one [agenting] line on every SessionStart. A new chat starts in the disposition of the account's plan (fast on Pro, balanced on Max) when the plan can be read, and the user is told once.
 
   # ---- SessionStart: seeding and the [agenting] line ----
 
@@ -96,18 +96,18 @@ Feature: Session continuity carries mode, disposition and workflows opt-in acros
   # Backed by: tests/test_session_continuity.py::test_record_then_status
   Scenario: Recording a mode and a disposition in one call applies both
     Given an empty state directory
-    When --record is run for session "11111111-2222-3333-4444-555555555555" with --mode manual --disposition quality
+    When --record is run for session "11111111-2222-3333-4444-555555555555" with --mode manual --disposition fast
     Then the exit code is 0
     And stdout contains "mode=manual"
-    And stdout contains "disposition=quality"
-    And --status for that session prints "session 11111111-2222-3333-4444-555555555555: mode=manual · disposition=quality · workflows=not opted in"
+    And stdout contains "disposition=fast"
+    And --status for that session prints "session 11111111-2222-3333-4444-555555555555: mode=manual · disposition=fast · workflows=not opted in"
 
   # Backed by: tests/test_session_continuity.py::test_workflows_flag_leaves_mode_and_disposition_alone
   Scenario: Recording only workflows leaves the recorded mode and disposition alone
-    Given session "11111111-2222-3333-4444-555555555555" was recorded with mode manual and disposition quality
+    Given session "11111111-2222-3333-4444-555555555555" was recorded with mode manual and disposition fast
     When --record is run for that session with --workflows on
     Then the session record has mode "manual"
-    And the session record has disposition "quality"
+    And the session record has disposition "fast"
 
   @gap @wip
   # Backed by: @gap
@@ -162,7 +162,7 @@ Feature: Session continuity carries mode, disposition and workflows opt-in acros
 
   @gap @wip
   # Backed by: @gap
-  Scenario: A disposition outside fast, balanced and quality is rejected and writes nothing
+  Scenario: A disposition outside fast and balanced (and the removed quality) is rejected and writes nothing
     Given an empty state directory
     When --record is run for session "s2" with --disposition turbo
     Then the exit code is 2
@@ -523,3 +523,214 @@ Feature: Session continuity carries mode, disposition and workflows opt-in acros
     Then the exit code is not 0
     And --record-default with no --workflows also exits non-zero and writes no state file
     And --record --session <id> --workflows unset also exits non-zero
+
+  # ---- the removed quality setting ----
+
+  # Backed by: tests/test_session_continuity.py::test_the_line_offers_two_dispositions
+  Scenario: The [agenting] line offers two dispositions
+    Given an empty state directory
+    When SessionStart fires for a new session
+    Then the additionalContext contains "[--disposition fast|balanced] "
+    And it does not contain "quality"
+
+  # Backed by: tests/test_session_continuity.py::test_recording_quality_records_balanced_and_says_what_to_say_instead
+  Scenario: Recording the removed quality setting records balanced and says what to say instead
+    Given an empty state directory
+    When --record is run for a session with --disposition quality
+    Then stdout contains 'disposition=balanced · workflows=not opted in (the quality setting is gone: say "critical" for one job that needs the careful models)'
+    And the session record has disposition "balanced"
+    And the next [agenting] line of that session does not contain "quality"
+
+  # Backed by: tests/test_session_continuity.py::test_a_chat_recorded_as_quality_reads_as_balanced_and_the_line_says_so
+  Scenario: A chat that was recorded as quality reads as balanced and the line says so
+    Given a session record with disposition "quality" written by an older version
+    When SessionStart fires for that session with source "compact"
+    Then the additionalContext contains 'mode=auto · disposition=balanced (the quality setting is gone: say "critical" for one job that needs the careful models) · workflows=not opted in'
+    And --status prints the same note
+    And after any --record for that session the record has disposition "balanced" and the line no longer mentions quality
+
+  # ---- the account's plan ----
+
+  # Backed by: tests/test_session_continuity.py::test_no_plan_file_changes_nothing
+  Scenario: Without a readable plan nothing changes
+    Given a home folder with no .claude.json
+    When SessionStart fires for a new session
+    Then the output has no systemMessage
+    And the additionalContext starts with "[agenting] mode=auto · disposition=balanced · workflows=not opted in" and does not contain "plan"
+    And the state file has no "_plan" key
+
+  # Backed by: tests/test_session_continuity.py::test_a_pro_plan_starts_a_new_chat_in_fast_and_tells_the_user
+  Scenario: On a Pro plan a new chat starts in fast and the user is told
+    Given .claude.json whose oauthAccount has organizationType "claude_pro"
+    When SessionStart fires for a new session
+    Then the systemMessage is "[agenting] plan=Pro · mode=fast (set for your plan: cheaper models, fewer agents)." followed by the main-chat tip when the hook has one, then " Change mode: /agenting-mode balanced"
+    And the additionalContext starts with "[agenting] mode=auto · disposition=fast (set for the Pro plan) · workflows=not opted in" and contains " · advisor=off · plan=Pro (session <id>). "
+    And the session record has disposition "fast", disposition_source "plan" and plan "Pro"
+    And the state file's "_plan" record says "Pro"
+    And --status for that session shows "disposition=fast (set for the Pro plan)"
+
+  # Backed by: tests/test_session_continuity.py::test_a_max_plan_starts_in_balanced_and_tells_the_user
+  Scenario: On a Max plan a new chat starts in balanced and the user is told
+    Given .claude.json whose oauthAccount has organizationType "claude_max"
+    When SessionStart fires for a new session
+    Then the systemMessage is "[agenting] plan=Max · mode=balanced (set for your plan). To save usage: /agenting-mode fast"
+    And the additionalContext contains "mode=auto · disposition=balanced (set for the Max plan) · " and " · plan=Max (session "
+
+  # Backed by: tests/test_session_continuity.py::test_the_user_is_told_at_the_first_start_of_a_chat_only
+  Scenario: The user is told at the first SessionStart of a chat only
+    Given a Pro plan and a session that has already started
+    When SessionStart fires again for it with source "compact" and then "resume"
+    Then neither output has a systemMessage and both lines still say "disposition=fast (set for the Pro plan)"
+    And a SessionStart with source "clear", or for another session id, has the systemMessage again
+
+  # Backed by: tests/test_session_continuity.py::test_the_users_own_choice_replaces_the_plans_start
+  Scenario: The user's own choice of disposition replaces the plan's start
+    Given a Pro plan and a session the plan started in fast
+    When --record is run for it with --workflows on, then --mode manual, then --mode auto
+    Then the line still says "disposition=fast (set for the Pro plan)"
+    When --record is run for it with --disposition balanced
+    Then the line says "mode=auto · disposition=balanced · workflows=on" with no "set for", there is no systemMessage, and the record has no disposition_source and no plan
+    And choosing --disposition fast afterwards also shows no "set for"
+
+  # Backed by: tests/test_session_continuity.py::test_a_plan_change_is_told_once_at_the_next_new_chat
+  Scenario: A plan change is told once, at the next new chat
+    Given a chat that started on a Pro plan, and the plan is Max now
+    When SessionStart fires for the old chat with source "compact"
+    Then it has no systemMessage and still says "disposition=fast (set for the Pro plan)"
+    When SessionStart fires for a new session
+    Then the systemMessage is "[agenting] plan changed from Pro to Max · new chats now start in balanced." and the line says "disposition=balanced (set for the Max plan)"
+    And the new session after that gets the ordinary Max notice
+    And after the plan goes back to Pro the next new session gets "[agenting] plan changed from Max to Pro · new chats now start in fast."
+
+  # Backed by: tests/test_session_continuity.py::test_which_fields_name_the_plan
+  Scenario Outline: Which fields of the account name the plan
+    Given .claude.json whose oauthAccount is <account>
+    When SessionStart fires for a new session
+    Then the plan on the line is <plan>
+
+    Examples:
+      | account                                                                 | plan |
+      | organizationType claude_max                                             | Max  |
+      | organizationRateLimitTier default_claude_max_5x                         | Max  |
+      | organizationType claude_pro                                             | Pro  |
+      | organizationType null, userRateLimitTier default_claude_pro             | Pro  |
+      | planDisplayName Pro                                                     | Pro  |
+      | organizationType claude_team with a max rate-limit tier                 | none |
+      | organizationType claude_enterprise                                      | none |
+      | organizationType professional_services, planDisplayName Product         | none |
+      | organizationRateLimitTier maximal_tier, planDisplayName Maxwell         | none |
+      | organizationType empty, organizationRateLimitTier default_claude_pro    | Pro  |
+      | organizationType 7, planDisplayName a list                              | none |
+      | billingType pro, seatTier max (not plan fields)                         | none |
+
+  # Backed by: tests/test_session_continuity.py::test_an_unreadable_plan_file_changes_nothing
+  Scenario: A plan file that cannot be read changes nothing
+    Given .claude.json that is not JSON, or a list, or has no oauthAccount object
+    When SessionStart fires for a new session
+    Then the output has no systemMessage and the line says "mode=auto · disposition=balanced · workflows=not opted in"
+
+  # Backed by: tests/test_session_continuity.py::test_a_project_that_names_its_own_default_is_not_started_by_the_plan
+  Scenario: A project that names its own default is not started by the plan
+    Given a Pro plan and a project whose agenting/AGENTING.md has the line "auto-disposition-default: balanced"
+    When SessionStart fires for a new session in that project
+    Then the output has no systemMessage, the line says "disposition=balanced" with no "set for", and it still carries " · plan=Pro"
+    And when the only mention is inside an HTML comment, the plan starts the chat in fast and the user is told
+
+  # Backed by: tests/test_session_continuity.py::test_the_plan_record_is_not_a_session
+  Scenario: The plan record is not a session
+    Given a Pro plan
+    When SessionStart fires for 25 distinct new sessions
+    Then the state file still has the "_plan" record and exactly 20 sessions
+    And --record --session _plan records under "unknown" and leaves the plan record alone
+
+  # Backed by: tests/test_session_continuity.py::test_a_chat_that_lost_its_record_is_seeded_by_the_plan_without_a_notice
+  Scenario Outline: A chat that already existed and has no record is seeded by the plan without a notice
+    Given a Pro plan and a session id with no record
+    When SessionStart fires for it with source "<source>"
+    Then the output has no systemMessage and the line says "disposition=fast (set for the Pro plan)"
+    And the state file has no "_plan" record yet, so the next new chat gets the ordinary Pro notice
+
+    Examples:
+      | source  |
+      | compact |
+      | resume  |
+      | fork    |
+
+  # Backed by: tests/test_session_continuity.py::test_a_record_for_a_chat_with_no_record_starts_where_the_plan_starts
+  Scenario: A --record for a chat with no record starts where the plan starts
+    Given a Pro plan and a session id with no record, for which --status shows "disposition=fast (set for the Pro plan)"
+    When --record is run for it with --mode manual only
+    Then stdout contains "mode=manual · disposition=fast (set for the Pro plan)" and the record has disposition "fast"
+
+  # Backed by: tests/test_session_continuity.py::test_a_chat_in_a_project_with_its_own_default_does_not_swallow_the_plan_change
+  Scenario: A chat in a project with its own default does not swallow the plan-change notice
+    Given a chat that started on a Pro plan, and the plan is Max now
+    When the next new chat starts in a project whose AGENTING.md names its own default
+    Then it has no systemMessage
+    And the new chat after it, in a project without one, gets "[agenting] plan changed from Pro to Max · new chats now start in balanced."
+
+  # Backed by: tests/test_session_continuity.py::test_the_plan_change_is_still_told_after_the_plan_could_not_be_read_for_a_while
+  Scenario: A plan change is still told after the plan could not be read for a while
+    Given a chat that started on a Pro plan, then new chats while the plan file was not JSON
+    When the file is readable again and still says Pro
+    Then the next new chat gets the ordinary Pro notice
+    When it becomes unreadable again and then says Max
+    Then the next new chat gets "[agenting] plan changed from Pro to Max · new chats now start in balanced."
+
+  # Backed by: tests/test_session_continuity.py::test_the_project_file_is_found_from_a_folder_inside_the_project
+  Scenario: The project's rules file is found from a folder inside the project
+    Given a Pro plan, a project root with .git and agenting/AGENTING.md that says "**auto-disposition-default:** `Balanced`", and a session whose cwd is src/deep inside it
+    When SessionStart fires for a new session
+    Then the output has no systemMessage and the line says "disposition=balanced"
+    And a session whose cwd is a nested folder with its own .git is started by the plan, because the search stops at .git
+
+  # Backed by: tests/test_session_continuity.py::test_what_counts_as_a_project_default
+  Scenario Outline: What counts as a project default
+    Given a Pro plan and agenting/AGENTING.md with the line <line>
+    When SessionStart fires for a new session
+    Then the plan <effect> the chat
+
+    Examples:
+      | line                                         | effect          |
+      | - `auto-disposition-default: balanced`       | does not start  |
+      | auto-disposition-default : fast              | does not start  |
+      | - **auto-disposition-default:** quality      | does not start  |
+      | `auto-disposition-default`: `fast`           | does not start  |
+      | auto-disposition-default: and a new line     | starts          |
+      | auto-disposition-default: TBD                | starts          |
+      | the key inside an HTML comment               | starts          |
+      | nothing here                                 | starts          |
+
+  # Backed by: tests/test_session_continuity.py::test_an_odd_stored_plan_value_never_stops_the_hook
+  Scenario: An odd stored plan value never stops the hook
+    Given a state file whose "_plan" holds a list, one session whose plan mark holds an object, and one whose plan mark does not fit its stored disposition
+    When SessionStart fires for each of those sessions and for a new one
+    Then each gets its line: the first two without "set for", and the new chat with the ordinary Pro notice
+    And the "_plan" record is "Pro" again and a later --record prints "recorded: session"
+
+  # Backed by: tests/test_session_continuity.py::test_a_reserved_key_is_never_a_session_id
+  Scenario Outline: A reserved key is never a session id
+    Given a Pro plan and a state file with a "_plan" record
+    When SessionStart fires with session_id "<key>"
+    Then the line says "(session unknown)" and the "_plan" record is untouched
+
+    Examples:
+      | key       |
+      | _plan     |
+      | _defaults |
+
+  # Backed by: tests/test_session_continuity.py::test_the_plan_file_is_read_from_the_config_folder_when_one_is_set
+  Scenario: The plan file is read from the config folder when one is set
+    Given CLAUDE_CONFIG_DIR names a folder whose .claude.json says Pro, while the home folder's says Max
+    When SessionStart fires for a new session
+    Then the line carries " · plan=Pro"
+    And with CLAUDE_CONFIG_DIR naming a folder that has no .claude.json, the line carries no plan
+
+  # Backed by: tests/test_session_continuity.py::test_the_line_with_a_plan_or_the_quality_note_stays_short_asks_nothing_and_is_read_by_the_guard
+  Scenario: The line with a plan, or with the quality note, stays short, asks nothing and is read by the Workflow guard
+    Given a new chat on a Pro plan, and an older chat recorded as manual and quality
+    When SessionStart fires for each
+    Then neither line has a newline, a question mark or "AskUserQuestion", nor has the notice
+    And each line, without the script path and the two session ids, is shorter than 560 characters
+    And the Workflow guard's SESSION_LINE_RE reads the mode and the session id from each line
+

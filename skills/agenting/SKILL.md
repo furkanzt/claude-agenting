@@ -1,6 +1,6 @@
 ---
 name: agenting
-description: Use when deciding whether bulk work leaves the main chat, starting a teammate, writing or editing a Workflow script, planning a fan-out of many agents, choosing a model or effort for an agent() or Agent call, when the user switches agenting mode (auto/manual) or disposition (fast/balanced/quality) or opts in to workflows for this chat, or when a project has agenting/AGENTING.md. Routing and delegation rules.
+description: Use when deciding whether bulk work leaves the main chat, starting a teammate, writing or editing a Workflow script, planning a fan-out of many agents, choosing a model or effort for an agent() or Agent call, when the user switches agenting mode (auto/manual) or disposition (fast/balanced), calls a job critical or throwaway, opts in to workflows for this chat, or when a project has agenting/AGENTING.md.
 ---
 
 # Agenting
@@ -32,6 +32,14 @@ Work leaves only when all three hold:
 Time alone never decides, and in doubt the work stays. In `auto` mode start
 off-chat work without asking and say in one line what runs where; in `manual`
 mode propose it and wait.
+
+**In `fast`** every agent start draws on a small usage limit, so the bar for
+leaving is twice as high: about 10 or more similar items; or about 20 or more
+files or 40k or more tokens of reading; or 4 or more independent parts. Reading
+and exploring runs as a Workflow or as teammates only when the user asks for
+one. Bulk coding still leaves the chat: once the main chat has the plan and
+the tests, the coding goes to cheap workers through the smallest vehicle that
+fits.
 
 **2. Which vehicle?** The cheapest that fits:
 
@@ -66,6 +74,21 @@ lines; then the builders start (`manual` mode: after the user's yes).
   the main chat, and a rejected direction goes back to the designer.
 - **Fable 5.2 thinks first only when the user asks for it.** It was measured on
   both jobs and took neither row.
+
+**4. A prototype: throwaway or keep?** Two ways to build one.
+
+- **Throwaway:** the `fast` cells, no tests, no review, no design pass, in
+  either disposition. When you deliver it, say that it is a throwaway and that
+  keeping it means building it again on the keep path.
+- **Keep:** the session's normal build path, as for any feature.
+
+The user's word decides ("throwaway", "quick demo", "just to see it"; or "we
+will keep this", "implement it if I approve"). Without one: in `manual` mode
+ask once before building, with one sentence on what each path costs and gives;
+in `auto` mode decide, and say in one line which path you took. Throwaway when
+the user wants a quick look (quick, try, idea, demo) or the work is one new
+file outside the real code. Keep when it changes real files or will be
+implemented if approved. Unclear: keep.
 
 Examples, what each vehicle costs and the teammate rules:
 [reference/delegation.md](reference/delegation.md).
@@ -115,8 +138,8 @@ The numbers behind each row, what changed and the limits are in
 [reference/evidence.md](reference/evidence.md); read it before changing a cell
 or citing a number. Two limits to carry: two or three tasks per row show large
 gaps only, and the security, incident and orchestration agents were not measured
-and keep their pins. `quality` keeps Opus on rows 5 to 7 and `fast` uses
-Opus `high` for synthesis: [reference/modes.md](reference/modes.md).
+and keep their pins. `fast` uses Opus `high` for synthesis, and a job the user
+calls critical gets Opus on rows 5 to 7: [reference/modes.md](reference/modes.md).
 
 Two questions settle almost every case:
 
@@ -181,7 +204,7 @@ Every tier here is a Claude model. Before proposing a non-Claude one, read
    the mode; `--status` on the recorder it names gives ground truth.
    - **auto** (default): decide the plan yourself, without asking. Start from
      the table, apply the session's disposition (under `balanced` the table
-     *is* the baseline; for `fast` or `quality` see
+     *is* the baseline; for `fast`, and for a job the user calls critical, see
      [reference/modes.md](reference/modes.md)), then the project's Rules.
      Run the Workflow; the guard lets it through with a note.
    - **manual**: put the plan to the user with AskUserQuestion, naming the
@@ -300,7 +323,8 @@ inside a subagent may not deliver it).
 ## Session settings
 
 Three values carried per session by the SessionStart hook: mode
-(`auto`|`manual`), disposition (`fast`|`balanced`|`quality`) and the workflows
+(`auto`|`manual`), disposition (`fast`|`balanced`; a new chat starts in the
+plan's when the plan can be read) and the workflows
 opt-in (`on`|`off`, seeded from the standing default when the user set one).
 When the user changes any of them, in words or with `/agenting-mode`, read
 [reference/modes.md](reference/modes.md) and record the change before replying.

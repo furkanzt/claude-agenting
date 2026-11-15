@@ -29,7 +29,10 @@ class HookTestCase(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.state_dir = Path(self._tmp.name)
-        self.env = dict(os.environ, AGENTING_STATE_DIR=str(self.state_dir))
+        # AGENTING_PLAN_FILE: the session hook reads the account's plan from ~/.claude.json; a path
+        # that does not exist keeps every hook test away from the real file ("no plan").
+        self.env = dict(os.environ, AGENTING_STATE_DIR=str(self.state_dir),
+                        AGENTING_PLAN_FILE=str(self.state_dir / "no-plan.json"))
 
     def tearDown(self):
         self._tmp.cleanup()

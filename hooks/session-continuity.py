@@ -4,12 +4,12 @@ session-continuity  --  SessionStart hook that carries three per-session values
 across compaction of one chat continuum:
 
   mode         auto | manual               (default auto)
-  disposition  fast | balanced | quality   (default balanced)
+  disposition  fast | balanced             (default balanced; fast on a Pro plan)
   workflows    on | off | unset            (default unset = not opted in)
 
-plus three read-only facts the line also carries: whether Agent Teams (teammates)
-are on, the advisor state of the session, and a standing Workflows default the owner
-sets once for all chats.
+plus four read-only facts the line also carries: whether Agent Teams (teammates)
+are on, the advisor state of the session, a standing Workflows default the owner
+sets once for all chats, and the account's plan when it can be read.
 
 Claude Code keeps one session_id across compaction of the same conversation,
 so state keyed on session_id survives a compaction summary that forgets to
@@ -55,6 +55,30 @@ settings.local.json, <cwd>/.claude/settings.json, ~/.claude/settings.json (in th
 order); otherwise "off". A file that is missing, not JSON or has no such string is
 skipped. An --advisor flag given at launch cannot be seen from here.
 
+Plan: Claude Code keeps the account's plan in ~/.claude.json under "oauthAccount"
+(.claude.json in $CLAUDE_CONFIG_DIR when that is set; $AGENTING_PLAN_FILE names
+another file, tests use this). The fields are not documented, so the reading is
+narrow: organizationType decides when it holds a word ("max" or "pro" as a whole
+word; any other value, such as a team or enterprise account, is no plan); without it
+the first of organizationRateLimitTier, userRateLimitTier and planDisplayName that
+holds one of the two words decides. Anything else, a missing file or a file that is
+not JSON is "no plan" and changes nothing.
+
+A session id with no record starts in `fast` on Pro and in `balanced` on Max and is
+marked "disposition_source": "plan" (cleared by a per-chat --record --disposition).
+The user is told once, in a systemMessage, at the SessionStart that opens a NEW chat
+(source startup or clear); a chat that already existed and lost its record (source
+resume, compact or fork) is seeded the same way without a word. A project whose
+agenting/AGENTING.md (in the working folder or above it, up to the folder with .git)
+names an auto-disposition-default has made its own choice: no plan start and no
+notice there. The plan the user was last told about is kept under the reserved
+top-level key "_plan"; the first new chat that is told after it changed gets a
+one-line "plan changed" notice instead.
+
+`quality` was a third disposition until 3.6.0. A recorded "quality" reads as
+"balanced" and the line says so; --record --disposition quality records "balanced"
+and says that the word "critical" sends one job to the careful models.
+
 Legacy (2.x) entries: mode "semi-auto" is read as "manual", never as "auto";
 an old "suggestion" key is ignored (it recorded a different consent than the
 workflows opt-in, so it is not mapped) and dropped on the next --record.
@@ -63,7 +87,7 @@ CLI
 ---
   (no flags)   hook mode: SessionStart JSON on stdin -> additionalContext
   --record --session <id> [--mode auto|manual]
-                           [--disposition fast|balanced|quality]
+                           [--disposition fast|balanced]
                            [--workflows on|off]
   --record-default --workflows on|off|unset      (standing default, no --session)
   --status [--session <id>]
@@ -72,7 +96,9 @@ CLI
 import argparse
 import json
 import os
+import re
 import sys
+import time
 from datetime import datetime, timezone
 
 STATE_DIR = os.path.expanduser(os.environ.get("AGENTING_STATE_DIR") or "~/.claude")
@@ -80,12 +106,36 @@ STATE_PATH = os.path.join(STATE_DIR, ".agenting-session-state.json")
 KEEP_SESSIONS = 20
 SELF_PATH = os.path.abspath(__file__)
 
+def _plan_path() -> str:
+    """Where Claude Code keeps the account: $AGENTING_PLAN_FILE (tests), else .claude.json in
+    $CLAUDE_CONFIG_DIR when that is set, else in the home folder."""
+    if os.environ.get("AGENTING_PLAN_FILE"):
+        return os.path.expanduser(os.environ["AGENTING_PLAN_FILE"])
+    if os.environ.get("CLAUDE_CONFIG_DIR"):
+        return os.path.join(os.path.expanduser(os.environ["CLAUDE_CONFIG_DIR"]), ".claude.json")
+    return os.path.expanduser("~/.claude.json")
+
+
+PLAN_PATH = _plan_path()
+
 MODES = ("auto", "manual")
-DISPOSITIONS = ("fast", "balanced", "quality")
+DISPOSITIONS = ("fast", "balanced")
+REMOVED_DISPOSITION = "quality"          # a third disposition until 3.6.0; read as balanced
 WORKFLOWS = ("on", "off")
 DEFAULT_MODE = "auto"
 DEFAULT_DISPOSITION = "balanced"
 DEFAULTS_KEY = "_defaults"
+PLAN_KEY = "_plan"
+RESERVED_KEYS = (DEFAULTS_KEY, PLAN_KEY)
+PLAN_DISPOSITION = {"Pro": "fast", "Max": "balanced"}
+PLAN_NAMES = tuple(PLAN_DISPOSITION)      # membership by ==, so an odd stored value never raises
+CONTINUING_SOURCES = ("resume", "compact", "fork")   # SessionStart of a chat that already existed
+PLAN_FIELDS = ("organizationType", "organizationRateLimitTier", "userRateLimitTier", "planDisplayName")
+PROJECT_DEFAULT_RE = re.compile(r"auto-disposition-default[`* \t]*:[`* \t]*(fast|balanced|quality)\b", re.I)
+# The tip for the main chat of a Pro plan. The model and effort come from the coding experiment's
+# question 4 (evals/results/PREREGISTERED-2026-11-14-coding.md); empty until that is measured.
+MAIN_CHAT_TIP = ""
+QUALITY_GONE = ('the quality setting is gone: say "critical" for one job that needs the careful models')
 TEAMS_VAR = "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
 ADVISOR_OFF_VAR = "CLAUDE_CODE_DISABLE_ADVISOR_TOOL"
 
@@ -110,7 +160,8 @@ def load_state() -> dict:
 
 def save_state(d: dict) -> None:
     defaults = d.get(DEFAULTS_KEY)
-    d = {k: v for k, v in d.items() if k != DEFAULTS_KEY}  # not a session: never counted or pruned
+    plan = d.get(PLAN_KEY)
+    d = {k: v for k, v in d.items() if k not in RESERVED_KEYS}  # not sessions: never counted or pruned
     if len(d) > KEEP_SESSIONS:
         d = dict(
             sorted(
@@ -120,6 +171,8 @@ def save_state(d: dict) -> None:
         )
     if isinstance(defaults, dict) and defaults:
         d[DEFAULTS_KEY] = defaults
+    if isinstance(plan, dict) and plan:
+        d[PLAN_KEY] = plan
     try:
         os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)
         tmp = STATE_PATH + ".tmp"
@@ -144,6 +197,7 @@ def normalize(entry) -> dict:
         # which drops Stage 2 only for an explicit "auto".
         mode = "manual" if entry else DEFAULT_MODE
     disp = entry.get("disposition")
+    was_quality = disp == REMOVED_DISPOSITION
     if disp not in DISPOSITIONS:
         disp = DEFAULT_DISPOSITION
     wf = entry.get("workflows")
@@ -152,7 +206,89 @@ def normalize(entry) -> dict:
     out = {"mode": mode, "disposition": disp, "workflows": wf}
     if wf and entry.get("workflows_source") == "default":
         out["workflows_source"] = "default"
+    plan = entry.get("plan")
+    if (entry.get("disposition_source") == "plan" and plan in PLAN_NAMES
+            and disp == PLAN_DISPOSITION[plan] and not was_quality):
+        out["disposition_source"] = "plan"
+        out["plan"] = plan
+    if was_quality:
+        out["was_quality"] = True
     return out
+
+
+def _load_plan_file():
+    """The plan file as JSON. Claude Code rewrites the file while it runs, so a file caught half
+    written is read once more after a moment."""
+    for attempt in (1, 2):
+        try:
+            with open(PLAN_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except ValueError:
+            if attempt == 1:
+                time.sleep(0.05)
+    return None
+
+
+def read_plan():
+    """"Pro", "Max" or None: the account's plan as Claude Code keeps it. The fields are not
+    documented, so anything unreadable or unknown is None (no plan: nothing changes)."""
+    try:
+        data = _load_plan_file()
+        account = data.get("oauthAccount") if isinstance(data, dict) else None
+        if not isinstance(account, dict):
+            return None
+        for key in PLAN_FIELDS:
+            value = account.get(key)
+            if not isinstance(value, str):
+                continue
+            words = re.findall(r"[a-z]+", value.lower())
+            if "max" in words:
+                return "Max"
+            if "pro" in words:
+                return "Pro"
+            if key == PLAN_FIELDS[0] and words:
+                return None            # the account names another kind of plan (team, enterprise)
+    except Exception:
+        return None
+    return None
+
+
+def project_rules_file(cwd):
+    """agenting/AGENTING.md of the project that holds cwd: in cwd, or in the nearest folder above it,
+    up to and including the folder that has .git. None when there is none."""
+    if not (cwd and isinstance(cwd, str)):
+        return None
+    folder = os.path.abspath(cwd)
+    for _ in range(25):
+        path = os.path.join(folder, "agenting", "AGENTING.md")
+        if os.path.isfile(path):
+            return path
+        parent = os.path.dirname(folder)
+        if os.path.exists(os.path.join(folder, ".git")) or parent == folder:
+            return None
+        folder = parent
+    return None
+
+
+def project_has_default(cwd) -> bool:
+    """True when the project's agenting/AGENTING.md names an auto-disposition-default outside a
+    comment: the project chose its own start, so the plan does not."""
+    path = project_rules_file(cwd)
+    if not path:
+        return False
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            text = re.sub(r"<!--.*?-->", "", f.read(), flags=re.S)
+    except Exception:
+        return False
+    return bool(PROJECT_DEFAULT_RE.search(text))
+
+
+def plan_start(cwd):
+    """(plan, starts): the plan that can be read, and the plan that starts a new chat here (None in a
+    project that names its own default)."""
+    plan = read_plan()
+    return plan, (plan if plan and not project_has_default(cwd) else None)
 
 
 def default_workflows(state: dict):
@@ -161,10 +297,15 @@ def default_workflows(state: dict):
     return wf if wf in WORKFLOWS else None
 
 
-def seed_entry(state: dict) -> dict:
-    """A fresh session record: the built-in defaults plus the standing Workflows default."""
+def seed_entry(state: dict, plan=None) -> dict:
+    """A fresh session record: the built-in defaults, the plan's starting disposition when a plan
+    is given, and the standing Workflows default."""
     entry = {"mode": DEFAULT_MODE, "disposition": DEFAULT_DISPOSITION,
              "workflows": None, "updated": utc_now()}
+    if plan in PLAN_NAMES:
+        entry["disposition"] = PLAN_DISPOSITION[plan]
+        entry["disposition_source"] = "plan"
+        entry["plan"] = plan
     wf = default_workflows(state)
     if wf:
         entry["workflows"] = wf
@@ -184,9 +325,30 @@ def fmt_workflows(value, standing=False) -> str:
     return "workflows=not opted in"
 
 
+def fmt_disposition(v: dict) -> str:
+    text = f"disposition={v['disposition']}"
+    if v.get("disposition_source") == "plan":
+        return f"{text} (set for the {v['plan']} plan)"
+    if v.get("was_quality"):
+        return f"{text} ({QUALITY_GONE})"
+    return text
+
+
 def summary(v: dict) -> str:
-    return (f"mode={v['mode']} · disposition={v['disposition']} · "
+    return (f"mode={v['mode']} · {fmt_disposition(v)} · "
             f"{fmt_workflows(v['workflows'], v.get('workflows_source') == 'default')}")
+
+
+def plan_notice(plan: str, changed_from=None) -> str:
+    """What the user is told at the first SessionStart of a chat that the plan started."""
+    if changed_from:
+        return (f"[agenting] plan changed from {changed_from} to {plan} · "
+                f"new chats now start in {PLAN_DISPOSITION[plan]}.")
+    if plan == "Pro":
+        tip = f" Tip: {MAIN_CHAT_TIP}." if MAIN_CHAT_TIP else ""
+        return ("[agenting] plan=Pro · mode=fast (set for your plan: cheaper models, fewer agents)."
+                f"{tip} Change mode: /agenting-mode balanced")
+    return "[agenting] plan=Max · mode=balanced (set for your plan). To save usage: /agenting-mode fast"
 
 
 def _truthy(value) -> bool:
@@ -257,52 +419,74 @@ def fmt_default(state: dict) -> str:
 def run_hook() -> int:
     data = read_hook_input()
     session = data.get("session_id") or "unknown"
-    if session == DEFAULTS_KEY:
+    if session in RESERVED_KEYS:
         session = "unknown"
     source = data.get("source") or ""
 
+    # The plan file and the project file are read BEFORE the state is loaded, so the gap between
+    # loading and saving the state stays as short as it was (another chat may write in between).
+    plan, starts = plan_start(data.get("cwd"))
     state = load_state()
     if source == "clear":
         state.pop(session, None)  # /clear is a new continuum, never an inherited one
     entry = state.get(session)
+    notice = None
     if not isinstance(entry, dict):
-        entry = seed_entry(state)
+        entry = seed_entry(state, starts)
         state[session] = entry
+        # The user is told at the start of a NEW chat only. A chat that already existed and lost its
+        # record (pruned after 20 newer ones) is seeded again without a word.
+        if starts and source not in CONTINUING_SOURCES:
+            seen = state.get(PLAN_KEY)
+            before = seen.get("plan") if isinstance(seen, dict) else None
+            notice = plan_notice(plan, before if before in PLAN_NAMES and before != plan else None)
+            state[PLAN_KEY] = {"plan": plan, "updated": utc_now()}
         save_state(state)
 
     line = (
         f"[agenting] {summary(normalize(entry))} · "
         f"{fmt_teammates(teammates_on(data.get('cwd')))} · "
-        f"{fmt_advisor(advisor_state(data.get('cwd')))} (session {session}). "
+        f"{fmt_advisor(advisor_state(data.get('cwd')))}"
+        f"{f' · plan={plan}' if plan else ''} (session {session}). "
         f'Record changes: python3 "{SELF_PATH}" --record --session {session} '
-        f"[--mode auto|manual] [--disposition fast|balanced|quality] [--workflows on|off]. "
+        f"[--mode auto|manual] [--disposition fast|balanced] [--workflows on|off]. "
         f"Load the agenting skill before moving bulk work off this chat or starting an agent, teammate or Workflow."
     )
-    print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart",
-                                             "additionalContext": line}}))
+    out = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": line}}
+    if notice:
+        out["systemMessage"] = notice      # shown to the user, once, at the chat the plan started
+    print(json.dumps(out))
     return 0
 
 
 def record(args) -> int:
     session = args.session or "unknown"
-    if session == DEFAULTS_KEY:
+    if session in RESERVED_KEYS:
         session = "unknown"
+    _, starts = plan_start(os.getcwd())
     state = load_state()
     entry = state.get(session)
     if not isinstance(entry, dict):
-        entry = seed_entry(state)
+        entry = seed_entry(state, starts)  # the same start SessionStart and --status would give
     v = normalize(entry)
+    v.pop("was_quality", None)
+    note = ""
     if args.mode:
         v["mode"] = args.mode
     if args.disposition:
+        if args.disposition == REMOVED_DISPOSITION:
+            args.disposition = DEFAULT_DISPOSITION
+            note = f" ({QUALITY_GONE})"
         v["disposition"] = args.disposition
+        v.pop("disposition_source", None)  # the user's own choice replaces the plan's start
+        v.pop("plan", None)
     if args.workflows:
         v["workflows"] = args.workflows
         v.pop("workflows_source", None)  # a per-chat value replaces the standing default
     v["updated"] = utc_now()
     state[session] = v  # rewrites the entry, dropping legacy keys such as "suggestion"
     save_state(state)
-    print(f"recorded: session {session}: {summary(v)}")
+    print(f"recorded: session {session}: {summary(v)}{note}")
     return 0
 
 
@@ -323,12 +507,14 @@ def record_default(args) -> int:
 def status(args) -> int:
     session = args.session or "unknown"
     state = load_state()
-    entry = state.get(session) if session != DEFAULTS_KEY else None
+    entry = state.get(session) if session not in RESERVED_KEYS else None
+    plan, starts = plan_start(os.getcwd())
     tail = (f" · {fmt_teammates(teammates_on(os.getcwd()))} · "
-            f"{fmt_advisor(advisor_state(os.getcwd()))} · {fmt_default(state)}")
+            f"{fmt_advisor(advisor_state(os.getcwd()))} · {fmt_default(state)}"
+            f"{f' · plan={plan}' if plan else ''}")
     if not isinstance(entry, dict):
         print(f"no state recorded for session {session} "
-              f"(defaults: {summary(normalize(seed_entry(state)))}){tail}")
+              f"(defaults: {summary(normalize(seed_entry(state, starts)))}){tail}")
         return 0
     print(f"session {session}: {summary(normalize(entry))}{tail}")
     return 0
@@ -341,7 +527,7 @@ def main() -> int:
     ap.add_argument("--status", action="store_true")
     ap.add_argument("--session")
     ap.add_argument("--mode", choices=MODES)
-    ap.add_argument("--disposition", choices=DISPOSITIONS)
+    ap.add_argument("--disposition", choices=DISPOSITIONS + (REMOVED_DISPOSITION,))
     ap.add_argument("--workflows", choices=WORKFLOWS + ("unset",))
     args, _ = ap.parse_known_args()
 

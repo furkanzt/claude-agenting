@@ -101,11 +101,11 @@ class Seeding(ContinuityCase):
 
 class RecordAndStatus(ContinuityCase):
     def test_record_then_status(self):
-        out = self.record(SID, "--mode", "manual", "--disposition", "quality")
+        out = self.record(SID, "--mode", "manual", "--disposition", "fast")
         self.assertIn("mode=manual", out)
-        self.assertIn("disposition=quality", out)
+        self.assertIn("disposition=fast", out)
         st = self.status(SID)
-        self.assertIn(f"session {SID}: mode=manual · disposition=quality · "
+        self.assertIn(f"session {SID}: mode=manual · disposition=fast · "
                       "workflows=not opted in", st)
 
     def test_status_without_state_reports_defaults(self):
@@ -149,10 +149,312 @@ class WorkflowsOptIn(ContinuityCase):
         self.assertIn("workflows=off", self.session_start(SID, source="resume"))
 
     def test_workflows_flag_leaves_mode_and_disposition_alone(self):
-        self.record(SID, "--mode", "manual", "--disposition", "quality")
+        self.record(SID, "--mode", "manual", "--disposition", "fast")
         self.record(SID, "--workflows", "on")
         entry = self.read_state()[SID]
-        self.assertEqual((entry["mode"], entry["disposition"]), ("manual", "quality"))
+        self.assertEqual((entry["mode"], entry["disposition"]), ("manual", "fast"))
+
+
+QUALITY_GONE = 'the quality setting is gone: say "critical" for one job that needs the careful models'
+PRO_NOTICE = ("[agenting] plan=Pro · mode=fast (set for your plan: cheaper models, fewer agents)."
+              "{tip} Change mode: /agenting-mode balanced")
+MAX_NOTICE = "[agenting] plan=Max · mode=balanced (set for your plan). To save usage: /agenting-mode fast"
+
+
+def main_chat_tip():
+    """The hook's own tip text, read from its source (the hook is run as a script, never imported)."""
+    import re
+    m = re.search(r'^MAIN_CHAT_TIP = "(.*)"$', CONTINUITY.read_text(encoding="utf-8"), re.M)
+    assert m, "MAIN_CHAT_TIP is not a one-line string constant"
+    return m.group(1)
+
+
+class QualityIsGone(ContinuityCase):
+    def test_the_line_offers_two_dispositions(self):
+        msg = self.start()
+        self.assertIn("[--disposition fast|balanced] ", msg)
+        self.assertNotIn("quality", msg)
+
+    def test_recording_quality_records_balanced_and_says_what_to_say_instead(self):
+        out = self.record(SID, "--disposition", "quality")
+        self.assertIn(f"disposition=balanced · workflows=not opted in ({QUALITY_GONE})", out)
+        self.assertEqual(self.read_state()[SID]["disposition"], "balanced")
+        self.assertNotIn("quality", self.session_start(SID, source="compact"))
+
+    def test_a_chat_recorded_as_quality_reads_as_balanced_and_the_line_says_so(self):
+        self.write_state({SID: {"mode": "auto", "disposition": "quality", "workflows": None,
+                                "updated": "2026-11-01T00:00:00Z"}})
+        msg = self.session_start(SID, source="compact")
+        self.assertIn(f"mode=auto · disposition=balanced ({QUALITY_GONE}) · workflows=not opted in", msg)
+        self.assertIn(f"disposition=balanced ({QUALITY_GONE})", self.status(SID))
+        self.record(SID, "--mode", "manual")          # any record rewrites the entry
+        self.assertEqual(self.read_state()[SID]["disposition"], "balanced")
+        self.assertNotIn("quality", self.session_start(SID, source="compact"))
+
+
+class Plan(ContinuityCase):
+    """The account's plan, read from <HOME>/.claude.json (a temp HOME here)."""
+
+    def setUp(self):
+        super().setUp()
+        self.env.pop("AGENTING_PLAN_FILE", None)       # read <temp HOME>/.claude.json
+        self.env.pop("CLAUDE_CONFIG_DIR", None)
+
+    def write_plan(self, **account):
+        self.write_settings(self.home / ".claude.json", {"oauthAccount": account, "other": 1})
+
+    def begin(self, session=SID, source="startup"):
+        """(additionalContext, systemMessage or None) of one SessionStart."""
+        out = self.run_hook(CONTINUITY, {"session_id": session, "cwd": str(self.cwd), "source": source})
+        return out["hookSpecificOutput"]["additionalContext"], out.get("systemMessage")
+
+    def test_no_plan_file_changes_nothing(self):
+        msg, notice = self.begin()
+        self.assertIsNone(notice)
+        self.assertTrue(msg.startswith("[agenting] mode=auto · disposition=balanced · workflows=not opted in"), msg)
+        self.assertNotIn("plan", msg)
+        self.assertNotIn("_plan", self.read_state())
+
+    def test_a_pro_plan_starts_a_new_chat_in_fast_and_tells_the_user(self):
+        self.write_plan(organizationType="claude_pro", organizationRateLimitTier="default_claude_pro")
+        msg, notice = self.begin()
+        tip = main_chat_tip()
+        self.assertEqual(notice, PRO_NOTICE.format(tip=f" Tip: {tip}." if tip else ""))
+        self.assertTrue(msg.startswith("[agenting] mode=auto · disposition=fast (set for the Pro plan) · "
+                                       "workflows=not opted in"), msg)
+        self.assertIn(f" · advisor=off · plan=Pro (session {SID}). ", msg)
+        entry = self.read_state()[SID]
+        self.assertEqual((entry["disposition"], entry["disposition_source"], entry["plan"]), ("fast", "plan", "Pro"))
+        self.assertEqual(self.read_state()["_plan"]["plan"], "Pro")
+        self.assertIn("disposition=fast (set for the Pro plan)", self.status_here())
+
+    def test_a_max_plan_starts_in_balanced_and_tells_the_user(self):
+        self.write_plan(organizationType="claude_max", organizationRateLimitTier="default_claude_max_20x")
+        msg, notice = self.begin()
+        self.assertEqual(notice, MAX_NOTICE)
+        self.assertIn("mode=auto · disposition=balanced (set for the Max plan) · ", msg)
+        self.assertIn(" · plan=Max (session ", msg)
+
+    def test_the_user_is_told_at_the_first_start_of_a_chat_only(self):
+        self.write_plan(organizationType="claude_pro")
+        self.assertIsNotNone(self.begin()[1])
+        for source in ("compact", "resume"):
+            msg, notice = self.begin(source=source)
+            self.assertIsNone(notice, source)
+            self.assertIn("disposition=fast (set for the Pro plan)", msg)
+        self.assertIsNotNone(self.begin(source="clear")[1])        # /clear is a new chat
+        self.assertIsNotNone(self.begin(session=SID2)[1])
+
+    def test_the_users_own_choice_replaces_the_plans_start(self):
+        self.write_plan(organizationType="claude_pro")
+        self.begin()
+        self.record(SID, "--workflows", "on")                       # not a choice of disposition
+        self.record(SID, "--mode", "manual")                        # nor is the mode
+        self.record(SID, "--mode", "auto")
+        self.assertIn("disposition=fast (set for the Pro plan)", self.begin(source="compact")[0])
+        out = self.record(SID, "--disposition", "balanced")
+        self.assertIn("disposition=balanced · ", out)
+        msg, notice = self.begin(source="compact")
+        self.assertIn("mode=auto · disposition=balanced · workflows=on", msg)
+        self.assertNotIn("set for", msg)
+        self.assertIsNone(notice)
+        entry = self.read_state()[SID]
+        self.assertNotIn("disposition_source", entry)
+        self.assertNotIn("plan", entry)
+        self.record(SID, "--disposition", "fast")                   # choosing fast is a choice too
+        self.assertNotIn("set for", self.begin(source="compact")[0])
+
+    def test_a_plan_change_is_told_once_at_the_next_new_chat(self):
+        self.write_plan(organizationType="claude_pro")
+        self.begin()
+        self.write_plan(organizationType="claude_max")
+        self.assertIsNone(self.begin(source="compact")[1])          # an old chat keeps its own start
+        self.assertIn("disposition=fast (set for the Pro plan)", self.begin(source="compact")[0])
+        msg, notice = self.begin(session=SID2)
+        self.assertEqual(notice, "[agenting] plan changed from Pro to Max · new chats now start in balanced.")
+        self.assertIn("disposition=balanced (set for the Max plan)", msg)
+        self.assertEqual(self.begin(session="33333333-2222-3333-4444-555555555555")[1], MAX_NOTICE)
+        self.write_plan(organizationType="claude_pro")
+        self.assertEqual(self.begin(session="44444444-2222-3333-4444-555555555555")[1],
+                         "[agenting] plan changed from Max to Pro · new chats now start in fast.")
+
+    def test_which_fields_name_the_plan(self):
+        cases = [
+            ({"organizationType": "claude_max"}, "Max"),
+            ({"organizationRateLimitTier": "default_claude_max_5x"}, "Max"),
+            ({"organizationType": "claude_pro"}, "Pro"),
+            ({"organizationType": None, "userRateLimitTier": "default_claude_pro"}, "Pro"),
+            ({"planDisplayName": "Pro"}, "Pro"),
+            ({"organizationType": "claude_team", "organizationRateLimitTier": "default_claude_max_5x"}, None),
+            ({"organizationType": "claude_enterprise"}, None),
+            ({"organizationType": "professional_services", "planDisplayName": "Product"}, None),
+            ({"organizationRateLimitTier": "maximal_tier", "planDisplayName": "Maxwell"}, None),
+            ({"organizationType": "", "organizationRateLimitTier": "default_claude_pro"}, "Pro"),
+            ({"organizationType": 7, "planDisplayName": ["Pro"]}, None),
+            ({"billingType": "pro", "seatTier": "max"}, None),          # not plan fields
+        ]
+        for n, (account, plan) in enumerate(cases):
+            with self.subTest(account=account):
+                self.write_plan(**account)
+                msg, notice = self.begin(session=f"{n:08d}-2222-3333-4444-555555555555")
+                if plan:
+                    self.assertIn(f" · plan={plan} (session ", msg)
+                else:
+                    self.assertNotIn("plan", msg)
+                    self.assertIsNone(notice)
+
+    def test_an_unreadable_plan_file_changes_nothing(self):
+        for content in ("{not json", "[1, 2]", '{"oauthAccount": "x"}', "{}"):
+            with self.subTest(content=content):
+                self.write_settings(self.home / ".claude.json", content)
+                msg, notice = self.begin(source="clear")
+                self.assertIsNone(notice)
+                self.assertIn("mode=auto · disposition=balanced · workflows=not opted in", msg)
+
+    def test_a_project_that_names_its_own_default_is_not_started_by_the_plan(self):
+        self.write_plan(organizationType="claude_pro")
+        self.write_settings(self.cwd / "agenting" / "AGENTING.md",
+                            "# Agenting\n\n## Config\n\n- `auto-disposition-default: balanced`\n")
+        msg, notice = self.begin()
+        self.assertIsNone(notice)
+        self.assertIn("mode=auto · disposition=balanced · workflows=not opted in", msg)
+        self.assertIn(" · plan=Pro (session ", msg)                 # the fact is still on the line
+        # the template's commented example is not a choice
+        self.write_settings(self.cwd / "agenting" / "AGENTING.md",
+                            "## Config\n<!-- e.g. auto-disposition-default: balanced -->\n")
+        msg, notice = self.begin(session=SID2)
+        self.assertIsNotNone(notice)
+        self.assertIn("disposition=fast (set for the Pro plan)", msg)
+
+    def test_a_chat_that_lost_its_record_is_seeded_by_the_plan_without_a_notice(self):
+        self.write_plan(organizationType="claude_pro")
+        for source in ("compact", "resume", "fork"):                # no record: pruned, or a fork's new id
+            with self.subTest(source=source):
+                msg, notice = self.begin(session=f"{source}00-2222-3333-4444-555555555555", source=source)
+                self.assertIsNone(notice)
+                self.assertIn("disposition=fast (set for the Pro plan)", msg)
+        self.assertNotIn("_plan", self.read_state())                 # nobody was told yet
+        self.assertEqual(self.begin(session=SID2)[1], PRO_NOTICE.format(
+            tip=f" Tip: {main_chat_tip()}." if main_chat_tip() else ""))
+
+    def test_a_record_for_a_chat_with_no_record_starts_where_the_plan_starts(self):
+        self.write_plan(organizationType="claude_pro")
+        self.assertIn("disposition=fast (set for the Pro plan)", self.status_here())
+        r = subprocess.run([sys.executable, str(CONTINUITY), "--record", "--session", SID, "--mode", "manual"],
+                           capture_output=True, text=True, timeout=20, env=self.env, cwd=str(self.cwd))
+        self.assertIn("mode=manual · disposition=fast (set for the Pro plan)", r.stdout)
+        self.assertEqual(self.read_state()[SID]["disposition"], "fast")
+
+    def test_a_chat_in_a_project_with_its_own_default_does_not_swallow_the_plan_change(self):
+        self.write_plan(organizationType="claude_pro")
+        self.begin()
+        self.write_plan(organizationType="claude_max")
+        self.write_settings(self.cwd / "agenting" / "AGENTING.md", "- `auto-disposition-default: fast`\n")
+        self.assertIsNone(self.begin(session=SID2)[1])
+        (self.cwd / "agenting" / "AGENTING.md").unlink()
+        self.assertEqual(self.begin(session="33333333-2222-3333-4444-555555555555")[1],
+                         "[agenting] plan changed from Pro to Max · new chats now start in balanced.")
+
+    def test_the_plan_change_is_still_told_after_the_plan_could_not_be_read_for_a_while(self):
+        self.write_plan(organizationType="claude_pro")
+        self.begin()
+        self.write_settings(self.home / ".claude.json", "{not json")
+        self.assertIsNone(self.begin(session=SID2)[1])
+        self.write_plan(organizationType="claude_pro")
+        self.assertTrue(self.begin(session="33333333-2222-3333-4444-555555555555")[1].startswith("[agenting] plan=Pro"))
+        self.write_settings(self.home / ".claude.json", "{not json")
+        self.begin(session="44444444-2222-3333-4444-555555555555")
+        self.write_plan(organizationType="claude_max")
+        self.assertEqual(self.begin(session="55555555-2222-3333-4444-555555555555")[1],
+                         "[agenting] plan changed from Pro to Max · new chats now start in balanced.")
+
+    def test_the_project_file_is_found_from_a_folder_inside_the_project(self):
+        self.write_plan(organizationType="claude_pro")
+        self.write_settings(self.cwd / "agenting" / "AGENTING.md", "## Config\n- **auto-disposition-default:** `Balanced`\n")
+        (self.cwd / ".git").mkdir()
+        inner = self.cwd / "src" / "deep"
+        inner.mkdir(parents=True)
+        out = self.run_hook(CONTINUITY, {"session_id": SID, "cwd": str(inner), "source": "startup"})
+        self.assertNotIn("systemMessage", out)
+        self.assertIn("disposition=balanced · ", out["hookSpecificOutput"]["additionalContext"])
+        # a file above the folder that has .git belongs to another project
+        other = self.cwd / "vendor" / "lib"
+        (other / ".git").mkdir(parents=True)
+        out = self.run_hook(CONTINUITY, {"session_id": SID2, "cwd": str(other), "source": "startup"})
+        self.assertIn("systemMessage", out)
+
+    def test_what_counts_as_a_project_default(self):
+        self.write_plan(organizationType="claude_pro")
+        cases = [("- `auto-disposition-default: balanced`", True), ("auto-disposition-default : fast", True),
+                 ("- **auto-disposition-default:** quality", True), ("`auto-disposition-default`: `fast`", True),
+                 ("auto-disposition-default:\nNotes follow", False), ("auto-disposition-default: TBD", False),
+                 ("<!-- auto-disposition-default: balanced -->", False), ("nothing here", False)]
+        for n, (text, own) in enumerate(cases):
+            with self.subTest(text=text):
+                self.write_settings(self.cwd / "agenting" / "AGENTING.md", f"## Config\n{text}\n")
+                notice = self.begin(session=f"{n:08d}-bbbb-3333-4444-555555555555")[1]
+                self.assertEqual(notice is None, own)
+
+    def test_an_odd_stored_plan_value_never_stops_the_hook(self):
+        self.write_plan(organizationType="claude_pro")
+        self.write_state({"_plan": {"plan": ["Pro"]},
+                          SID: {"mode": "auto", "disposition": "fast", "disposition_source": "plan", "plan": {}},
+                          SID2: {"mode": "auto", "disposition": "turbo", "disposition_source": "plan", "plan": "Pro"}})
+        msg, _ = self.begin(source="compact")
+        self.assertIn("mode=auto · disposition=fast · workflows=not opted in", msg)    # the odd mark is dropped
+        self.assertIn("disposition=balanced · ", self.begin(session=SID2, source="compact")[0])  # no "set for"
+        notice = self.begin(session="33333333-2222-3333-4444-555555555555")[1]
+        self.assertTrue(notice.startswith("[agenting] plan=Pro · mode=fast"), notice)
+        self.assertEqual(self.read_state()["_plan"]["plan"], "Pro")
+        self.assertIn("recorded: session", self.record(SID, "--mode", "manual"))
+
+    def test_a_reserved_key_is_never_a_session_id(self):
+        self.write_plan(organizationType="claude_pro")
+        self.begin()
+        for key in ("_plan", "_defaults"):
+            with self.subTest(key=key):
+                msg, _ = self.begin(session=key)
+                self.assertIn("(session unknown)", msg)
+        self.assertEqual(self.read_state()["_plan"]["plan"], "Pro")
+        self.assertNotIn("mode", self.read_state()["_plan"])
+
+    def test_the_plan_file_is_read_from_the_config_folder_when_one_is_set(self):
+        self.write_plan(organizationType="claude_max")                      # the home folder's file
+        config = self.home / "other-config"
+        self.write_settings(config / ".claude.json", {"oauthAccount": {"organizationType": "claude_pro"}})
+        self.env["CLAUDE_CONFIG_DIR"] = str(config)
+        self.assertIn(" · plan=Pro (session ", self.begin()[0])
+        self.env["CLAUDE_CONFIG_DIR"] = str(self.home / "empty-config")     # no file there: no plan
+        self.assertNotIn("plan", self.begin(session=SID2)[0])
+
+    def test_the_line_with_a_plan_or_the_quality_note_stays_short_asks_nothing_and_is_read_by_the_guard(self):
+        import re
+        guard = (CONTINUITY.parent / "workflow-routing-guard.py").read_text(encoding="utf-8")
+        pattern = re.search(r'^SESSION_LINE_RE = re\.compile\(r"(.+)"\)$', guard, re.M)
+        self.assertIsNotNone(pattern, "the guard's SESSION_LINE_RE is not a one-line raw string any more")
+        line_re = re.compile(pattern.group(1))
+        self.write_plan(organizationType="claude_pro")
+        self.write_state({SID2: {"mode": "manual", "disposition": "quality", "workflows": None}})
+        for session, source, mode in ((SID, "startup", "auto"), (SID2, "compact", "manual")):
+            with self.subTest(session=session):
+                msg, notice = self.begin(session=session, source=source)
+                self.assertNotIn("\n", msg)
+                self.assertNotIn("?", msg + (notice or ""))
+                self.assertNotIn("AskUserQuestion", msg + (notice or ""))
+                self.assertLess(len(msg) - len(str(CONTINUITY)) - 2 * len(session), 560, msg)
+                m = line_re.search(msg)
+                self.assertEqual((m.group(1), m.group(2)), (mode, session))
+
+    def test_the_plan_record_is_not_a_session(self):
+        self.write_plan(organizationType="claude_pro")
+        for n in range(25):                                         # more than the 20 sessions kept
+            self.begin(session=f"{n:08d}-aaaa-3333-4444-555555555555")
+        state = self.read_state()
+        self.assertEqual(state["_plan"]["plan"], "Pro")
+        self.assertEqual(len([k for k in state if not k.startswith("_")]), 20)
+        r = self.run_script(CONTINUITY, "--record", "--session", "_plan", "--mode", "manual")
+        self.assertEqual(self.read_state()["_plan"]["plan"], "Pro")  # never overwritten by a record
+        self.assertIn("session unknown", r.stdout)
 
 
 class LegacyState(ContinuityCase):

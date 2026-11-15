@@ -15,7 +15,7 @@ test by a citation that a machine checks. See [TDD.md](TDD.md) for how the tests
 | teammate | An `Agent` call with a `name` while agent teams are on; its effort comes only from an agent file |
 | standing default | The Workflows opt-in recorded once for every chat (`--record-default`) |
 | mode | `auto` (decide and run) or `manual` (ask the user, then `--approve`) |
-| disposition | `fast`, `balanced` or `quality`: how auto mode leans |
+| disposition | `fast` or `balanced`: how auto mode leans (users say "mode"); a new chat starts in the plan's when the hook can read it |
 | workflows opt-in | `on`/`off`, whether Workflows run without asking in this chat |
 | session record | The per-chat entry in `.agenting-session-state.json` holding those three values |
 | `[agenting]` line | The SessionStart context line that carries the record across compaction |

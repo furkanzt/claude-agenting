@@ -20,7 +20,8 @@ FAKE_CLAUDE = ROOT / "tests" / "fixtures" / "fake_claude_cleanrun.py"
 OLD_TRIGGERS = [
     "writing or editing a Workflow script",
     "choosing a model or effort for an agent() or Agent call",
-    "switches agenting mode (auto/manual) or disposition (fast/balanced/quality)",
+    "switches agenting mode (auto/manual) or disposition (fast/balanced)",
+    "calls a job critical or throwaway",
     "opts in to workflows for this chat",
     "agenting/AGENTING.md",
 ]
@@ -225,6 +226,41 @@ class DelegationRules(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, section)
                 self.assertIn(phrase, reference)
+
+    def test_the_fast_thresholds_are_twice_the_usual_ones_in_the_skill_and_the_reference(self):
+        # the owner fixed these on 2026-11-14 ("jobs about twice as big"); pinned in both files
+        section = " ".join(self.skill.split("## Where the work runs", 1)[1].split("\n## ", 1)[0].split())
+        reference = " ".join(self.delegation.split("## In `fast`", 1)[1].split("\n## ", 1)[0].split())
+        for phrase in ("about 10 or more similar items",
+                       "about 20 or more files or 40k or more tokens of reading",
+                       "4 or more independent parts",
+                       "only when the user asks for one"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, section)
+                self.assertIn(phrase, reference)
+        self.assertIn("Bulk coding still leaves the chat", section)
+        self.assertIn("Bulk coding is not cut", reference)
+        self.assertIn("fewer than 5 agents", reference)
+        self.assertIn("/advisor off", reference)
+
+    def test_the_prototype_rule_names_both_paths_and_what_each_mode_does(self):
+        section = self.skill.split("## Where the work runs", 1)[1].split("\n## ", 1)[0]
+        self.assertLess(section.index("**3. Think first?**"), section.index("**4. A prototype: throwaway or keep?**"))
+        step = " ".join(section.split("**4. A prototype: throwaway or keep?**", 1)[1].split())
+        for needle in ("no tests, no review, no design pass", "in either disposition",
+                       "keeping it means building it again on the keep path",
+                       "The user's word decides", "in `manual` mode ask once before building",
+                       "in `auto` mode decide, and say in one line which path you took",
+                       "one new file outside the real code",
+                       "changes real files or will be implemented if approved", "Unclear: keep."):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, step)
+        reference = self.delegation.split("## A prototype: throwaway or keep", 1)[1].split("\n## ", 1)[0]
+        rows = [ln for ln in reference.splitlines() if ln.startswith("| \"")]
+        self.assertEqual([ln.split("|")[2].strip() for ln in rows],
+                         ["Throwaway", "Throwaway", "Keep", "Keep", "Keep"])
+        self.assertIn("Unclear, so keep", rows[-1])
+        self.assertIn("it is built again on the keep path", " ".join(reference.split()))
 
     def test_the_four_vehicles_are_named_in_the_same_order_in_both_files(self):
         order = ["One agent", "Clean run", "Workflow", "Teammates"]

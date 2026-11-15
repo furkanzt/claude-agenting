@@ -11,11 +11,14 @@ project that has it, before drafting the first script. Then:
 
 - **Rules** override the disposition and the routing table, in every mode. In
   manual mode they shape the plan you propose; the user's answer still wins.
-- **Config** `auto-disposition-default: fast|balanced|quality` is this
+- **Config** `auto-disposition-default: fast|balanced` is this
   project's starting disposition. Apply it with
   `--record --session <id> --disposition <value>` (see
   [modes.md](modes.md)) unless the user has already chosen a disposition in
-  this session; their choice stands.
+  this session; their choice stands. It also beats the plan's start: the hook
+  does not start a chat by plan in a project that names one. A file that still
+  says `quality` means `balanced` (that disposition is gone; the word
+  "critical" does its job for one task).
 - A file written for plugin 2.x may also hold a precedents section and other
   config keys. Treat each precedent line as a Rule, ignore the other keys, and
   offer once to move the precedents under `## Rules` and delete the rest.

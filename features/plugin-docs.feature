@@ -98,10 +98,10 @@ Feature: Plugin packaging, agent pins and doc invariants stay consistent, becaus
   # ---- the SKILL.md description -----------------------------------------------
 
   # Backed by: tests/test_skill_docs.py::test_every_old_trigger_phrase_is_still_there
-  Scenario: The skill description keeps its five original trigger phrases
+  Scenario: The skill description keeps its original trigger phrases and names the two words for one job
     Given the "description:" line of skills/agenting/SKILL.md
-    When it is searched for "writing or editing a Workflow script", "choosing a model or effort for an agent() or Agent call", "opts in to workflows for this chat", "agenting/AGENTING.md" and "switches agenting mode (auto/manual) or disposition (fast/balanced/quality)"
-    Then all five are present
+    When it is searched for "writing or editing a Workflow script", "choosing a model or effort for an agent() or Agent call", "opts in to workflows for this chat", "agenting/AGENTING.md", "switches agenting mode (auto/manual) or disposition (fast/balanced)" and "calls a job critical or throwaway"
+    Then all six are present
 
   # Backed by: tests/test_skill_docs.py::test_planning_a_fan_out_triggers_the_skill
   Scenario: The skill description triggers on planning a fan-out
@@ -287,7 +287,7 @@ Feature: Plugin packaging, agent pins and doc invariants stay consistent, becaus
   Scenario: The template's Config key is the one the project-rules reference documents
     Given templates/AGENTING.md and skills/agenting/reference/project-rules.md
     When the Config key names in both are compared
-    Then both use "auto-disposition-default" with the values fast, balanced or quality
+    Then both use "auto-disposition-default" with the values fast or balanced
 
   @gap @wip
   # Backed by: @gap
@@ -415,11 +415,11 @@ Feature: Plugin packaging, agent pins and doc invariants stay consistent, becaus
     And it says a design pass for a UI prototype "is not the default" and that Fable 5.2 thinks first "only when the user asks for it"
 
   # Backed by: tests/test_skill_docs.py::test_both_think_first_rows_are_opus_xhigh_in_the_table_and_in_every_disposition
-  Scenario: Both think-first rows are opus at xhigh in the routing table and in all three dispositions
+  Scenario: Both think-first rows are opus at xhigh in the routing table, in both dispositions and for a critical job
     Given the routing table of SKILL.md and the disposition table of reference/modes.md
     When the docs test reads the rows for the architecture decision and the UI/UX design
     Then each row of the routing table has the model "opus" and the effort "xhigh"
-    And each row of the disposition table has "opus/xhigh" under fast, balanced and quality
+    And each row of the disposition table has "opus/xhigh" under fast, under balanced and in the "critical" column
 
   # Backed by: tests/test_skill_docs.py::test_no_cell_of_the_routing_table_or_the_disposition_table_names_fable
   Scenario: No cell of the routing table or of the disposition table names Fable
@@ -442,4 +442,21 @@ Feature: Plugin packaging, agent pins and doc invariants stay consistent, becaus
     Then the model is "opus", the effort is "xhigh" and the tools are "Read, Grep, Glob"
     And the body names the sections Screens, Flow, States, Words, Main action and Assumptions
     And it says "write no code"
+
+  # ---- fast: fewer agents; prototypes: throwaway or keep ----
+
+  # Backed by: tests/test_skill_docs.py::test_the_fast_thresholds_are_twice_the_usual_ones_in_the_skill_and_the_reference
+  Scenario: In fast the bar for leaving the main chat is twice as high, and bulk coding is kept
+    Given the "Where the work runs" section of SKILL.md and the "In fast" section of reference/delegation.md
+    When both are searched for "about 10 or more similar items", "about 20 or more files or 40k or more tokens of reading", "4 or more independent parts" and "only when the user asks for one"
+    Then all four are in both
+    And the skill says "Bulk coding still leaves the chat", and the reference says "Bulk coding is not cut", "fewer than 5 agents" and "/advisor off"
+
+  # Backed by: tests/test_skill_docs.py::test_the_prototype_rule_names_both_paths_and_what_each_mode_does
+  Scenario: The prototype rule names both paths and says what each mode does
+    Given step 4 of "Where the work runs" in SKILL.md, after the think-first step
+    When it is read
+    Then it says a throwaway has no tests, no review and no design pass in either disposition, and that keeping it means building it again on the keep path
+    And it says the user's word decides, manual mode asks once before building, auto mode decides and says in one line which path it took, and "Unclear: keep."
+    And the reference's example table has five rows whose paths are Throwaway, Throwaway, Keep, Keep, Keep, the last one "Unclear, so keep"
 

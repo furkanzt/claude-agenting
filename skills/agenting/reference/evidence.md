@@ -20,8 +20,9 @@ per run. Three rows changed:
   the two models and showed that the closed-book gap in the vendor cards is
   knowledge, not abstention discipline
   ([`evals/research/2026-10-06-sonnet-vs-opus-open-book.md`](../../../evals/research/2026-10-06-sonnet-vs-opus-open-book.md)).
-  This is a bounded null: it cannot exclude a gap of a few points, so the
-  `quality` disposition keeps Opus on these rows.
+  This is a bounded null: it cannot exclude a gap of a few points, so a job the
+  user calls critical gets Opus on these rows (until 3.6.0 that was the `quality`
+  disposition; where this file says `quality`, read "critical").
 - **Kept: scan, read-report, classify, synthesize** (scan and read-report moved on
   2026-10-09, below). Synthesis stays on Opus `xhigh` because there Sonnet does not
   do the same thing: Opus `xhigh` found every planted item in all 9 runs, Sonnet
@@ -30,7 +31,7 @@ per run. Three rows changed:
   rules (pass every run and save at least 25%).
 - **Haiku 4.5 ignored `effort`** (on the scan task it was the costliest cell, $0.17 a
   run). Haiku 5.5 does not; see the next block.
-- **Disposition.** `quality` keeps Opus on rows 5 to 7; `fast` uses Opus `high` for
+- **Disposition.** "critical" gets Opus on rows 5 to 7; `fast` uses Opus `high` for
   synthesis. See [reference/modes.md](modes.md).
 - **Limits.** Nine runs per cell per high-stakes row, and 102 abstention items per
   model, show large gaps, not gaps of a few points. A harder paired test (near-miss
@@ -57,7 +58,7 @@ and judgment overrides changed five of the six:
 - **Read and report, `sonnet/medium` → `haiku/medium`.** 9 of 9 on three exact-answer
   tasks at $0.006 a run against $0.118. The tasks do not separate cells (Haiku 4.5
   passes too), so effort is Anthropic's default, and open-ended reports were not
-  measured; `quality` stays `sonnet/high`. The `researcher` agent keeps
+  measured; "critical" stays `sonnet/high`. The `researcher` agent keeps
   `sonnet/medium`: tracing and dependency mapping is wider than what was measured.
 - **Don't guess stays `sonnet/xhigh`** for `fast` and `balanced`. On 2026-10-09 Haiku 5.5 `high` looked as safe
   as Sonnet (0 hallucinations in 408 items) and was held to `fast`; a pre-registered round on 120 fresh near-miss
@@ -107,7 +108,7 @@ Claude Code 2.1.323, list prices.
   "Passed" means not failed by both passes of a judge. No Fable cell was free of failures and Opus
   `xhigh` had four, the case the rules call "both fail" and mark "no cell passed these tasks": no
   cell reached zero failures over both tasks, and the easier task separated nothing. So nothing
-  moved, in `quality` and in `balanced`. Neither cheaper cell was clean, so `fast` stays
+  moved, in `balanced` and for "critical". Neither cheaper cell was clean, so `fast` stays
   `opus`/`xhigh` too. A Fable advisor had helped build the tasks; that could only help Fable, and
   Fable still did not pass the harder task. On that one task no cell was reliable: one designer
   alone missed two or more of six foreseeable pitfalls in 18 of 21 runs. One task is not a rule.

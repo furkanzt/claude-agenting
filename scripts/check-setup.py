@@ -456,25 +456,26 @@ if continuity:
           and first.startswith("[agenting] mode=auto") and "\n" not in first,
           "no additionalContext, or not the one-line [agenting] status -- the hook must never ask")
 
-    # Disposition is never null/"unset": it is seeded "balanced" immediately.
-    # Confirm via --status BEFORE any --record call, so this is really the
-    # seeded default, not a leftover.
+    # Disposition is never null/"unset": it is seeded immediately, "balanced" or, on
+    # a Pro plan, "fast". Confirm via --status BEFORE any --record call, so this is
+    # really the seeded default, not a leftover.
     fresh_stat = subprocess.run(
         [sys.executable, str(continuity), "--status", "--session", probe_session],
         capture_output=True, text=True, timeout=20,
     )
-    check("disposition defaults to balanced immediately, never null/unset",
-          "disposition=balanced" in fresh_stat.stdout,
+    check("disposition is seeded immediately (balanced, or fast on a Pro plan), never null/unset",
+          bool(re.search(r"disposition=(balanced|fast \(set for the Pro plan\))", fresh_stat.stdout)),
           fresh_stat.stdout.strip()[:100])
 
     rec = subprocess.run(
         [sys.executable, str(continuity), "--record", "--session", probe_session,
-         "--mode", "manual", "--disposition", "quality", "--workflows", "on"],
+         "--mode", "manual", "--disposition", "fast", "--workflows", "on"],
         capture_output=True, text=True, timeout=20,
     )
     check("--record persists mode, disposition and the workflows opt-in",
           rec.returncode == 0 and "mode=manual" in rec.stdout
-          and "disposition=quality" in rec.stdout and "workflows=on" in rec.stdout,
+          and "disposition=fast" in rec.stdout and "workflows=on" in rec.stdout
+          and "set for" not in rec.stdout,
           (rec.stdout + rec.stderr).strip()[:100])
 
     second = continuity_context({"session_id": probe_session, "cwd": str(PLUGIN_ROOT), "source": "compact"})
@@ -488,13 +489,35 @@ if continuity:
         capture_output=True, text=True, timeout=20,
     )
     check("--status reports what --record persisted",
-          "disposition=quality" in stat.stdout and "workflows=on" in stat.stdout,
+          "disposition=fast" in stat.stdout and "workflows=on" in stat.stdout,
           stat.stdout.strip()[:100])
 
     clear_ctx = continuity_context({"session_id": probe_session, "cwd": str(PLUGIN_ROOT), "source": "clear"})
     check("/clear does not inherit prior state onto the same session_id",
           clear_ctx is not None and "mode=auto" in clear_ctx and "workflows=not opted in" in clear_ctx,
           "a clear source should start a fresh continuum, not carry forward")
+
+    # The plan: a Pro account (a made-up file, in a temp state folder, so neither the
+    # real plan nor the real state is touched) starts a new chat in fast and the hook
+    # hands Claude Code a one-line notice for the user.
+    with tempfile.TemporaryDirectory() as plan_dir:
+        plan_file = Path(plan_dir) / "claude.json"
+        plan_file.write_text(json.dumps({"oauthAccount": {"organizationType": "claude_pro"}}), encoding="utf-8")
+        plan_env = dict(os.environ, AGENTING_STATE_DIR=plan_dir, AGENTING_PLAN_FILE=str(plan_file))
+        try:
+            plan_out = json.loads(subprocess.run(
+                [sys.executable, str(continuity)],
+                input=json.dumps({"session_id": probe_session, "cwd": plan_dir, "source": "startup"}),
+                capture_output=True, text=True, timeout=20, env=plan_env).stdout)
+        except Exception:
+            plan_out = {}
+        plan_ctx = (plan_out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
+        plan_msg = plan_out.get("systemMessage") or ""
+        check("a Pro plan starts a new chat in fast and the user is told once",
+              "disposition=fast (set for the Pro plan)" in plan_ctx and " · plan=Pro (session " in plan_ctx
+              and plan_msg.startswith("[agenting] plan=Pro · mode=fast (set for your plan")
+              and plan_msg.endswith("Change mode: /agenting-mode balanced"),
+              (plan_msg or plan_ctx)[:120])
 
 # ------------------------------------------------ teammates and standing default
 

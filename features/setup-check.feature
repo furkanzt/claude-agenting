@@ -287,24 +287,24 @@ Feature: The plugin health check runs the hooks end to end and reports PASS, WAR
 
   @gap @wip
   # Backed by: @gap
-  Scenario: Recording manual, quality and workflows on is reported back
+  Scenario: Recording manual, fast and workflows on is reported back
     Given session "setup-check-continuity" exists
-    When session-continuity.py runs with "--record --mode manual --disposition quality --workflows on"
+    When session-continuity.py runs with "--record --mode manual --disposition fast --workflows on"
     Then the exit code is 0
-    And stdout contains "mode=manual", "disposition=quality" and "workflows=on"
+    And stdout contains "mode=manual", "disposition=fast" and "workflows=on"
     And the check "--record persists mode, disposition and the workflows opt-in" is PASS
 
   @gap @wip
   # Backed by: @gap
   Scenario: A compact SessionStart carries recorded state across compaction
-    Given the session record is mode manual, disposition quality, workflows on
+    Given the session record is mode manual, disposition fast, workflows on
     When "python3 scripts/check-setup.py" pipes a SessionStart with source compact for that session
     Then the check "carries recorded state across compaction, still never asks" is PASS
 
   @gap @wip
   # Backed by: @gap
   Scenario: A clear SessionStart on the same session id does not inherit the recorded state
-    Given the session record is mode manual, disposition quality, workflows on
+    Given the session record is mode manual, disposition fast, workflows on
     When "python3 scripts/check-setup.py" pipes a SessionStart with source clear for that session
     Then the check "/clear does not inherit prior state onto the same session_id" is PASS
 
@@ -523,3 +523,18 @@ Feature: The plugin health check runs the hooks end to end and reports PASS, WAR
     When Claude Code expands the command
     Then the shell line is 'python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check-setup.py" 2>&1 || true'
     And the allowed-tools front matter is "Bash(python3:*)"
+
+  # ---- the plan ----
+
+  # Backed by: tests/test_check_setup.py::test_should_pass_the_session_checks_and_the_made_up_pro_plan_check_when_no_plan_can_be_read
+  Scenario: The session checks pass when no plan can be read, and a made-up Pro plan is tried in a temp folder
+    Given a home folder with no .claude.json
+    When "python3 scripts/check-setup.py" runs
+    Then the checks "disposition is seeded immediately (balanced, or fast on a Pro plan), never null/unset", "--record persists mode, disposition and the workflows opt-in" and "--status reports what --record persisted" are PASS
+    And the check "a Pro plan starts a new chat in fast and the user is told once" is PASS: the hook, given a made-up Pro account file and a temp state folder, starts the probe chat in fast and returns the one-line notice for the user
+
+  # Backed by: tests/test_check_setup.py::test_should_pass_the_session_checks_when_the_account_is_on_a_pro_plan
+  Scenario: The session checks also pass on a Pro account, where the probe chat starts in fast
+    Given a home folder whose .claude.json names a Pro account
+    When "python3 scripts/check-setup.py" runs
+    Then the same three session checks and the Pro plan check are PASS and the exit code is 0
