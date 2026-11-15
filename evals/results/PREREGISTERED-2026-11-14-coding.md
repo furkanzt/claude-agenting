@@ -454,3 +454,8 @@ goes. No cell.
 Mac's own instruction files and plugins are loaded into every live worker, so their start-up differs from
 a fresh install's. The live session runs Claude Code 2.1.323, the clean runs ran on 2.1.325. List price;
 how a $20 plan counts a worker against its limit is not published. Expected cost: under $2.
+
+**Correction to Addendum 5, written after the vehicle test (2026-11-15, 04:18Z).** The last paragraph
+says that the live session runs Claude Code 2.1.323. It ran 2.1.325, the version of the clean runs: every
+worker's transcript records it, and the session had moved to it on 2026-11-14. No rule depends on that
+sentence; the limit it names does not apply.

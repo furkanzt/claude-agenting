@@ -296,6 +296,11 @@ A side tool for the pre-registered coding experiment of 2026-11-14
 - **Public:** `results/code-runs.jsonl`, one line per model process and per test run: task code, cell, arm,
   run, try, a word from a fixed list, and numbers. No path, no test name, no output text.
 - **`probes/code_bench_analysis.py`** applies the rules to the public file alone.
+- **Report:** `results/REPORT-2026-11-15-coding.md`. The vehicle test of its Addendum 5 (cheap workers started
+  as single `Agent` calls against one Workflow, in a live session) has its own public record,
+  `results/vehicle-runs.jsonl`: one line per worker, numbers only.
+- **`results/REPORT-2026-11-15-fast-column.md`** reads the stored runs of the nine document rows by the
+  owner's bar for `fast`. No model was run for it.
 - Commands, the exact reading of every test runner's result, and the limits: the docstrings of the two files.
 
 ## Known limits (state these when reporting)
