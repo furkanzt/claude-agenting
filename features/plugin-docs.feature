@@ -74,12 +74,11 @@ Feature: Plugin packaging, agent pins and doc invariants stay consistent, becaus
     When its rows are compared with the agent tier table in skills/agenting/SKILL.md
     Then every tier row lists the same agents
 
-  @gap @wip
-  # Backed by: @gap
+  # Backed by: tests/test_skill_docs.py::test_the_readme_and_both_manifests_state_the_number_of_agent_files
   Scenario: The agent count stated in the docs equals the number of agent files
-    Given README.md, .claude-plugin/plugin.json and .claude-plugin/marketplace.json each say "20 tiered agent definitions"
+    Given README.md and the descriptions in .claude-plugin/plugin.json and in the "agenting" entry of .claude-plugin/marketplace.json
     When the files matching agents/*.md are counted
-    Then the count is 20
+    Then each of the three says that count followed by "tiered agent definitions", and no other count
 
   @gap @wip
   # Backed by: @gap

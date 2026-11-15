@@ -2,7 +2,94 @@
 
 ## Unreleased
 
+The owner fixed the scope in an interview on 2026-11-14 and decided the cells on 2026-11-15, on the reports of
+that day. Every figure is list price: how a plan counts each model against its limit is not published, and
+nothing here was checked on a real Pro account.
+
+### Changed
+- **`quality` is gone; the modes are `cheapest`, `fast` and `balanced`.** A chat recorded with `quality` reads as
+  `balanced`, and its `[agenting]` line says what to say instead. The careful cells stay reachable for one job at
+  a time through the word "critical": the last column of the table in `reference/modes.md`, routed for that job
+  only, nothing recorded. `/agenting-mode` and the recorder take `cheapest`, `fast` or `balanced`; the old word
+  `quality` is recorded as `balanced`, with a note; any other word is refused.
+- **The plan sets where a new chat starts, and says so.** When the SessionStart hook can read the account's
+  plan, a chat seen for the first time starts in `fast` on Pro and in `balanced` on Max, and Claude Code shows
+  the user one line. On Pro: `[agenting] plan=Pro · mode=fast (set for your plan: cheaper models, fewer agents).
+  Tip: run this chat on Sonnet at high effort (/model sonnet, then /effort high). For an architecture decision (a
+  choice later work is built on) raise the effort (/effort xhigh) and stay on Sonnet, then go back to high: an
+  effort change keeps the chat's cache, a model switch throws it away, so do not switch back and forth between
+  Sonnet and Opus. Change mode: /agenting-mode [cheapest|fast|balanced]`. On Max: `[agenting] plan=Max · mode=balanced (set for your plan). To save usage,
+  change mode: /agenting-mode [cheapest|fast|balanced]`. A change of plan between chats gets a line of its own. The user's recorded choice wins, then a project's
+  `auto-disposition-default`; a plan that cannot be read changes nothing. The plan is read from undocumented
+  fields of `~/.claude.json`, narrowly: the word "max" or "pro" decides, anything else is no plan. Neither
+  plan starts a chat in `cheapest`.
+- **`fast` and `cheapest` run fewer agents.** The bar for leaving the main chat is twice as high, and reading
+  and exploring run as a Workflow or as teammates only when the user asks. An advisor in such a chat earns one
+  line on what each call costs. Bulk coding is kept: once the plan and the tests exist, the typing goes to cheap
+  workers through the smallest vehicle that fits.
+- **Don't-guess is `haiku`/`xhigh` in every mode** (it was `sonnet`/`xhigh`); "critical" stays `opus`/`xhigh`.
+  Pooled over 84 stored runs, Haiku `xhigh` invented 6 answers in 1,848 against Sonnet `xhigh`'s 10, at a tenth
+  of the cost, and missed or got wrong 2 of 1,056 answerable items against 0. This is the owner's overrule of
+  the rule written on 2026-10-11, which asked Haiku to be no worse than Sonnet in one fresh round.
+- **A prototype is built as a throwaway or on the keep path.** A throwaway uses the `cheapest` cells in any mode
+  and skips tests and review. The user's word decides; without one, manual mode asks once and auto mode decides
+  and says which path it took. Unclear means keep.
+- **The architecture decision is `sonnet`/`xhigh` in `cheapest`, `fast` and `balanced`** (it was `opus`/`xhigh`);
+  "critical" keeps `opus`/`xhigh`. This follows the rules of the architecture round (Measured, below), which rest
+  on one hard task. `agenting:system-architect` keeps its pin, `opus`/`xhigh`, which is now the "critical" cell:
+  the think-first step says to write `model: 'sonnet'` on the call for any other job. A main chat that already
+  runs on Opus still takes the decision itself. The UI/UX design row stays `opus`/`xhigh`.
+- **The cache tripwire's docs** no longer say that an effort change always costs the cache: Claude Code's docs
+  say it keeps the cache on the current models with a subscription or an API key. The hook is unchanged; it
+  prints the tokens that were re-written.
+
+### Added
+- **`cheapest`, a third mode below `fast`.** It takes the cheapest cell that passes the owner's bar on every row
+  and keeps `fast`'s agent rules. Today it differs from `fast` on classify, verify and review (Haiku `xhigh`). `reference/modes.md` lists what each of those gives up.
+  It is recorded only on the user's word; a project may name it as its default.
+- **The owner's bar for a cheaper cell** (`reference/modes.md`), read from the measured cost per finished task
+  and never from the price list. Checked work (a test or a validator catches a wrong result): the cheapest cell
+  per finished task, every retry counted, at most three tries. Unchecked work: at most about 1 failed run in 10,
+  with what goes wrong written down. Don't-guess and verify: at most about 1 wrong answer in 100.
+- **Three rows for building software,** from the coding experiment. *Plan a build and write its tests:*
+  `opus`/`high` in `balanced` (the pre-registered rule), `sonnet`/`high` in `fast` and `cheapest` (the owner's
+  overrule for those two; the report says why the data cannot rank the two writers). *Bulk coding against tests
+  that exist:* `haiku`/`medium` in every mode. *Review a build before it is called done:* the verify row's cell.
+  "critical" picks `opus`/`high`, `sonnet`/`low` and `opus`/`high`.
+- **`agenting:bulk-coder`** (`haiku`/`medium`), the worker of the bulk-coding row. It reads the tests first,
+  changes source only, never changes, deletes, skips or weakens a given test, checks only with the command it was
+  given and stops after three failed checks. The roster has 22 agents.
+- **The setup check has 55 checks** (53 in 3.6.0): the plan's starting mode, the removed `quality`, and that
+  `cheapest` is recorded and replaces the plan's start.
+
 ### Measured
+- **Who writes the tests and who writes the code (2026-11-14 and 15, 228 runs, $80.00, rules committed first;
+  [`evals/results/REPORT-2026-11-15-coding.md`](evals/results/REPORT-2026-11-15-coding.md), audited by four
+  reviewers).** Six real past changes from the owner's projects, each judged by the hidden tests it shipped with.
+  178 of 180 coding runs ended correct. With locked tests in place every coder cell was correct in every run, and
+  Haiku 5.5 `medium` was the cheapest at $0.03 a correct task (Sonnet 5.5 `low` $0.16, the Opus 5.5 `high`
+  reference $0.71). Tests first showed no effect, because almost nothing was left to fix: without any tests Haiku
+  was correct in 23 of 24 runs. As test writer, Sonnet `high` wrote 12 fit suites of 12 at $0.48 a suite and Opus
+  `high` 11 of 12 at $1.21; Sonnet's suites rejected 14% of correct solutions and Opus's 7%, nearly all of it on
+  one task, and on another task it went the other way. Four suites a model and task cannot tell a habit from
+  chance.
+- **The cheaper columns from stored runs
+  ([`evals/results/REPORT-2026-11-15-fast-column.md`](evals/results/REPORT-2026-11-15-fast-column.md)).** No new
+  run. For each row it lists every cell that was measured, the owner's bar, and what the cheaper cell gets wrong;
+  section 5 holds the owner's decisions.
+- **Which vehicle carries bulk coding (2026-11-15, one live session, eight workers).** No difference in a
+  worker's cost between four single agents ($0.029 a piece), one Workflow of four ($0.027) and clean runs
+  ($0.023); all were correct. The single agents put 21,899 characters back into the main chat, the Workflow
+  7,141. A typed `Agent` call took the model and effort named on the call in 5 of 5 starts.
+- **Opus `xhigh` against Sonnet `xhigh` on the architecture row (2026-11-15, 42 new runs and 18 kept, $112.49,
+  rules committed first; [`evals/results/REPORT-2026-11-15-architecture.md`](evals/results/REPORT-2026-11-15-architecture.md),
+  audited).** Three real decisions, 30 runs a model, four judge passes a run by two judge models. Sonnet `xhigh`
+  failed 7 runs and Opus `xhigh` 10, counted the same by both judges, at $1.11 a run against $2.32. All 17 fails
+  are on one task (7 and 10 of 12 runs); every run of both passed the other two, the new third task included. So
+  the round shows that the cheaper model was not worse, not that it is better (p = 0.37), and neither is reliable
+  alone on the hard task (Opus passed 2 runs of 12, Sonnet 5). By the rules Sonnet takes the row in `fast` and
+  `balanced`; with one hard task those rules would also have accepted a Sonnet that is somewhat worse about one
+  time in four (`balanced`) and two times in three (`fast`).
 - **Two advisor pairs against Opus alone (2026-11-14, 33 runs, rules committed first;
   `evals/results/REPORT-2026-11-14-advisor-pairs.md`).** Opus 5.5 `xhigh` with a Fable 5.2 advisor did not judge
   better than Opus alone on the harder decision task: 4.08 of 6 pitfalls handled against 4.04, no passing run
@@ -22,7 +109,7 @@
   before its answer (`ADVISOR: answered`, `failed` or `not called`), because a run line can only show an advisor
   that answered.
 - `evals/probes/advisor_pairs_analysis.py`, the rule checker of that test.
-- **The tool of the coding experiment** (rules: `evals/results/PREREGISTERED-2026-11-14-coding.md`; no run yet).
+- **The tool of the coding experiment** (rules: `evals/results/PREREGISTERED-2026-11-14-coding.md`).
   `evals/probes/code_bench.py` gives a model file tools (read, search, write, edit; it can run nothing) in a
   throwaway copy of a project and runs the tests itself in a macOS sandbox: no network, no write outside the
   copy, no reading of file contents under the home folder, no signal to an outside process, a time limit and an
@@ -31,9 +118,13 @@
   commits and checks that its hidden tests fail before the change and pass after it), `write-tests`,
   `fix-suites`, `code`, `cross`, `plan`, `status`. The public record, `evals/results/code-runs.jsonl`, holds one
   line per model process and per test run: task code, cell, arm, run, try, fixed words and numbers only.
-  `evals/probes/code_bench_analysis.py` applies the four pre-registered questions to that file alone. 211
-  tests, red-proofed with about 140 mutations on copies of the tool. The suite now takes about 6 minutes
-  instead of 2.5.
+  `evals/probes/code_bench_analysis.py` applies the four pre-registered questions to that file alone.
+- `evals/results/vehicle-runs.jsonl`, the vehicle test's record (11 lines of numbers).
+- **A third design-decision task, `design-03`,** and `evals/probes/architecture_analysis.py`, the rule checker of
+  the architecture round. The task is a real decision from a third repository; a Fable 5.2 agent wrote its
+  checklist, so neither model under test did, and the owner checked it before any model saw it. It must not be
+  used to compare a Fable cell.
+- The suite has 1,324 tests and takes about 6 minutes.
 
 ## 3.6.0 — 2026-11-14 (agent guard, where the work runs, workers work alone; Fable 5.2 measured, not adopted)
 

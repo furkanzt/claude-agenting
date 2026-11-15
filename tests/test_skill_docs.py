@@ -441,6 +441,18 @@ class ThinkFirstDocs(unittest.TestCase):
         self.assertEqual(self.tier_table(self.readme, " / "), files)
         self.assertIn(f"**{len(files)} tiered agent definitions**", self.readme)
 
+    def test_the_readme_and_both_manifests_state_the_number_of_agent_files(self):
+        # until 3.7.0 only the README was checked, and both manifests said 20 for two releases
+        import json
+        n = len(list((ROOT / "agents").glob("*.md")))
+        plugin = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
+        entry = next(p for p in market["plugins"] if p["name"] == "agenting")
+        self.assertIn(f"**{n} tiered agent definitions**", self.readme)
+        for name, text in (("plugin.json", plugin["description"]), ("marketplace.json", entry["description"])):
+            with self.subTest(manifest=name):
+                self.assertEqual(re.findall(r"(\d+) tiered agent definitions", text), [str(n)])
+
     def test_the_ux_designer_is_read_only_on_opus_xhigh_and_returns_the_six_part_brief(self):
         text = (ROOT / "agents" / "ux-designer.md").read_text(encoding="utf-8")
         fm = re.match(r"^---\n(.*?)\n---\n", text, re.S).group(1)

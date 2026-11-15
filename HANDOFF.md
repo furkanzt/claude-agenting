@@ -1,106 +1,176 @@
 # HANDOFF: start here
 
-> **State on 2026-11-14.** Sections Q and P are the live state; read them first. Q is the work that was
-> agreed on 2026-11-14 and is in progress, P the released state it starts from. Sections 0 to 9 below
-> describe October. Their history is right, their counts (tests, commits) are old.
+> **State on 2026-11-15.** Section Q is the live state; read it first. P is the release before it (3.6.0).
+> Sections 0 to 8, 10 and 11 below describe October: their history is right, their counts (tests, commits) are
+> old. Section 9, the push plan, is current.
 
-## Q. Work in progress: two modes, the $20 plan, build rows (agreed 2026-11-14)
+## Q. Release 3.7.0: three modes, the plan, build rows, the architecture round (2026-11-15)
 
-The owner fixed this scope in a 19-question interview on 2026-11-14 and said go. **One release at the
-end.** Nothing of it is built yet unless a line below says so.
+**Nothing is running and nothing is half done.** Release 3.7.0 is committed and **not pushed**: 21
+commits wait on `main` (`git log --oneline origin/main..HEAD`). The plugin installs from its GitHub
+repository, so chats keep running 3.6.0 until the owner pushes and the plugin is updated.
 
-### Q.1 What was decided
+### Q.1 What 3.7.0 holds
 
-1. **Two modes: `fast` and `balanced`. `quality` is removed.** Two words work for one job only:
-   "throwaway" sends it down the cheap path, "critical" sends it to the careful models (the cells
-   `quality` had: Opus for don't-guess and verify, Sonnet `high` for read and classify).
-2. **`balanced` gets rows for building software** (plan, write tests, bulk coding, review), and the nine
-   document rows are looked at again. `fast` gets the same rows on cheaper cells.
-3. **The plan sets the starting mode, and the session line says so.** Pro ($20) starts in `fast`, Max in
-   `balanced`, only for a chat with no choice of its own; the owner's choice always wins. A plan that
-   cannot be read changes nothing. Approved wording:
-   `plan=Pro · mode=fast (set for your plan: cheaper models, fewer agents). Tip: <main-chat tip>. Change mode: /agenting-mode balanced`
-   and `plan=Max · mode=balanced (set for your plan). To save usage: /agenting-mode fast`, plus
-   `plan changed from Pro to Max · new chats now start in balanced.` after an upgrade.
-4. **The main-chat tip names a model and an effort, decided by measurement** (the experiment's "plan
-   and write tests" step: Sonnet `high`/`xhigh` against Opus `medium`/`high`). It also says that a long
-   chat favours the cheaper input price. Sonnet may lose; nothing is fixed beforehand.
-5. **Prototypes.** Manual mode asks once ("throwaway, or will you keep building on it?", both paths
-   explained). Auto mode decides and says which path it took: throwaway for a quick look (quick, try,
-   idea, demo; one new file outside the real code), keep when it will be implemented if approved or
-   changes real files, **keep when unclear**. Throwaway skips tests and review; keep is the mode's
-   normal build path.
-6. **What decides a cell in `fast`: measured cost per finished task, never the price list.** Opus stays
-   wherever the difference per task is small. The bar, by whether a check catches a wrong result:
-   - checked work (tests or a validator): the cheapest cell per finished task, every retry counted, at
-     most 3 tries;
-   - unchecked work: at most about 1 failed run in 10, and the docs list what goes wrong;
-   - don't-guess and verify: at most about 1 in 100.
-   The owner called this "between a small loss and mostly works". The new `fast` column is shown to the
-   owner as a table before it goes into the skill.
-7. **What `fast` cuts besides models:** no Workflows or teammates for reading and exploring unless
-   asked; work leaves the main chat only for jobs about twice as big as today's rule; a tip to keep the
-   advisor off. **Bulk coding is not cut:** once the main chat has the plan and the tests, the coding
-   goes to cheap workers through the smallest vehicle that fits (one agent, a clean run, a Workflow of
-   fewer than 5 agents). Which vehicle is cheapest gets a small test of its own in a live session: the
-   eval harness runs one process per run and cannot compare vehicles.
-8. **The coding experiment, at most $250.** Real past features with hidden tests from five projects the
-   owner named (this plugin and four others; their names and the candidate changes are in
-   `evals/private/session-2026-11-14/scout/`). Read-only use of their history; material stays in
-   `evals/private/`. Rules: `evals/results/PREREGISTERED-2026-11-14-coding.md` (six tasks; 48 test-writing
-   runs and 180 coding runs; 4 runs a task for Haiku and 3 for Sonnet, because a Haiku run that reads a
-   repository costs $0.20 to $0.40 and six runs each would have passed the ceiling; about $205 expected,
-   no process starts after $226). With and without tests-first; the test writer both
-   ways (a stronger model writes locked tests, or the coder writes its own); Haiku and Sonnet as
-   coders, Opus as reference. The owner's TDD+BDD harness is the tests-first arm's method.
-9. **The yardstick is list price.** No check on a real $20 account; the docs say it is a stand-in.
+The CHANGELOG entry is the full list. In short:
 
-### Q.2 Facts the design rests on
+- **Three modes: `cheapest`, `fast`, `balanced`.** `quality` is gone; the word "critical" sends one job
+  to the careful cells. The table is in `skills/agenting/reference/modes.md`, and
+  `tests/test_skill_docs.py` pins every cell of it from the owner's decisions, not from the docs.
+- **The plan sets where a new chat starts:** Pro in `fast`, Max in `balanced`, never `cheapest`. The
+  user sees one line; on Pro it carries a tip for the main chat. Hook: `hooks/session-continuity.py`.
+- **`fast` and `cheapest` run fewer agents;** bulk coding is kept (`reference/delegation.md`).
+- **Three rows for building software** (plan and tests, bulk coding, review) and the agent
+  `agenting:bulk-coder`.
+- **Don't-guess on Haiku `xhigh`** in every mode; "critical" stays Opus `xhigh`.
+- **The architecture row on Sonnet `xhigh`** in `cheapest`, `fast` and `balanced`; "critical" stays Opus
+  `xhigh`. `agenting:system-architect` keeps its pin (Opus `xhigh`), so the think-first step says to
+  write `model: 'sonnet'` on the call.
+- **A prototype is a throwaway** (the `cheapest` cells, no tests, no review) **or on the keep path.**
 
-- **Reading the plan.** Claude Code keeps it in `~/.claude.json` under `oauthAccount`
-  (`organizationRateLimitTier`, `billingType`, `planDisplayName`, `seatTier`). A Max plan shows
-  a value that holds the word `max`; the value for Pro was not observed. The fields are not documented, so the
-  hook must treat anything unknown as "no plan".
-- **What Anthropic's pages say about Pro** (read by a research agent on 2026-11-14, not re-checked line
-  by line): Opus is included and is the default model; Fable needs paid credits; one 5-hour limit and
-  one weekly limit cover all models, chat and Claude Code together; no numbers on how each model
-  counts; every subagent, Workflow agent and teammate draws on the same limit; teammates use about 7
-  times a normal chat in plan mode; Workflows on Pro are off until switched on and default to fewer
-  than 5 agents; Max starts at $100 with 5 times Pro's usage.
-- **The eval harness cannot run coding tasks yet.** It gives a model three read-only tools. It must
-  learn to let a model write files and to run hidden tests on the result.
-- **Stored numbers that already bear on `fast`:** on synthesis Opus `high` alone ($1.63, 276 s, 2 of 69
-  items missed) beats Sonnet `xhigh` alone ($1.47, 577 s, 3 missed) on time and quality at nearly the
-  same cost. Haiku 5.5 changed words in 7 of 9 cleanup runs and confirmed a false finding in 6 of 12
-  verify runs at `medium`.
+### Q.2 The owner's decisions of 2026-11-15
 
-### Q.3 Order of work
+Taken in four question rounds, each on text or a table the owner saw first.
 
-1. Report of the advisor-pairs comparison of 2026-11-14: done,
-   `evals/results/REPORT-2026-11-14-advisor-pairs.md` (Opus with a Fable advisor: no better judgment;
-   Sonnet with an Opus advisor: no replacement for Opus on synthesis). Then install 3.6.0.
-2. The coding experiment. Rules: committed on 2026-11-14 after three independent reviews, with
-   Addendum 1 (eleven readings the tool fixed) appended before any run. **Done:** the side tool
-   `evals/probes/code_bench.py` and its analysis `code_bench_analysis.py`, built in three stages, each
-   checked by a second agent, 211 tests; the six tasks, all first choices, installed and checked
-   (`python3 evals/probes/code_bench.py install`; records in `evals/private/code/tasks.json`; Addendum
-   2 of the rules says how the leak check was corrected on the way); the pilot's probe on a toy project
-   (Addendum 3: the write tools, a refused path outside the copy, no instruction file loaded, the cost
-   cap, and the spend stop lowered to $224, now the tool's default); the pilot on one real task
-   (`code-04`: 8 of 8 suites fit, 9 of 9 coding runs correct, $9.67; Addendum 4, with the guard against
-   an outage: exit code 4 means a run ended on API errors and nothing new was started, so start the
-   same command again later). **Next, in this order:** the spend projection
-   (`code_bench.py plan`); step T (`write-tests`), `fix-suites`, step C (`code`, one round at a time,
-   with `plan` between rounds), `cross`, then `code_bench_analysis.py` and the audited report. Every
-   model command needs the CLI pinned to 2.1.325 on `PATH` (the tool refuses another version) and no
-   other `evalkit.py run` at the same time (one lock).
-3. The new `fast` column from stored data, shown to the owner.
-4. Modes, the two words, plan detection, the prototype rule, the build rows; tests and scenarios.
-5. One release; pushing is the owner's decision.
+| Question | Decision | Against a rule written beforehand? |
+|---|---|---|
+| Plan a build and write its tests | `sonnet`/`high` in `fast` and `cheapest`, `opus`/`high` in `balanced` | Yes, below `balanced`: the coding experiment's rule named Opus `high` for both modes it knew, `fast` and `balanced` |
+| Classify | `fast` keeps `sonnet`/`low`; a new mode, `cheapest`, takes `haiku`/`xhigh` | No |
+| Don't-guess | `haiku`/`xhigh` in every mode, `balanced` included; "critical" keeps `opus`/`xhigh` | Yes: the rule of 2026-10-11 kept Sonnet |
+| Verify, and review with it | `fast` keeps `sonnet`/`high`; `cheapest` takes `haiku`/`xhigh` | No |
+| Architecture decision | `cheapest` takes `sonnet`/`xhigh`; more runs and a third task decide `fast` and `balanced` | The round's rules then gave Sonnet both (Q.3) |
+| What `cheapest` is | The agent rules of `fast`, cheaper cells only; a throwaway prototype uses its cells | No |
+| Where a chat starts | Pro still starts in `fast`; neither plan starts a chat in `cheapest` | No |
+| The tip a Pro chat sees | Sonnet at high effort, an effort level for the design step, a warning not to switch back and forth, and `Change mode: /agenting-mode [cheapest\|fast\|balanced]` | No |
+| The third architecture task | Its checklist as written (4 rules, 6 pitfalls); the round's rules as drafted | No |
+| Release | One release, after the architecture round | No |
+
+**The owner agreed to a rule about one sentence and has not yet approved its final wording:** the
+second sentence of the tip. The round's rules said that if `fast` moved, the tip would say "to raise the
+effort to `xhigh` and stay on Sonnet". It now reads: "For an architecture decision (a choice later work
+is built on) raise the effort (/effort xhigh) and stay on Sonnet, then go back to high: an effort change
+keeps the chat's cache, a model switch throws it away, so do not switch back and forth between Sonnet
+and Opus". It says "architecture", not "design", because the UI/UX design row is still Opus `xhigh`. The
+cache fact is from Claude Code's docs (code.claude.com/docs/en/prompt-caching, read 2026-11-15): with a
+subscription or an API key an effort change keeps the cache on Sonnet 5.5; a model switch never does.
+
+### Q.3 What was measured, and where to read it
+
+| What | Result in one line | Report |
+|---|---|---|
+| Who writes the tests and who writes the code (228 runs, $80.00) | With locked tests Haiku 5.5 `medium` codes correctly at $0.03 a task; the tests are the cost; Sonnet `high` and Opus `high` cannot be ranked as test writers on four suites a task | `evals/results/REPORT-2026-11-15-coding.md` |
+| The cheaper columns, from stored runs | What each cheaper cell gets wrong, row by row; the owner's decisions in its section 5 | `evals/results/REPORT-2026-11-15-fast-column.md` |
+| Which vehicle carries bulk coding (8 workers, one live session) | No difference in a worker's cost; a Workflow puts less text into the main chat | Section 9 of the coding report; `evals/results/vehicle-runs.jsonl` |
+| Opus `xhigh` against Sonnet `xhigh` on architecture (60 runs, 42 of them new, $112.49) | Sonnet failed 7 of 30 and Opus 10 of 30; all 17 fails on one task; by the rules Sonnet takes `fast` and `balanced` | `evals/results/REPORT-2026-11-15-architecture.md` |
+| Two advisor pairs against Opus alone (33 runs) | No gain from a Fable advisor; a Sonnet pair does not replace Opus on synthesis | `evals/results/REPORT-2026-11-14-advisor-pairs.md` |
+
+**The weak point of the architecture verdict, to keep in mind:** only one task decides it, with 12 runs
+a model. Every run of both models passed the new third task (`design-03`), so that task showed no
+difference. The round shows that Sonnet was not worse; it does not show that it is better. With one hard
+task the rules are also weaker than the owner was told when taking them: a Sonnet failing 15 points more
+often would still get `balanced` about 1 time in 4 (the owner was told 1 in 6) and `fast` about 2 times
+in 3. Neither model is reliable alone on the hard task (Opus passed 2 runs of 12, Sonnet 5). To put Opus
+back in `balanced`, change three things: the row in the two tables (`SKILL.md`, `reference/modes.md`),
+the `model: 'sonnet'` sentence of the think-first step, and the expected cells in
+`tests/test_skill_docs.py`.
+
+### Q.4 Decisions waiting for the owner
+
+1. **Push.** Group the unpushed commits into bites first (section 9). Three things to settle before,
+   because the repository is public:
+   - The commit "evals: two advisor pairs against Opus alone, report and runs" (2026-11-14) carried the
+     names of the owner's source projects in this file, and the next commit ("evals: pre-register the
+     coding experiment") removed them. The names must not reach the remote in an intermediate commit:
+     either the two are one bite, or the first one's copy of this file is replaced when its bite is
+     built.
+   - The commit "evals: the rules of the architecture round, its third task and its rule checker,
+     before any run" (2026-11-15, 20:27Z) carried three sentences that named subjects of the new
+     task's hidden checklist; a later commit reworded them and appended a dated note. The first wording
+     must not reach the remote either. A pre-registration commit keeps its own commit and its time, so
+     build that bite with the corrected file and say so in its message.
+   - No tracked file may cite the short hash of an unpushed commit: compare
+     `git grep -n -E "[0-9a-f]{7}" -- '*.md'` with `git log --format=%h origin/main..HEAD`.
+2. **After the push:** update the plugin (`claude plugin marketplace update agenting`, then
+   `claude plugin update agenting@agenting`), start a new chat and confirm that the `[agenting]` line
+   offers `--disposition cheapest|fast|balanced` and that the one-line plan notice shows. How the
+   terminal displays that notice was not checked by the building chat.
+3. **The tip's second sentence** (Q.2): say so if it should read differently.
+4. **The architecture row in `balanced`.** The rules gave it to Sonnet `xhigh` on one hard task (Q.3).
+   The owner may keep that or put Opus back.
+5. **The think-first step names a model, not an effort.** A main chat on Sonnet at `high` thinks first
+   at `high`, and the row was measured at `xhigh` only. The step now states that fact; it does not tell
+   the chat to ask for more effort or to hand the decision to the design agent. That would be a change
+   to the owner's procedure.
+6. **The advisor.** Whether the main chat should have a Fable advisor at all was left open; the
+   measurements of 2026-11-13 and 14 showed no gain from one on a decision task.
+7. **Two baselines in `evals/rows.json` are behind the routing table:** `dont-guess` still names
+   `sonnet-5-5@xhigh` and `design-decision` `opus-5-5@xhigh`. `evals/README.md`, "Adding a model",
+   step 0, says to bring every baseline up to date before a new model is compared; `evalkit.py decide`
+   compares against them. Moving a baseline invalidates no stored run.
+8. **The owner's global CLAUDE.md** still says that an effort switch costs the cache. Claude Code's
+   docs now say it keeps the cache on the current models with a subscription. That file is the owner's.
+9. **`claude plugin validate .` passes with warnings.** 21 of them are type errors in
+   `tests/fanouts.test.tsx` against the plugin types of Claude Code 2.1.325: the test's mounts do not
+   pass a prop, `isCollapsed`, that the types now ask for. The 48 fan-out tests pass
+   (`python3 scripts/quality/run_plugin_tests.py`). Not touched in 3.7.0.
+10. **Next measurements,** in the order the reports suggest: a second look after a design on
+   `design-02` (one designer alone fails it more often than not); a third architecture task that shows
+   a difference between cells (a new one; `design-03` is frozen); Sonnet `high` on the architecture
+   row; harder coding tasks, because six tasks with 178 of 180 runs correct cannot show what tests add.
+
+### Q.5 Verify the state (free)
+
+```
+git status --short                      # expect only: M .gitignore (not from this work; never stage it)
+git log origin/main..HEAD --oneline     # expect 21 commits until the push
+python3 -m pytest tests -q              # expect 1324 passed, 2 skipped (about 6 minutes)
+python3 scripts/check-setup.py          # expect 55 passed, 0 failed
+python3 evals/evalkit.py selfcheck      # expect 30 tasks, 0 problems
+python3 evals/probes/architecture_analysis.py   # prints the round's verdict again: Status: DECIDED
+python3 evals/probes/code_bench_analysis.py     # prints the coding experiment's four verdicts again
+```
+
+### Q.6 Things a fresh chat would otherwise get wrong
+
+- **The mode table's cells are decisions, pinned by tests.** `ModeTableDocs` and `ThinkFirstDocs` in
+  `tests/test_skill_docs.py` hold every cell. A cell changes only with a report or the owner's word,
+  and then in the test first.
+- **Two rows carry the owner's overrule of a written rule** (Q.2): plan-and-tests below `balanced`, and
+  don't-guess in every mode. `evalkit.py decide` still prints "keep" for don't-guess, and the coding
+  rule checker still names Opus `high` for both modes. Neither is a bug.
+- **`design-03` was built by a Fable 5.2 agent.** It must not be used to compare a Fable cell, and it
+  is frozen: no hardening after its runs. It also shows no difference between Opus and Sonnet at
+  `xhigh`: every run of both passed it.
+- **A public file must not hint at a hidden checklist.** On 2026-11-15 the rules file of the
+  architecture round named the subjects of three pitfalls in its limits; the audit caught it before
+  any push. Describe a private item by its kind ("one item comes from a real incident"), never by its
+  subject.
+- **No commit while a harness command runs.** `evalkit.py run` and `judge` append to
+  `evals/results/runs.jsonl` and `scores.jsonl`; commit at the boundary between two commands.
+- **A typed `Agent` call takes the model named on the call** (measured, 5 of 5 starts, unnamed
+  calls). That is how the architecture row runs `agenting:system-architect` on Sonnet.
+- **While the session has an advisor, the Workflow guard denies a script whose untyped agents are not
+  told to work alone.** Put the `const ALONE = "..."` line it prints into every such prompt.
+- **`zsh` does not split an unquoted variable into words.** Loop over lines with
+  `while IFS= read -r f; do ...; done`.
+- **Red-proofing a Python module by a same-size mutation can pass on a stale cache.** Remove
+  `__pycache__` and set `PYTHONDONTWRITEBYTECODE=1` first.
+- **The plan's fields in `~/.claude.json` are not documented,** and no real Pro account was observed.
+  The hook reads the word "pro" or "max" and treats anything else as no plan.
+- **Private leftovers of these sessions** are under `evals/private/session-2026-11-14/` and
+  `evals/private/session-2026-11-15/` (logs, the report scripts, the vehicle test's files). The third
+  task's build notes are in `evals/private/tasks/design-03/`.
+
+### Q.7 A good first message for the next chat
+
+> Read section Q of HANDOFF.md in the agenting repo, run the Q.5 checks and tell me what you find. Then
+> prepare the push of 3.7.0: show me the bites you would build and how the two commits with private
+> detail are handled (Q.4, point 1). Do not push until I say so.
 
 ## P. After the Fable 5.2 round and the advisor work (2026-11-13 and 14)
 
-**Nothing is running and nothing is half done.** Release 3.6.0 is committed (`e736e02`) and was pushed on 2026-11-14.
+Release 3.6.0 is committed (`e736e02`), was pushed on 2026-11-14 and is the version chats run until 3.7.0 is pushed.
+This section is the state 3.7.0 started from; where it and section Q differ, Q is right.
 
 ### P.1 What was found
 
@@ -147,8 +217,7 @@ report, the research note and the two pre-registrations.
    earlier `evals/tasks.json` whose task titles were too specific. Two messages were corrected on the way
    and say so: `bbf9b40` (run counts) and `e60fbde` (the cause of the stall was not established). The
    working commits are on the local branch `backup/pre-squash-2f6df2c`.
-2. **Install 3.6.0.** The new hooks reach a chat only after the plugin is updated to the new version.
-   Until then chats run 3.5.3: no agent guard, no advisor rule.
+2. **Install 3.6.0: done on 2026-11-14.**
 3. **The advisor setting.** The owner's settings name no advisor since 2026-11-13 17:36Z. With 3.6.0
    installed it can be named again: the main chat gets its advisor back and the workers are told to work
    alone. An advisor given only on the command line (`--advisor`, or inline `--settings`) is not seen by
@@ -156,10 +225,11 @@ report, the research note and the two pre-registrations.
 4. **`/agenting-mode workflows always`**, if every chat should be opted in to Workflows.
 5. **Next measurements**, in the report's section 11: a second look after a design (one designer alone
    was unreliable on the harder task); Opus's design pass against none, 12 blind pairs; a third decision
-   task that separates cells, built with no Fable model in the loop.
-6. Still open from October: whether `fast` moves don't-guess to Haiku `xhigh` (section 4, decision 2).
+   task that separates cells, built with no Fable model in the loop. (A third task was built on
+   2026-11-15, by a Fable agent, and it shows no difference between cells: Q.3 and Q.6.)
+6. Whether `fast` moves don't-guess to Haiku `xhigh`: decided on 2026-11-15, for every mode (Q.2).
 
-### P.4 Verify the state (free)
+### P.4 Verify the state (free; the counts are those of 3.6.0, the current ones are in Q.5)
 
 ```
 git status --short                      # expect only: M .gitignore (not from this work; never stage it)
@@ -687,7 +757,7 @@ override; the classify rule written after nine-run data; dont-guess `balanced` h
 
 ## 9. Push plan (when the owner says push)
 
-Nothing unpushed as of 2026-11-10: the 3.5.3 release went out as a lone commit (its two fixes were pushed on 2026-11-06). For the next push: group the unpushed commits into bites
+As of 2026-11-15, 21 commits are unpushed (3.7.0 and the measurements before it); section Q.4, point 1, names three things to settle first. For the push: group the unpushed commits into bites
 (consecutive runs belonging to one piece of work, one commit each, members folded into numbered paragraphs,
 never reordered), keep the version bump a separate commit after the bites, then
 `CLAUDE_SKIP_SQUASH_GUARD=1 git push`. Before pushing, check the net diff for `evals/private`, absolute local
