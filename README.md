@@ -120,6 +120,7 @@ Upgrading from 2.x: see the 3.0.0 entry in [CHANGELOG.md](CHANGELOG.md).
 | `commands/` | `/agenting-check`, `/agenting-mode`. |
 | `scripts/check-setup.py` | End-to-end health check (55 checks): it *runs* things rather than reading config, including real payloads through the agent guard. |
 | `evals/probes/think_first_analysis.py` | The rule checker for the two think-first rows (design-decision, ux-design): applies the pre-registered rules to the stored runs and scores. |
+| `evals/probes/architecture_analysis.py` | The rule checker for the architecture round of 2026-11-15: Opus `xhigh` against Sonnet `xhigh` on three design tasks, counted under two judge models. Reads the public run and score files only. |
 | `evals/probes/advisor_pairs_analysis.py` | The rule checker for the advisor-pairs test of 2026-11-14 (Opus with a Fable advisor, Sonnet with an Opus advisor, each against Opus alone): applies the pre-registered rules to the stored runs and scores. |
 | `evals/probes/ux_blind.py` | The blind UI/UX comparison: builds sanitised pages, pairs them, and applies the pre-registered verdict rules. |
 | `evals/probes/code_bench.py` | The tool of the coding experiment of 2026-11-14 (who writes the tests, who writes the code): a model gets file tools in a throwaway copy of a project, the tool runs the tests itself in a macOS sandbox, and the public record holds fixed words and numbers only. macOS only. |

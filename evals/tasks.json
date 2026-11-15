@@ -66,6 +66,17 @@
     "task_hash": "3addb4e1c054e11bb0603c61820f74bb7a35cfdf4d57eab902bcedc14837d452"
   },
   {
+    "id": "design-03",
+    "row": "design-decision",
+    "phase": "confirmation",
+    "title": "Design the runtime and audio pipeline of a listening-practice release for a real exam-preparation app, from its files as they stood before the real decision",
+    "delivery": "files",
+    "grading_type": "judge",
+    "pass_rule": "no binding constraint violated and at most one foreseeable pitfall left unhandled",
+    "pass_threshold": 0.8233,
+    "task_hash": "d4c8b7c9939ebb9902dd2b4d5905b18f941b05d292af466dee45015aac97ef2e"
+  },
+  {
     "id": "dont-guess-01",
     "row": "dont-guess",
     "phase": "screening",
