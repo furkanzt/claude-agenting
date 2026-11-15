@@ -139,8 +139,15 @@ PROJECT_DEFAULT_RE = re.compile(r"auto-disposition-default[`* \t]*:[`* \t]*(chea
 # The tip for the main chat of a Pro plan. One line, read by the tests with a regular expression.
 # Sonnet at high is `fast`'s cell for planning and writing tests (the coding experiment's question
 # 4, with the owner's choice of 2026-11-15: evals/results/REPORT-2026-11-15-coding.md). The second
-# sentence is the owner's: name the Opus effort, and warn against switching back and forth.
-MAIN_CHAT_TIP = "run this chat on Sonnet at high effort (/model sonnet, then /effort high). For a design decision use Opus at xhigh effort, in a new chat or at a break in the work: every model switch throws away the chat's cache, so do not switch back and forth"
+# sentence names `fast`'s cell for an architecture decision, Sonnet at xhigh since the round of
+# 2026-11-15 (evals/results/REPORT-2026-11-15-architecture.md); until then it named Opus at xhigh.
+# It says "architecture decision", not "design decision": the UI/UX design row is still Opus xhigh.
+# The warning against switching back and forth is the owner's. Claude Code's docs (prompt-caching,
+# read 2026-11-15) say an effort change keeps the cache on Sonnet 5.5 with a subscription or an API
+# key, and a model switch never. Not on Amazon Bedrock, Google Cloud, a Claude apps gateway, with
+# CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS set or under a HIPAA configuration: the hook does not check
+# those, and a Pro plan is a subscription.
+MAIN_CHAT_TIP = "run this chat on Sonnet at high effort (/model sonnet, then /effort high). For an architecture decision (a choice later work is built on) raise the effort (/effort xhigh) and stay on Sonnet, then go back to high: an effort change keeps the chat's cache, a model switch throws it away, so do not switch back and forth between Sonnet and Opus"
 MODE_COMMAND = "/agenting-mode [" + "|".join(DISPOSITIONS) + "]"
 QUALITY_GONE = ('the quality setting is gone: say "critical" for one job that needs the careful models')
 TEAMS_VAR = "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"

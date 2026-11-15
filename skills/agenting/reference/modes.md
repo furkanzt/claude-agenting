@@ -73,7 +73,7 @@ Baseline per disposition, and the cell the word "critical" picks for one job:
 | Synthesize across many files | `opus`/`high` | `opus`/`high` | `opus`/`xhigh` | `opus`/`xhigh` |
 | Decide under BELİRSİZ | `haiku`/`xhigh` | `haiku`/`xhigh` | `haiku`/`xhigh` | `opus`/`xhigh` |
 | Adversarial verify/refute | `haiku`/`xhigh` | `sonnet`/`high` | `sonnet`/`high` | `opus`/`high` |
-| Architecture or approach decision | `sonnet`/`xhigh` | `opus`/`xhigh` | `opus`/`xhigh` | `opus`/`xhigh` |
+| Architecture or approach decision | `sonnet`/`xhigh` | `sonnet`/`xhigh` | `sonnet`/`xhigh` | `opus`/`xhigh` |
 | UI/UX design before a build | `opus`/`xhigh` | `opus`/`xhigh` | `opus`/`xhigh` | `opus`/`xhigh` |
 | Plan a build and write its tests | `sonnet`/`high` | `sonnet`/`high` | `opus`/`high` | `opus`/`high` |
 | Bulk coding against tests that exist | `haiku`/`medium` | `haiku`/`medium` | `haiku`/`medium` | `sonnet`/`low` |
@@ -96,8 +96,9 @@ reads the measured cost per finished task, never the price list:
 - don't-guess and verify: at most about 1 wrong answer in 100.
 
 `cheapest` takes the cheapest cell inside that bar. `fast` keeps a safer cell
-on three rows, by the owner's choice: classify, verify (with review) and the
-architecture decision.
+on two rows, by the owner's choice: classify and verify (with review). On the
+architecture decision the three dispositions are the same since the round of
+2026-11-15 (below).
 
 **What `cheapest` gives up,** from the stored runs
 (`evals/results/REPORT-2026-11-15-fast-column.md`):
@@ -108,8 +109,6 @@ architecture decision.
 - Verify on Haiku `xhigh`: 1 false "confirmed" in 384 verdicts against 0 in
   480, and every Haiku mistake sits on one task of three. 87 seconds against
   26. Review follows verify and was not measured itself.
-- The architecture decision on Sonnet `xhigh` rests on six runs: 2 failed, the
-  same share as Opus `xhigh`'s 4 of 12.
 - Haiku at `xhigh` is the slowest cell of its rows. `cheapest` means cheaper at
   list price, not quicker.
 
@@ -121,9 +120,11 @@ then reads `disposition=fast (set for the Pro plan)` and ends its facts with
 `plan=Pro`, and Claude Code shows the user one line at that first start, for
 example `[agenting] plan=Pro · mode=fast (set for your plan: cheaper models,
 fewer agents). Tip: run this chat on Sonnet at high effort (/model sonnet, then
-/effort high). For a design decision use Opus at xhigh effort, in a new chat or
-at a break in the work: every model switch throws away the chat's cache, so do
-not switch back and forth. Change mode: /agenting-mode [cheapest|fast|balanced]`.
+/effort high). For an architecture decision (a choice later work is built on)
+raise the effort (/effort xhigh) and stay on Sonnet, then go back to high: an
+effort change keeps the chat's cache, a model switch throws it away, so do not
+switch back and forth between Sonnet and Opus. Change mode: /agenting-mode
+[cheapest|fast|balanced]`.
 
 - The user is told by the hook. Add nothing and ask nothing; route by the
   disposition on the line.
@@ -137,9 +138,17 @@ not switch back and forth. Change mode: /agenting-mode [cheapest|fast|balanced]`
   ([project-rules.md](project-rules.md)).
 - No plan on the line means it could not be read (the fields are not
   documented): the chat starts in `balanced`, as before.
-- The tip's model and effort are `fast`'s cell for planning and writing tests.
-  Its warning is a fact about the cache: the cache belongs to one model, so a
-  switch makes the next turn pay the full input price for the whole chat.
+- The tip's model and effort are `fast`'s cell for planning and writing tests,
+  and its second sentence is `fast`'s cell for an architecture decision
+  (Sonnet `xhigh`). It does not cover a UI/UX design, whose row is Opus
+  `xhigh`: that goes to `agenting:ux-designer`, on request.
+- The tip's warning is a fact about the cache, from Claude Code's docs
+  (code.claude.com/docs/en/prompt-caching, read 2026-11-15): the cache belongs
+  to one model, so a model switch makes the next turn pay the full input price
+  for the whole chat. An effort change keeps the cache on Sonnet 5.5 with a
+  subscription or an API key. It does not on Amazon Bedrock, Google Cloud or a
+  Claude apps gateway, with `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS` set, or
+  under a HIPAA configuration; the hook does not check for those.
 - List price is the yardstick behind `fast` and `cheapest`. How a plan counts
   each model against its usage limit is not published, so "cheaper" here is a
   stand-in for "uses less of the limit".
@@ -175,13 +184,21 @@ runs on one task), so `balanced` keeps `opus`/`xhigh`; `fast` and `cheapest` use
 `opus`/`high`, which saves about a third and missed one planted item in 2 of 9
 runs.
 
-The two think-first rows are `opus`/`xhigh` in `fast` and `balanced` (2026-11-13,
-`evals/results/REPORT-2026-11-13.md`). On the architecture row every cell passed the easier task in
-every run, and on the harder one Fable 5.2 passed 0 of 9 runs, Opus `xhigh` 2 of 6, Sonnet `xhigh`
-1 of 3 and Opus `high` 0 of 3, so no cheaper cell earned `fast` and Fable 5.2 was not adopted;
-`cheapest` takes Sonnet `xhigh` there on those six runs, by the owner's choice. On the
-UI/UX row the owner, blind, preferred the page built from Opus's design to the one from Fable 5.2's
-in 8 of 12 pairs. No designer below Opus `xhigh` was tested for that row.
+The architecture row is `sonnet`/`xhigh` in `cheapest`, `fast` and `balanced` since 2026-11-15
+(`evals/results/REPORT-2026-11-15-architecture.md`); "critical" picks `opus`/`xhigh`. Over three real
+decisions and 30 runs a cell, Sonnet `xhigh` failed 7 runs and Opus `xhigh` 10, counted the same by two
+judge models, at $1.11 a run against $2.32. The rules were written first: Sonnet takes `fast` with at
+most 2 more fails than Opus, and `balanced` with no more fails and behind on at most one task. Limits
+to carry: all 17 fails are on one task (7 and 10 of 12 runs), every run of both passed the other two,
+so the verdict rests on 12 runs a cell on one task; it shows that Sonnet was not worse, not that it
+is better; and neither cell is reliable alone on that task (Opus passed 2 runs of 12, Sonnet 5), where
+a second look after a design was not measured. In the round of 2026-11-13
+(`evals/results/REPORT-2026-11-13.md`) Fable 5.2 passed 0 of 9 runs on that task and Opus `high` 0 of
+3; Fable 5.2 was not adopted.
+
+The UI/UX row is `opus`/`xhigh` in every disposition (2026-11-13): the owner, blind, preferred the
+page built from Opus's design to the one from Fable 5.2's in 8 of 12 pairs. No designer below Opus
+`xhigh` was tested for that row.
 
 The three build rows come from the coding experiment of 2026-11-14 and 2026-11-15
 (`evals/results/REPORT-2026-11-15-coding.md`), six real changes from the owner's projects.

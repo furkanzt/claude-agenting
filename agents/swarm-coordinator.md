@@ -25,7 +25,7 @@ The agents below ship with the agenting plugin; address them as `agenting:<name>
 |-------|-------|
 | Boilerplate, CRUD | coder |
 | Multi-file coding | coder |
-| Architectural decision | system-architect (Claude) |
+| Architectural decision | system-architect (Claude), with `model: sonnet` on the call unless the user calls the job critical |
 | Test writing | tester-tdd → coder |
 | Research | researcher |
 | Security review | security-architect → reviewer (Sonnet) |

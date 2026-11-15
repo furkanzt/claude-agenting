@@ -412,15 +412,25 @@ Feature: Plugin packaging, agent pins and doc invariants stay consistent, becaus
     Then it states the three conditions: later work is built on the choice, at least two options would work, and a wrong choice is expensive to undo
     And it says "Otherwise just build"
     And it names "agenting:system-architect" and "agenting:ux-designer" as the design agents
+    And it says the main chat thinks first when it runs on "the model of its disposition's cell, or of the one "critical" picks"
     And it says a design pass for a UI prototype "is not the default" and that Fable 5.2 thinks first "only when the user asks for it"
 
-  # Backed by: tests/test_skill_docs.py::test_the_think_first_rows_are_opus_xhigh_except_the_architecture_row_in_cheapest
-  Scenario: The think-first rows are opus at xhigh, except the architecture row in cheapest
+  # Backed by: tests/test_skill_docs.py::test_the_architecture_row_is_sonnet_xhigh_below_critical_and_the_ux_row_is_opus_xhigh
+  Scenario: The architecture row is sonnet at xhigh below "critical", and the UI/UX row is opus at xhigh
     Given the routing table of SKILL.md and the disposition table of reference/modes.md
     When the docs test reads the rows for the architecture decision and the UI/UX design
-    Then each row of the routing table has the model "opus" and the effort "xhigh"
+    Then the routing table has "sonnet" and "xhigh" for the architecture row and "opus" and "xhigh" for the UI/UX row
     And the UI/UX row of the disposition table has "opus/xhigh" under cheapest, fast, balanced and in the "critical" column
-    And the architecture row has "sonnet/xhigh" under cheapest and "opus/xhigh" in the other three
+    And the architecture row has "sonnet/xhigh" under cheapest, fast and balanced and "opus/xhigh" in the "critical" column
+
+  # Backed by: tests/test_skill_docs.py::test_the_design_agents_file_pins_the_critical_cell_and_the_step_says_to_name_the_model
+  Scenario: The design agent's file pins the "critical" cell, and the think-first step says to name the row's model on the call
+    Given agents/system-architect.md, the architecture row of the disposition table and the step "3. Think first?"
+    When the docs test compares them
+    Then the file's model and effort are "opus/xhigh", the row's "critical" cell
+    And the step says "`system-architect`'s file pins the "critical" cell, `opus`/`xhigh`" and "write the row's model on the call: `model: 'sonnet'`"
+    And the step says "The architecture row was measured at `xhigh` only: at `high`, Sonnet was never run on it and Opus passed 0 of 3 runs of the hard task."
+    And the row's balanced cell is "sonnet/xhigh"
 
   # Backed by: tests/test_skill_docs.py::test_the_disposition_table_has_the_four_columns_and_every_cell_the_owner_decided
   Scenario: The disposition table has four columns and every cell the owner decided
@@ -446,10 +456,19 @@ Feature: Plugin packaging, agent pins and doc invariants stay consistent, becaus
       | Bulk coding against tests that exist                           | haiku  | medium |
       | Review a build before it is called done                        | sonnet | high   |
 
+  # Backed by: tests/test_skill_docs.py::test_the_docs_say_when_an_effort_change_keeps_the_cache_and_when_it_does_not
+  Scenario: The mode reference quotes the hook's tip and says when an effort change keeps the cache
+    Given the part "The plan sets where a new chat starts" of reference/modes.md and the hook's MAIN_CHAT_TIP constant
+    Then the part quotes " Tip: <the hook's tip>. Change mode: /agenting-mode [cheapest|fast|balanced]" word for word
+    And it says "An effort change keeps the cache on Sonnet 5.5 with a subscription or an API key."
+    And it says it does not "on Amazon Bedrock, Google Cloud or a Claude apps gateway, with `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS` set, or under a HIPAA configuration"
+    And it says the tip "does not cover a UI/UX design, whose row is Opus `xhigh`"
+
   # Backed by: tests/test_skill_docs.py::test_what_cheapest_gives_up_is_written_down_row_by_row
   Scenario: What cheapest gives up is written down row by row
     Given the part of reference/modes.md that starts "What `cheapest` gives up"
-    Then it names classify on Haiku xhigh with "4.1% wrong labels", verify on Haiku xhigh with "1 false "confirmed" in 384", that review follows verify and was not measured itself, and that the architecture decision on Sonnet xhigh rests on few runs
+    Then it names classify on Haiku xhigh with "4.1% wrong labels", verify on Haiku xhigh with "1 false "confirmed" in 384", and that review follows verify and was not measured itself
+    And it does not mention the architecture decision, and the text above it says "`fast` keeps a safer cell on two rows, by the owner's choice: classify and verify (with review)"
     And it says cheapest means "cheaper at list price, not quicker"
 
   # Backed by: tests/test_skill_docs.py::test_no_plan_starts_in_cheapest_and_the_docs_say_so

@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 """UserPromptSubmit hook — mid-session model/effort switch cost tripwire.
 
-A model or effort change mid-session invalidates the prompt cache prefix:
-the next assistant turn re-writes the whole carried context instead of
-reading it from cache. Measured case (this project, 2026-08-10): sonnet/high
--> opus/max mid-session rewrote 66,975 tokens on the very next turn.
+A model change mid-session invalidates the prompt cache prefix: the next
+assistant turn re-writes the whole carried context instead of reading it from
+cache. Measured case (this project, 2026-08-10): sonnet/high -> opus/max
+mid-session rewrote 66,975 tokens on the very next turn. An effort change did
+the same then. Claude Code's docs (prompt-caching, read 2026-11-15) now say it
+keeps the cache on Fable 5.1 and later, Opus 5.5, Sonnet 5.5 and Haiku 5.5 with
+a subscription or an API key (not on Bedrock, Google Cloud, a Claude apps
+gateway, with experimental betas off, or under HIPAA). The hook still reports
+an effort-only change: it prints the tokens the transcript says were
+re-written, which is then a small number.
 
 This hook compares the session's FIRST main-thread assistant model+effort to
 its LATEST, and if they differ, reports the token cost paid at the transition

@@ -216,8 +216,12 @@ class Cheapest(ContinuityCase):
     def test_the_tip_names_a_model_an_effort_and_the_cost_of_switching(self):
         tip = main_chat_tip()
         self.assertIn("Sonnet at high effort (/model sonnet, then /effort high)", tip)
-        self.assertIn("Opus at xhigh effort", tip)
-        self.assertIn("do not switch back and forth", tip)
+        self.assertIn("For an architecture decision (a choice later work is built on) raise the effort "
+                      "(/effort xhigh) and stay on Sonnet, then go back to high", tip)
+        self.assertIn("an effort change keeps the chat's cache, a model switch throws it away", tip)
+        self.assertIn("do not switch back and forth between Sonnet and Opus", tip)
+        self.assertNotIn("use Opus", tip)              # fast's architecture cell is Sonnet xhigh since 2026-11-15
+        self.assertNotIn("design decision", tip)       # the UI/UX design row is still Opus xhigh
         self.write_settings(self.home / ".claude.json", {"oauthAccount": {"organizationType": "claude_pro"}})
         out = self.run_hook(CONTINUITY, {"session_id": SID, "cwd": str(self.cwd), "source": "startup"})
         self.assertIn(f" Tip: {tip}. Change mode: ", out["systemMessage"])

@@ -91,7 +91,8 @@ decides or designs first and cheaper models build. The rules were committed befo
 the full account is [`evals/results/REPORT-2026-11-13.md`](../../../evals/results/REPORT-2026-11-13.md).
 Claude Code 2.1.323, list prices.
 
-- **Architecture or approach decision: stays `opus`/`xhigh`, in every disposition.** Two real
+- **Architecture or approach decision: stayed `opus`/`xhigh` in this round; `sonnet`/`xhigh`
+  below "critical" since the architecture round of 2026-11-15 (last section).** Two real
   decisions from the owner's projects, each with a checklist of binding constraints and of pitfalls
   that really followed. A run passes when it violates no constraint and misses at most one pitfall.
   Two judge models (Fable 5.1 `high`, Opus 5.5 `high`), two passes each, agreed on every count.
@@ -223,7 +224,45 @@ the owner's decisions of 2026-11-15. Claude Code 2.1.325, list prices.
   written down; about 1 wrong answer in 100 for don't-guess and verify) names Haiku `xhigh` for
   classify (3 of 36 runs failed, 4.1% wrong labels against 2.8%) and for verify (1 false
   confirmation in 384 against 0 in 480), and the owner gave the architecture row to Sonnet `xhigh`
-  there on six runs. `fast` keeps the safer cell on those three rows.
+  there on six runs, before the architecture round (next section) gave it to `fast` and `balanced`
+  too. `fast` keeps the safer cell on classify and verify.
 - **Limits.** Six coding tasks whose brief already named the files; 178 of 180 coding runs correct,
   so the coders are told apart by cost, not by skill; two test suites a cell and task; one vehicle
   run; the document rows pooled over several rounds and versions; list price throughout.
+
+## Architecture round, 2026-11-15
+
+Opus 5.5 `xhigh` against Sonnet 5.5 `xhigh` on the architecture row, after the owner asked whether
+`fast` or `balanced` can take the cell `cheapest` has. Rules committed before any run
+([`PREREGISTERED-2026-11-15-architecture.md`](../../../evals/results/PREREGISTERED-2026-11-15-architecture.md));
+the full account is
+[`REPORT-2026-11-15-architecture.md`](../../../evals/results/REPORT-2026-11-15-architecture.md); the
+rule checker is `evals/probes/architecture_analysis.py`. Three real decisions from three of the
+owner's repositories, 30 runs a cell, 60 in all (18 kept from 2026-11-13, 42 new), four judge passes a run by
+two judge models. A run fails under a judge when both of that judge's passes fail it. Claude Code
+2.1.325 for the new runs, list prices.
+
+- **Architecture or approach decision: `sonnet`/`xhigh` in `cheapest`, `fast` and `balanced`;
+  "critical" stays `opus`/`xhigh`.**
+
+  | Cell | Task 1, runs failed | Task 2, runs failed | Task 3 (new), runs failed | All 30 | Mean cost per run | Mean time |
+  |---|---|---|---|---|---|---|
+  | `opus-5-5` `xhigh` | 0 of 6 | 10 of 12 | 0 of 12 | 10 | $2.32 | 696 s |
+  | `sonnet-5-5` `xhigh` | 0 of 6 | 7 of 12 | 0 of 12 | 7 | $1.11 | 510 s |
+
+  Both judge models gave these counts and agreed on all 60 runs. The rules: Sonnet takes `fast`
+  with at most 2 more fails than Opus in total and on each task, and `balanced` when it also has no
+  more fails in total and is behind on at most one task. Both hold.
+- **What carries the verdict, and what does not.** All 17 fails are on one task; the new task was
+  passed by every run of both cells, so it separated nothing. Seven against ten fails of twelve is
+  a gap that chance produces easily (p = 0.37). With one hard task and 12 runs a cell, a Sonnet
+  that failed 15 points more often than Opus would still have taken `balanced` about one time in
+  four, and one that failed 30 points more often about one time in twelve. The round shows that the
+  cheaper cell was not worse; it does not show that it is better.
+- **Neither cell is reliable alone on the hard task:** Opus passed 2 of 12 runs, Sonnet 5 of 12. The
+  owner's bar for unchecked work is about 1 failed run in 10. A second look after a design was not
+  measured.
+- **Limits.** One process with read-only tools and one prompt: not the `system-architect` agent
+  file, not a main chat with a conversation behind it. A design is judged on paper; nothing was
+  built from one. The checklist of the hard task was written by Opus agents. Two versions of Claude
+  Code. The third task was built by a Fable 5.2 agent and must not be used to compare a Fable cell.

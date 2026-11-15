@@ -60,11 +60,17 @@ hold:
    players or production).
 
 Otherwise just build. The one who thinks first is the main chat, when it already
-runs on the model the routing table names for that job; otherwise ONE design
-agent on that model: `agenting:system-architect` for an architecture or approach
-decision, `agenting:ux-designer` for a UI/UX design. It returns the decision, the
-reasons, the rejected options and the risks. Give the user the decision in 2 to 3
-lines; then the builders start (`manual` mode: after the user's yes).
+runs on a model the mode table names for that job
+(the model of its disposition's cell, or of the one "critical" picks);
+otherwise ONE design agent on the disposition's cell: `agenting:system-architect`
+for an architecture or approach decision, `agenting:ux-designer` for a UI/UX
+design. `system-architect`'s file pins the "critical" cell, `opus`/`xhigh`, so
+for any other job write the row's model on the call: `model: 'sonnet'` (an
+unnamed typed call takes the model named on it). The architecture row was
+measured at `xhigh` only: at `high`, Sonnet was never run on it and Opus passed
+0 of 3 runs of the hard task. The design agent returns the decision, the
+reasons, the rejected options and the risks. Give the user the decision in 2 to
+3 lines; then the builders start (`manual` mode: after the user's yes).
 
 - **A UI prototype** is cheap to redo, so condition 3 fails and it gets no design
   pass by this rule; an extra rule that would have given it one fell short of its
@@ -127,7 +133,7 @@ workers work alone.
 | Synthesize across a whole document or many files | `opus` | `xhigh` | Must relate things that are far apart |
 | Decide under a "don't guess" constraint (BELİRSİZ) | `haiku` | `xhigh` | **Calibration is the product** |
 | Adversarial verify / refute a finding | `sonnet` | `high` | A confident wrong answer is expensive |
-| Decide an architecture or approach that later work is built on | `opus` | `xhigh` | "Think first?" holds, and the choice is a structure |
+| Decide an architecture or approach that later work is built on | `sonnet` | `xhigh` | "Think first?" holds, and the choice is a structure |
 | Design a UI/UX solution before a prototype, screen or flow is built | `opus` | `xhigh` | "Think first?" holds, and the choice is what the user sees |
 | Plan a build and write its tests, before cheaper workers code | `opus` | `high` | The tests fix what "done" means for everyone after |
 | Bulk coding against tests that exist | `haiku` | `medium` | A test run says pass or fail |
@@ -137,6 +143,9 @@ workers work alone.
 cell of each row on real tasks and compared measured cost per run: a first sweep
 on 2026-10-06, a re-check with Haiku 5.5 on 2026-10-09, and a round on the two
 think-first rows on 2026-11-13, where Fable 5.2 was measured and not adopted.
+A second round on the architecture row on 2026-11-15 gave it to Sonnet `xhigh`:
+over three tasks it failed 7 runs of 30 against Opus `xhigh`'s 10, at half the
+cost, and all 17 fails were on one task.
 A coding experiment on 2026-11-14 and 2026-11-15 set the two build rows (the
 review row was not measured and follows verify), and on 2026-11-15 the owner
 moved don't-guess to Haiku `xhigh` on the pooled runs.

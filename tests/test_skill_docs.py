@@ -346,8 +346,9 @@ if __name__ == "__main__":
 
 
 class ThinkFirstDocs(unittest.TestCase):
-    """The think-first step, its two routing rows and the agent roster, as the 2026-11-13 round left them.
-    The expected cells are written here from the report, not read from the files under test."""
+    """The think-first step, its two routing rows and the agent roster: the 2026-11-13 round, and the
+    architecture round of 2026-11-15 that gave the architecture row to Sonnet xhigh below "critical".
+    The expected cells are written here from the reports, not read from the files under test."""
 
     NEW_ROWS = ("Decide an architecture or approach that later work is built on",
                 "Design a UI/UX solution before a prototype, screen or flow is built")
@@ -367,25 +368,48 @@ class ThinkFirstDocs(unittest.TestCase):
         for needle in ("later work is built on the choice", "at least two options would work",
                        "expensive to undo", "Otherwise just build",
                        "`agenting:system-architect`", "`agenting:ux-designer`",
-                       "it is not the default", "only when the user asks for it"):
+                       "it is not the default", "only when the user asks for it",
+                       "the model of its disposition's cell, or of the one \"critical\" picks",
+                       "The architecture row was"):
             with self.subTest(needle=needle):
                 self.assertIn(needle, step)
         self.assertLess(self.skill.index("**2. Which vehicle?**"), self.skill.index("**3. Think first?**"))
 
-    def test_the_think_first_rows_are_opus_xhigh_except_the_architecture_row_in_cheapest(self):
+    def test_the_architecture_row_is_sonnet_xhigh_below_critical_and_the_ux_row_is_opus_xhigh(self):
         table = self.section(self.skill, "## Routing table", "**How the cells were measured.**")
+        # the routing table is `balanced`: Sonnet xhigh for the architecture row since the round of
+        # 2026-11-15 (7 fails of 30 against Opus xhigh's 10, under both judge models), Opus xhigh for UI/UX.
+        routed = dict(zip(self.NEW_ROWS, (["`sonnet`", "`xhigh`"], ["`opus`", "`xhigh`"])))
         for row in self.NEW_ROWS:
             with self.subTest(row=row):
                 line = next(ln for ln in table.splitlines() if ln.startswith(f"| {row} |"))
-                self.assertEqual([c.strip() for c in line.split("|")[2:4]], ["`opus`", "`xhigh`"])
+                self.assertEqual([c.strip() for c in line.split("|")[2:4]], routed[row])
         # columns of the disposition table: cheapest, fast, balanced, "critical". The owner gave the
-        # architecture row to Sonnet xhigh in cheapest only (2026-11-15); every other cell stays Opus xhigh.
-        expected = {"Architecture or approach decision": ["`sonnet`/`xhigh`"] + ["`opus`/`xhigh`"] * 3,
+        # architecture row to Sonnet xhigh in cheapest; the round's rules gave it to fast and balanced.
+        expected = {"Architecture or approach decision": ["`sonnet`/`xhigh`"] * 3 + ["`opus`/`xhigh`"],
                     "UI/UX design before a build": ["`opus`/`xhigh`"] * 4}
         for row in self.MODES_ROWS:
             with self.subTest(row=row):
                 line = next(ln for ln in self.modes.splitlines() if ln.startswith(f"| {row} |"))
                 self.assertEqual([c.strip() for c in line.split("|")[2:6]], expected[row])
+
+    def test_the_design_agents_file_pins_the_critical_cell_and_the_step_says_to_name_the_model(self):
+        # agents/system-architect.md stays on Opus xhigh, the cell "critical" picks for the architecture
+        # row. The row's own cell is Sonnet xhigh, so the step must say to write that model on the call.
+        fm = re.match(r"^---\n(.*?)\n---\n", (ROOT / "agents" / "system-architect.md").read_text(encoding="utf-8"),
+                      re.S).group(1)
+        pinned = "`{}`/`{}`".format(re.search(r"^model:\s*(\S+)", fm, re.M).group(1),
+                                    re.search(r"^effort:\s*(\S+)", fm, re.M).group(1))
+        line = next(ln for ln in self.modes.splitlines() if ln.startswith("| Architecture or approach decision |"))
+        cells = [c.strip() for c in line.split("|")[2:6]]
+        self.assertEqual(pinned, cells[3])
+        self.assertEqual(pinned, "`opus`/`xhigh`")
+        step = " ".join(self.section(self.skill, "**3. Think first?**", "## The advisor is for the decider").split())
+        self.assertIn("`system-architect`'s file pins the \"critical\" cell, `opus`/`xhigh`", step)
+        self.assertIn("write the row's model on the call: `model: 'sonnet'`", step)
+        self.assertIn("The architecture row was measured at `xhigh` only: at `high`, Sonnet was never run on it and "
+                      "Opus passed 0 of 3 runs of the hard task.", step)
+        self.assertEqual(cells[2], "`sonnet`/`xhigh`")          # the cell that sentence names is balanced's
 
     def test_no_cell_of_the_routing_table_or_the_disposition_table_names_fable(self):
         table = self.section(self.skill, "## Routing table", "**How the cells were measured.**")
@@ -430,8 +454,9 @@ class ThinkFirstDocs(unittest.TestCase):
 
 
 class ModeTableDocs(unittest.TestCase):
-    """The disposition table after 3.7.0: a cheapest column, three build rows, don't-guess on Haiku xhigh.
-    The expected cells are the owner's decisions of 2026-11-15, written here, not read from the files."""
+    """The disposition table after 3.7.0: a cheapest column, three build rows, don't-guess on Haiku xhigh,
+    the architecture row on Sonnet xhigh below "critical". The expected cells are the owner's decisions of
+    2026-11-15 and the verdict of that day's architecture round, written here, not read from the files."""
 
     COLUMNS = ["`cheapest`", "`fast`", "`balanced`", '"critical"']
     CELLS = {
@@ -442,7 +467,7 @@ class ModeTableDocs(unittest.TestCase):
         "Synthesize across many files": ["opus/high", "opus/high", "opus/xhigh", "opus/xhigh"],
         "Decide under BELİRSİZ": ["haiku/xhigh"] * 3 + ["opus/xhigh"],
         "Adversarial verify/refute": ["haiku/xhigh", "sonnet/high", "sonnet/high", "opus/high"],
-        "Architecture or approach decision": ["sonnet/xhigh"] + ["opus/xhigh"] * 3,
+        "Architecture or approach decision": ["sonnet/xhigh"] * 3 + ["opus/xhigh"],
         "UI/UX design before a build": ["opus/xhigh"] * 4,
         "Plan a build and write its tests": ["sonnet/high", "sonnet/high", "opus/high", "opus/high"],
         "Bulk coding against tests that exist": ["haiku/medium"] * 3 + ["sonnet/low"],
@@ -490,16 +515,34 @@ class ModeTableDocs(unittest.TestCase):
         part = self.modes[self.modes.index("**What `cheapest` gives up,**"):self.modes.index("## The plan sets where a new chat starts")]
         flat = " ".join(part.split())
         for needle in ("Classify on Haiku `xhigh`: 4.1% wrong labels", "Verify on Haiku `xhigh`: 1 false \"confirmed\" in 384",
-                       "Review follows verify and was not measured itself",
-                       "The architecture decision on Sonnet `xhigh` rests on", "cheaper at list price, not quicker"):
+                       "Review follows verify and was not measured itself", "cheaper at list price, not quicker"):
             with self.subTest(needle=needle):
                 self.assertIn(needle, flat)
+        self.assertNotIn("architecture", flat)          # since 2026-11-15 cheapest gives nothing up there
+        self.assertIn("`fast` keeps a safer cell on two rows, by the owner's choice: classify and verify (with review)",
+                      " ".join(self.modes.split()))
 
     def test_no_plan_starts_in_cheapest_and_the_docs_say_so(self):
         flat = " ".join(self.modes.split())
         self.assertIn("No plan starts a chat in `cheapest`.", flat)
         self.assertIn("Change mode: /agenting-mode [cheapest|fast|balanced]", flat)
         self.assertIn("starts in the plan's when the plan can be read, never in `cheapest`", " ".join(self.skill.split()))
+
+    def test_the_docs_say_when_an_effort_change_keeps_the_cache_and_when_it_does_not(self):
+        part = self.modes[self.modes.index("## The plan sets where a new chat starts"):self.modes.index("## Where the cells come from")]
+        flat = " ".join(part.split())
+        for needle in ("For an architecture decision (a choice later work is built on) raise the effort (/effort xhigh) "
+                       "and stay on Sonnet, then go back to high",
+                       "An effort change keeps the cache on Sonnet 5.5 with a subscription or an API key.",
+                       "It does not on Amazon Bedrock, Google Cloud or a Claude apps gateway, with "
+                       "`CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS` set, or under a HIPAA configuration",
+                       "It does not cover a UI/UX design, whose row is Opus `xhigh`"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, flat)
+        # the line the docs quote is the hook's own tip
+        hook = (ROOT / "hooks" / "session-continuity.py").read_text(encoding="utf-8")
+        tip = re.search(r'^MAIN_CHAT_TIP = "(.*)"$', hook, re.M).group(1)
+        self.assertIn(f"Tip: {tip}. Change mode: /agenting-mode [cheapest|fast|balanced]", flat)
 
     def test_the_bulk_coder_is_haiku_medium_never_changes_tests_and_stops_after_three_failed_checks(self):
         text = (ROOT / "agents" / "bulk-coder.md").read_text(encoding="utf-8")

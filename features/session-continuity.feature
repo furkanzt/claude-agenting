@@ -567,7 +567,8 @@ Feature: Session continuity carries mode, disposition and workflows opt-in acros
   # Backed by: tests/test_session_continuity.py::test_the_tip_names_a_model_an_effort_and_the_cost_of_switching
   Scenario: The main-chat tip names a model, an effort and the cost of switching
     Given the hook's one-line MAIN_CHAT_TIP constant
-    Then it contains "Sonnet at high effort (/model sonnet, then /effort high)", "Opus at xhigh effort" and "do not switch back and forth"
+    Then it contains "Sonnet at high effort (/model sonnet, then /effort high)", "For an architecture decision (a choice later work is built on) raise the effort (/effort xhigh) and stay on Sonnet, then go back to high", "an effort change keeps the chat's cache, a model switch throws it away" and "do not switch back and forth between Sonnet and Opus"
+    And it contains neither "use Opus" nor "design decision"
     And on a Pro plan the systemMessage of a new session contains " Tip: <the tip>. Change mode: " and is one line
 
   # Backed by: tests/test_session_continuity.py::test_an_unknown_disposition_is_refused
