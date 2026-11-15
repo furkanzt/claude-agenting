@@ -387,3 +387,70 @@ flight and every run after it. Now:
    no new model process. The runs it had in flight are made again at the next start.
 
 This changes no rule and no count. It limits what an outage can cost to the runs that were in flight.
+
+## Addendum 5: the rules of the vehicle test, before it runs (2026-11-15, 02:42Z)
+
+Written after step C had ended and while the cross check was still running. The rules above promise this
+test "with its own rules written before it runs". Nothing of it has run. One number it will be compared
+with is already known and is named below.
+
+**Question.** The plan and the locked tests exist. Four pieces of coding go to Haiku 5.5 at `medium`.
+Which vehicle costs less per correct piece: four single `Agent` calls, or one Workflow with four agents?
+And how far are both from a clean run?
+
+**Pieces.** `code-01`, `code-02`, `code-03` and `code-05`: the four tasks whose tests need no installed
+packages, so one command can run them. Each piece is the task as arm B has it: the brief, the start
+state, and the task's given suite in place and locked.
+
+**The two live vehicles,** in this chat (a live session, not the pinned command-line run):
+
+- *Agents:* four `Agent` calls sent in one message, one piece each.
+- *Workflow:* one Workflow whose script starts four agents at once, one piece each.
+
+Both are launched in the same message, so all eight workers start cold and none can read what another
+has just cached. Every worker is the plugin's `coder` agent with the model set to `haiku` and the effort
+to `medium`. Its launch prompt is one sentence that names a task file. The task file holds the brief,
+arm B's instruction, the suite's paths and the working rules, the same text in both vehicles. Each worker
+has its own fresh copy in a folder outside the repository.
+
+**What a worker may do.** It has the `coder` agent's tools, a shell included. It may run one command, as
+often as it likes: a private script that runs the given suite on its copy in the tool's sandbox, exactly
+as arm B checks a try (locked files are put back first, and a changed locked file counts as a failed
+check), and prints the result with the output's tail. It is told to stop at a passing check or after
+three failed ones, and to run nothing else that changes or runs anything.
+
+**Grading,** after all eight have ended, by the same sandboxed test runs as step C: the given suite and
+the hidden tests on each final copy. A piece is **correct** when every hidden test passes.
+
+**Cost,** from each worker's own transcript: every API call after removing streamed duplicates, at list
+price per category (input, cache read, 5-minute and 1-hour cache write, output), with the price table of
+`scripts/measure-tokenomics.py`. Also reported per worker: the model and effort that answered, the number
+of calls, the size of the first call's context and how much of it was written to cache fresh, the number
+of checks it ran, and the time from its first to its last line. What the main chat spends on launching
+and on reading the results is reported as sizes in characters, not priced: this chat runs on a model a
+$20 plan does not have.
+
+**Reading rule.** The cost per correct piece of a vehicle is the cost of its four workers divided by its
+number of correct pieces. One vehicle **is cheaper** than the other when its cost per correct piece is at
+least 25% lower and it has no fewer correct pieces. Otherwise **no difference shown**. The same rule
+compares each live vehicle with the clean run: the 16 stored arm-B runs of `haiku-5-5@medium` on these
+four tasks, which cost $0.023 a run on average and were all correct (known when this was written). That
+comparison is between different settings, and the report says so: a clean run has file tools only, a
+fixed short system prompt, and the harness reruns the tests between tries; a live worker has a shell and
+whatever this chat's setup loads into an agent.
+
+**The worker's model and effort are checked twice.** Before the launch, one probe call (a one-word
+answer, no work) shows whether an unnamed `Agent` call of the `coder` agent takes the model and the effort
+written on the call; on 2026-11-13 that was measured for Workflow calls and for agents without a file, not
+for this case. If it does not, both vehicles use the generic worker (no agent type) with `model: haiku` and
+`effort: medium`. After the run, each worker's transcript names the model and effort that answered. A
+worker that ran on another model or effort is listed and its piece is left out of both vehicles'
+figures; with fewer than three pieces left, the answer is "not measured".
+
+**What this can change.** Only the sentence of the skill that says through which vehicle bulk coding
+goes. No cell.
+
+**Limits.** One run of four pieces per vehicle shows a large difference only. One agent definition. This
+Mac's own instruction files and plugins are loaded into every live worker, so their start-up differs from
+a fresh install's. The live session runs Claude Code 2.1.323, the clean runs ran on 2.1.325. List price;
+how a $20 plan counts a worker against its limit is not published. Expected cost: under $2.
