@@ -516,8 +516,15 @@ if continuity:
         check("a Pro plan starts a new chat in fast and the user is told once",
               "disposition=fast (set for the Pro plan)" in plan_ctx and " · plan=Pro (session " in plan_ctx
               and plan_msg.startswith("[agenting] plan=Pro · mode=fast (set for your plan")
-              and plan_msg.endswith("Change mode: /agenting-mode balanced"),
+              and plan_msg.endswith("Change mode: /agenting-mode [cheapest|fast|balanced]"),
               (plan_msg or plan_ctx)[:120])
+        # cheapest is never a plan's start: the user's own record puts a chat there.
+        cheap = subprocess.run(
+            [sys.executable, str(continuity), "--record", "--session", probe_session, "--disposition", "cheapest"],
+            capture_output=True, text=True, timeout=20, env=plan_env)
+        check("the cheapest mode is recorded and replaces the plan's start",
+              cheap.returncode == 0 and "disposition=cheapest" in cheap.stdout and "set for" not in cheap.stdout,
+              (cheap.stdout + cheap.stderr).strip()[:100])
 
 # ------------------------------------------------ teammates and standing default
 

@@ -72,7 +72,7 @@ this result (agenting skill: "When the finish check fires").
 | Setting | Values | Meaning |
 |---|---|---|
 | mode | `auto` *(default)* / `manual` | Who resolves Stage 2: Claude, or you via a question |
-| disposition | `fast` / `balanced` *(default)* | How auto leans on borderline tiers (what you would call the mode). A new chat starts in `fast` on a Pro plan and in `balanced` on a Max plan when the plugin can read the plan, and you are told in one line; after that it changes only when you say so. Never asked about, never suggested |
+| disposition | `cheapest` / `fast` / `balanced` *(default)* | How auto leans on borderline tiers (what you would call the mode). A new chat starts in `fast` on a Pro plan and in `balanced` on a Max plan when the plugin can read the plan, and you are told in one line; after that it changes only when you say so. `cheapest` is never a starting point: it takes the cheapest cell that passes the owner's bar on every row, and you choose it yourself. Never asked about, never suggested |
 | workflows | `on` / `off` / not opted in | Makes "use workflows for this session" survive compaction. Routing is unaffected |
 
 The line ends with `teammates=on` or `teammates=off` (agent teams switched on through `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`, read from the environment and the settings files). When they are off, the line tells the model to mention once how to turn them on if a job fits them. Its closing pointer also names the cases the skill decides: moving bulk work off the chat, and starting an agent, a teammate or a Workflow.
@@ -116,9 +116,9 @@ Upgrading from 2.x: see the 3.0.0 entry in [CHANGELOG.md](CHANGELOG.md).
 | `hooks/cache-tripwire.py` | Reports the token cost paid when a mid-session model/effort switch invalidates the prompt cache prefix. Fires once per switch, never blocks. |
 | `skills/agenting/` | `SKILL.md` (where the work runs, routing table, launch procedure, agent guard rules, finish-check response), `reference/delegation.md` (vehicles, teammates), `reference/modes.md`, `reference/evidence.md` (how each routing-table cell was measured), `reference/project-rules.md`, `external-model-options.md`. |
 | `templates/AGENTING.md` | The per-project rules file. |
-| `agents/` | **21 tiered agent definitions**, every one carrying `model` + `effort`. |
+| `agents/` | **22 tiered agent definitions**, every one carrying `model` + `effort`. |
 | `commands/` | `/agenting-check`, `/agenting-mode`. |
-| `scripts/check-setup.py` | End-to-end health check (54 checks): it *runs* things rather than reading config, including real payloads through the agent guard. |
+| `scripts/check-setup.py` | End-to-end health check (55 checks): it *runs* things rather than reading config, including real payloads through the agent guard. |
 | `evals/probes/think_first_analysis.py` | The rule checker for the two think-first rows (design-decision, ux-design): applies the pre-registered rules to the stored runs and scores. |
 | `evals/probes/advisor_pairs_analysis.py` | The rule checker for the advisor-pairs test of 2026-11-14 (Opus with a Fable advisor, Sonnet with an Opus advisor, each against Opus alone): applies the pre-registered rules to the stored runs and scores. |
 | `evals/probes/ux_blind.py` | The blind UI/UX comparison: builds sanitised pages, pairs them, and applies the pre-registered verdict rules. |
@@ -137,7 +137,7 @@ Address them as `agenting:<name>`: `agentType: 'agenting:researcher'` inside a w
 
 | Tier | Agents |
 |---|---|
-| `haiku` / `medium` | `scanner` |
+| `haiku` / `medium` | `scanner`, `bulk-coder` |
 | `sonnet` / `low` | `coder`, `tech-writer`, `git-specialist`, `text-mechanic` |
 | `sonnet` / `medium` | `researcher`, `frontend-dev`, `cicd-engineer`, `performance-engineer`, `tester-tdd` |
 | `sonnet` / `high` | `coder-ts`, `database-architect`, `ml-developer`, `refactoring-specialist` |
@@ -150,6 +150,8 @@ Two are worth keeping regardless, because they encode a discipline rather than a
 
 - **`scanner`** (haiku/medium): counts, lists, measures. Carries a *no silent zeroes* rule: a search returning 0 must be cross-checked and the gap explained, never reported as success.
 - **`text-mechanic`** (sonnet/low): mechanical text repair with a hard **output ⊆ input** invariant, and a mandatory closing audit (`words in input but missing from output: 0`) that refuses delivery if it isn't zero.
+
+One carries a measured path: **`bulk-coder`** (haiku/medium) codes against tests that already exist, may not change them, and stops at a pass or after three failed checks. With tests in place Haiku 5.5 at `medium` was correct in 24 of 24 runs at about 3 cents a task ([report](evals/results/REPORT-2026-11-15-coding.md)).
 
 ## Where the work runs
 
@@ -187,12 +189,21 @@ Two questions settle almost every case:
 | Read code/prose and report what it does | `haiku` | `medium` |
 | Turn prose into rules; classify; judge | `sonnet` | `medium`–`high` |
 | Synthesize across a document or many files | `opus` | `xhigh` |
-| Decide under a "don't guess" constraint | `sonnet` | `xhigh` |
+| Decide under a "don't guess" constraint | `haiku` | `xhigh` |
 | Adversarially verify a finding | `sonnet` | `high` |
+| Plan a build and write its tests | `opus` | `high` |
+| Bulk coding against tests that exist | `haiku` | `medium` |
+| Review a build before it is called done | `sonnet` | `high` |
 
 These cells were measured on 2026-10-06 (Sonnet 5.5, Opus 5.5, Fable 5.1, Haiku 4.5), not just assumed. Three changed: cleanup moved to Sonnet `low` because Haiku failed it, and don't-guess and verify moved from Opus to Sonnet because Sonnet made no more errors (and no hallucinations) over 102 and 96 measured items. Synthesis stays on Opus, where Sonnet found fewer real issues. A job you call "critical" gets Opus on all three (until 3.6.0 that was a third disposition, `quality`).
 
-They were re-measured on 2026-10-09 when Haiku 5.5 shipped, and the `haiku` alias moved to it. Haiku 5.5 honours `effort` (4.5 did not) and costs $0.10/$0.50 per MTok, so it took two rows: list/count (`haiku`/`medium`: exact in 36 of 36 runs; the old `low` pin 30 of 36) and read-and-report (`haiku`/`medium`, 9 of 9 at about 5% of Sonnet's cost, on exact-answer lookups). Don't-guess does not use it: Haiku 5.5 `high` looked as safe as Sonnet on the first items, but a pre-registered round on 120 fresh near-miss items (2026-10-10) gave it 11 hallucinated item-runs of 720 against Sonnet's 10 and Opus's 0 of 360, so the row stays Sonnet (Opus for a job you call "critical"). A second pre-registered round on 120 fresh items (2026-10-11) found Sonnet and Opus both clean (0 of 720 each) and Haiku `xhigh` at 1 of 720, so neither rule for changing the row passed. Cleanup, classify, verify and synthesis stayed where they were: at three runs the harness would have moved most of them, and longer runs showed the cheaper cell failing. See [`evals/`](evals/README.md), which also keeps the evidence so that when a new model ships only the missing runs are paid for.
+They were re-measured on 2026-10-09 when Haiku 5.5 shipped, and the `haiku` alias moved to it. Haiku 5.5 honours `effort` (4.5 did not) and costs $0.10/$0.50 per MTok, so it took two rows: list/count (`haiku`/`medium`: exact in 36 of 36 runs; the old `low` pin 30 of 36) and read-and-report (`haiku`/`medium`, 9 of 9 at about 5% of Sonnet's cost, on exact-answer lookups). Don't-guess did not use it at first: Haiku 5.5 `high` looked as safe as Sonnet on the first items, but a pre-registered round on 120 fresh near-miss items (2026-10-10) gave it 11 hallucinated item-runs of 720 against Sonnet's 10 and Opus's 0 of 360. A second pre-registered round on 120 fresh items (2026-10-11) found Sonnet and Opus both clean (0 of 720 each) and Haiku `xhigh` at 1 of 720, so neither rule for changing the row passed. Cleanup, classify, verify and synthesis stayed where they were: at three runs the harness would have moved most of them, and longer runs showed the cheaper cell failing. See [`evals/`](evals/README.md), which also keeps the evidence so that when a new model ships only the missing runs are paid for.
+
+On 2026-11-15 three things changed, each in its own report:
+
+- **Don't-guess moved to Haiku 5.5 at `xhigh`**, in every mode. Pooled over 84 runs on eleven tasks it invented 6 answers in 1,848 unanswerable items against Sonnet `xhigh`'s 10, at a tenth of the cost. It missed 2 of 1,056 answerable items (Sonnet none) and is slower. This is the owner's overrule of the rule of 2026-10-11, on the pooled count ([report](evals/results/REPORT-2026-11-15-fast-column.md)). A job you call "critical" still gets Opus `xhigh`.
+- **Three rows for building software.** A coding experiment on six real changes ([report](evals/results/REPORT-2026-11-15-coding.md)) found that with tests in place Haiku 5.5 at `medium` codes correctly at about 3 cents a task (24 of 24 runs; Sonnet `low` 16 cents, Opus `high` 71 cents), and that the tests are where the money goes ($0.48 a suite from Sonnet `high`, $1.21 from Opus `high`). So a stronger model plans and writes the tests, `bulk-coder` codes against them, and a reviewer reads the result. The pre-registered rule named Opus `high` as the test writer; `fast` and `cheapest` take Sonnet `high` by the owner's overrule, and the report says why the data cannot rank the two.
+- **A third mode, `cheapest`**, below `fast`: the cheapest cell that passes the owner's bar on every row. It runs classify, verify and review on Haiku `xhigh` and the architecture decision on Sonnet `xhigh`, and `reference/modes.md` lists what each of those gives up.
 
 ## Deliberate inheritance
 
@@ -459,6 +470,7 @@ One sample per row unless stated. The recorded effort field of each agent's tran
 | Unnamed, `model: haiku` | `low` | `low` |
 | Named, from `agenting:coder` (file: `sonnet`/`low`) | none | `low` |
 | Named, from `agenting:coder` (file: `sonnet`/`low`) | `xhigh` | `low` |
+| Unnamed, from `agenting:coder`, `model: haiku` (2026-11-15, Claude Code 2.1.325, 5 starts) | `medium` | `medium`, on Haiku 5.5 |
 
 - **Measured, a teammate's effort:** it comes only from an agent file; an effort written on its call was ignored. The model is taken from the call. Split-pane teammates were not probed.
 - **Measured, built-in types started with no model from a Fable 5.2 `xhigh` chat:** `Explore` ran on Opus 5.5 at `xhigh`, `Plan` on Fable 5.2 at `xhigh`, `claude-code-guide` on Haiku 5.5 at `medium`, `statusline-setup` on Sonnet 5.5 at `medium`.

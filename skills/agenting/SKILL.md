@@ -1,6 +1,6 @@
 ---
 name: agenting
-description: Use when deciding whether bulk work leaves the main chat, starting a teammate, writing or editing a Workflow script, planning a fan-out of many agents, choosing a model or effort for an agent() or Agent call, when the user switches agenting mode (auto/manual) or disposition (fast/balanced), calls a job critical or throwaway, opts in to workflows for this chat, or when a project has agenting/AGENTING.md.
+description: Use when deciding whether bulk work leaves the main chat, starting a teammate, writing or editing a Workflow script, planning a fan-out of many agents, choosing a model or effort for an agent() or Agent call, when the user switches agenting mode (auto/manual) or disposition (cheapest/fast/balanced), calls a job critical or throwaway, opts in to workflows for this chat, or when a project has agenting/AGENTING.md.
 ---
 
 # Agenting
@@ -33,13 +33,13 @@ Time alone never decides, and in doubt the work stays. In `auto` mode start
 off-chat work without asking and say in one line what runs where; in `manual`
 mode propose it and wait.
 
-**In `fast`** every agent start draws on a small usage limit, so the bar for
-leaving is twice as high: about 10 or more similar items; or about 20 or more
-files or 40k or more tokens of reading; or 4 or more independent parts. Reading
-and exploring runs as a Workflow or as teammates only when the user asks for
-one. Bulk coding still leaves the chat: once the main chat has the plan and
-the tests, the coding goes to cheap workers through the smallest vehicle that
-fits.
+**In `fast` and `cheapest`** every agent start draws on a small usage limit, so
+the bar for leaving is twice as high: about 10 or more similar items; or about
+20 or more files or 40k or more tokens of reading; or 4 or more independent
+parts. Reading and exploring runs as a Workflow or as teammates only when the
+user asks for one. Bulk coding still leaves the chat: once the main chat has
+the plan and the tests, the coding goes to the bulk-coding row's workers
+(`agenting:bulk-coder`) through the smallest vehicle that fits.
 
 **2. Which vehicle?** The cheapest that fits:
 
@@ -77,8 +77,8 @@ lines; then the builders start (`manual` mode: after the user's yes).
 
 **4. A prototype: throwaway or keep?** Two ways to build one.
 
-- **Throwaway:** the `fast` cells, no tests, no review, no design pass, in
-  either disposition. When you deliver it, say that it is a throwaway and that
+- **Throwaway:** the `cheapest` cells, no tests, no review, no design pass, in
+  any disposition. When you deliver it, say that it is a throwaway and that
   keeping it means building it again on the keep path.
 - **Keep:** the session's normal build path, as for any feature.
 
@@ -125,21 +125,37 @@ workers work alone.
 | Read code / prose and report what it does | `haiku` | `medium` | Answer is present in one place |
 | Turn prose into rules; classify; judge relevance | `sonnet` | `medium`–`high` | Needs judgment, source states the facts |
 | Synthesize across a whole document or many files | `opus` | `xhigh` | Must relate things that are far apart |
-| Decide under a "don't guess" constraint (BELİRSİZ) | `sonnet` | `xhigh` | **Calibration is the product** |
+| Decide under a "don't guess" constraint (BELİRSİZ) | `haiku` | `xhigh` | **Calibration is the product** |
 | Adversarial verify / refute a finding | `sonnet` | `high` | A confident wrong answer is expensive |
 | Decide an architecture or approach that later work is built on | `opus` | `xhigh` | "Think first?" holds, and the choice is a structure |
 | Design a UI/UX solution before a prototype, screen or flow is built | `opus` | `xhigh` | "Think first?" holds, and the choice is what the user sees |
+| Plan a build and write its tests, before cheaper workers code | `opus` | `high` | The tests fix what "done" means for everyone after |
+| Bulk coding against tests that exist | `haiku` | `medium` | A test run says pass or fail |
+| Review a build before it is called done | `sonnet` | `high` | Verify's job on code: a confident wrong "fine" is expensive |
 
 **How the cells were measured.** [`evals/`](../../evals/README.md) ran every
 cell of each row on real tasks and compared measured cost per run: a first sweep
 on 2026-10-06, a re-check with Haiku 5.5 on 2026-10-09, and a round on the two
 think-first rows on 2026-11-13, where Fable 5.2 was measured and not adopted.
+A coding experiment on 2026-11-14 and 2026-11-15 set the two build rows (the
+review row was not measured and follows verify), and on 2026-11-15 the owner
+moved don't-guess to Haiku `xhigh` on the pooled runs.
 The numbers behind each row, what changed and the limits are in
 [reference/evidence.md](reference/evidence.md); read it before changing a cell
 or citing a number. Two limits to carry: two or three tasks per row show large
 gaps only, and the security, incident and orchestration agents were not measured
-and keep their pins. `fast` uses Opus `high` for synthesis, and a job the user
-calls critical gets Opus on rows 5 to 7: [reference/modes.md](reference/modes.md).
+and keep their pins. This table is `balanced`. `fast` and `cheapest` take a
+cheaper cell on some rows, and a job the user calls critical gets the careful
+one: [reference/modes.md](reference/modes.md).
+
+**The build rows work as one path.** A stronger model plans and writes the
+tests; `agenting:bulk-coder` codes until they pass, at most three tries, and
+may not change them; a reviewer reads the result. With tests in place Haiku at
+`medium` was correct in 24 of 24 runs at about 3 cents a task, and the tests
+were 94% of a task's cost, so the saving is in who writes the code, not in
+skipping the tests. Without any tests Haiku got 1 run in 24 wrong and nothing
+in that path notices. A coder that writes its own tests was acceptable but no
+cheaper, and can spend its tries on its own failing tests.
 
 Two questions settle almost every case:
 
@@ -156,7 +172,7 @@ research on the web use `agentType: 'general-purpose'` at the same model and eff
 
 | Tier | Agents (`agenting:<name>`) |
 |---|---|
-| `haiku`/`medium` | `scanner` |
+| `haiku`/`medium` | `scanner`, `bulk-coder` |
 | `sonnet`/`low` | `coder`, `tech-writer`, `git-specialist`, `text-mechanic` |
 | `sonnet`/`medium` | `researcher`, `frontend-dev`, `cicd-engineer`, `performance-engineer`, `tester-tdd` |
 | `sonnet`/`high` | `coder-ts`, `database-architect`, `ml-developer`, `refactoring-specialist` |
@@ -323,8 +339,8 @@ inside a subagent may not deliver it).
 ## Session settings
 
 Three values carried per session by the SessionStart hook: mode
-(`auto`|`manual`), disposition (`fast`|`balanced`; a new chat starts in the
-plan's when the plan can be read) and the workflows
+(`auto`|`manual`), disposition (`cheapest`|`fast`|`balanced`; a new chat
+starts in the plan's when the plan can be read, never in `cheapest`) and the workflows
 opt-in (`on`|`off`, seeded from the standing default when the user set one).
 When the user changes any of them, in words or with `/agenting-mode`, read
 [reference/modes.md](reference/modes.md) and record the change before replying.

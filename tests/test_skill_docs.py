@@ -20,7 +20,7 @@ FAKE_CLAUDE = ROOT / "tests" / "fixtures" / "fake_claude_cleanrun.py"
 OLD_TRIGGERS = [
     "writing or editing a Workflow script",
     "choosing a model or effort for an agent() or Agent call",
-    "switches agenting mode (auto/manual) or disposition (fast/balanced)",
+    "switches agenting mode (auto/manual) or disposition (cheapest/fast/balanced)",
     "calls a job critical or throwaway",
     "opts in to workflows for this chat",
     "agenting/AGENTING.md",
@@ -247,7 +247,7 @@ class DelegationRules(unittest.TestCase):
         section = self.skill.split("## Where the work runs", 1)[1].split("\n## ", 1)[0]
         self.assertLess(section.index("**3. Think first?**"), section.index("**4. A prototype: throwaway or keep?**"))
         step = " ".join(section.split("**4. A prototype: throwaway or keep?**", 1)[1].split())
-        for needle in ("no tests, no review, no design pass", "in either disposition",
+        for needle in ("the `cheapest` cells", "no tests, no review, no design pass", "in any disposition",
                        "keeping it means building it again on the keep path",
                        "The user's word decides", "in `manual` mode ask once before building",
                        "in `auto` mode decide, and say in one line which path you took",
@@ -372,16 +372,20 @@ class ThinkFirstDocs(unittest.TestCase):
                 self.assertIn(needle, step)
         self.assertLess(self.skill.index("**2. Which vehicle?**"), self.skill.index("**3. Think first?**"))
 
-    def test_both_think_first_rows_are_opus_xhigh_in_the_table_and_in_every_disposition(self):
+    def test_the_think_first_rows_are_opus_xhigh_except_the_architecture_row_in_cheapest(self):
         table = self.section(self.skill, "## Routing table", "**How the cells were measured.**")
         for row in self.NEW_ROWS:
             with self.subTest(row=row):
                 line = next(ln for ln in table.splitlines() if ln.startswith(f"| {row} |"))
                 self.assertEqual([c.strip() for c in line.split("|")[2:4]], ["`opus`", "`xhigh`"])
+        # columns of the disposition table: cheapest, fast, balanced, "critical". The owner gave the
+        # architecture row to Sonnet xhigh in cheapest only (2026-11-15); every other cell stays Opus xhigh.
+        expected = {"Architecture or approach decision": ["`sonnet`/`xhigh`"] + ["`opus`/`xhigh`"] * 3,
+                    "UI/UX design before a build": ["`opus`/`xhigh`"] * 4}
         for row in self.MODES_ROWS:
             with self.subTest(row=row):
                 line = next(ln for ln in self.modes.splitlines() if ln.startswith(f"| {row} |"))
-                self.assertEqual([c.strip() for c in line.split("|")[2:5]], ["`opus`/`xhigh`"] * 3)
+                self.assertEqual([c.strip() for c in line.split("|")[2:6]], expected[row])
 
     def test_no_cell_of_the_routing_table_or_the_disposition_table_names_fable(self):
         table = self.section(self.skill, "## Routing table", "**How the cells were measured.**")
@@ -423,4 +427,91 @@ class ThinkFirstDocs(unittest.TestCase):
             with self.subTest(part=part):
                 self.assertIn(part, text)
         self.assertIn("write no code", text)
+
+
+class ModeTableDocs(unittest.TestCase):
+    """The disposition table after 3.7.0: a cheapest column, three build rows, don't-guess on Haiku xhigh.
+    The expected cells are the owner's decisions of 2026-11-15, written here, not read from the files."""
+
+    COLUMNS = ["`cheapest`", "`fast`", "`balanced`", '"critical"']
+    CELLS = {
+        "List / count": ["haiku/medium"] * 4,
+        "Mechanical cleanup": ["sonnet/low"] * 4,
+        "Read code/prose, report": ["haiku/medium"] * 3 + ["sonnet/high"],
+        "Prose→rules, classify, judge": ["haiku/xhigh", "sonnet/low", "sonnet/medium", "sonnet/high"],
+        "Synthesize across many files": ["opus/high", "opus/high", "opus/xhigh", "opus/xhigh"],
+        "Decide under BELİRSİZ": ["haiku/xhigh"] * 3 + ["opus/xhigh"],
+        "Adversarial verify/refute": ["haiku/xhigh", "sonnet/high", "sonnet/high", "opus/high"],
+        "Architecture or approach decision": ["sonnet/xhigh"] + ["opus/xhigh"] * 3,
+        "UI/UX design before a build": ["opus/xhigh"] * 4,
+        "Plan a build and write its tests": ["sonnet/high", "sonnet/high", "opus/high", "opus/high"],
+        "Bulk coding against tests that exist": ["haiku/medium"] * 3 + ["sonnet/low"],
+        "Review a build": ["haiku/xhigh", "sonnet/high", "sonnet/high", "opus/high"],
+    }
+
+    def setUp(self):
+        self.skill = SKILL.read_text(encoding="utf-8")
+        self.modes = (ROOT / "skills" / "agenting" / "reference" / "modes.md").read_text(encoding="utf-8")
+
+    def table(self):
+        """{row name: [four cells as model/effort]} of the disposition table, and its header cells."""
+        lines = self.modes.splitlines()
+        start = next(i for i, ln in enumerate(lines) if ln.startswith("| Routing-table row |"))
+        header = [c.strip() for c in lines[start].split("|")[2:-1]]
+        rows = {}
+        for ln in lines[start + 2:]:
+            if not ln.startswith("| "):
+                break
+            cells = [c.strip() for c in ln.split("|")[1:-1]]
+            rows[cells[0]] = [c.replace("`", "") for c in cells[1:]]
+        return header, rows
+
+    def test_the_disposition_table_has_the_four_columns_and_every_cell_the_owner_decided(self):
+        header, rows = self.table()
+        self.assertEqual(header, self.COLUMNS)
+        self.assertEqual(rows, self.CELLS)
+
+    def test_the_review_row_follows_the_verify_row_in_every_column(self):
+        _, rows = self.table()
+        self.assertEqual(rows["Review a build"], rows["Adversarial verify/refute"])
+
+    def test_the_routing_table_is_the_balanced_column_for_the_changed_rows(self):
+        table = self.skill[self.skill.index("## Routing table"):self.skill.index("**How the cells were measured.**")]
+        expected = {"Decide under a \"don't guess\" constraint (BELİRSİZ)": ["`haiku`", "`xhigh`"],
+                    "Plan a build and write its tests, before cheaper workers code": ["`opus`", "`high`"],
+                    "Bulk coding against tests that exist": ["`haiku`", "`medium`"],
+                    "Review a build before it is called done": ["`sonnet`", "`high`"]}
+        for row, cells in expected.items():
+            with self.subTest(row=row):
+                line = next(ln for ln in table.splitlines() if ln.startswith(f"| {row} |"))
+                self.assertEqual([c.strip() for c in line.split("|")[2:4]], cells)
+
+    def test_what_cheapest_gives_up_is_written_down_row_by_row(self):
+        part = self.modes[self.modes.index("**What `cheapest` gives up,**"):self.modes.index("## The plan sets where a new chat starts")]
+        flat = " ".join(part.split())
+        for needle in ("Classify on Haiku `xhigh`: 4.1% wrong labels", "Verify on Haiku `xhigh`: 1 false \"confirmed\" in 384",
+                       "Review follows verify and was not measured itself",
+                       "The architecture decision on Sonnet `xhigh` rests on", "cheaper at list price, not quicker"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, flat)
+
+    def test_no_plan_starts_in_cheapest_and_the_docs_say_so(self):
+        flat = " ".join(self.modes.split())
+        self.assertIn("No plan starts a chat in `cheapest`.", flat)
+        self.assertIn("Change mode: /agenting-mode [cheapest|fast|balanced]", flat)
+        self.assertIn("starts in the plan's when the plan can be read, never in `cheapest`", " ".join(self.skill.split()))
+
+    def test_the_bulk_coder_is_haiku_medium_never_changes_tests_and_stops_after_three_failed_checks(self):
+        text = (ROOT / "agents" / "bulk-coder.md").read_text(encoding="utf-8")
+        fm = re.match(r"^---\n(.*?)\n---\n", text, re.S).group(1)
+        self.assertRegex(fm, r"(?m)^model: haiku$")
+        self.assertRegex(fm, r"(?m)^effort: medium$")
+        flat = " ".join(text.split())
+        for needle in ("Never change, delete, skip or weaken a given test file or the test runner's configuration",
+                       "Check with the command you were given, and only with it",
+                       "At most three failed checks", "Never write \"pass\" unless you ran the check and saw it pass",
+                       "Work alone. The `advisor` tool belongs to the lead that started you"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, flat)
+        self.assertIn("`agenting:bulk-coder`", self.skill)
 

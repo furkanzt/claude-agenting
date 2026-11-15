@@ -440,6 +440,17 @@ Nothing enters the skill before the owner releases it. By the rules, the two new
     were given. With them 90 of 90 runs ended correct; without any tests 64 of 66 did.
   - Taking Sonnet `high` would be the owner's overrule of the rule, and the report of the release will say
     so.
+- **The owner's release, 2026-11-15 (in 3.7.0):**
+  - *Bulk coding:* `haiku`/`medium` in every mode, as the rule says. A new agent, `bulk-coder`, carries the
+    arm-B way of working: tests it may not change, one check command, at most three failed checks.
+  - *Plan and write the tests:* `balanced` follows the rule, `opus`/`high`. `fast` takes `sonnet`/`high`,
+    and so does `cheapest`, a third mode the owner added below `fast`. That is the owner's overrule of the
+    rule for those two modes, on the reading in section 7: over all twelve suites of a cell the two
+    writers turn away the same share of correct copies, and Sonnet `high` costs 40% of Opus `high`.
+  - *Review:* the verify row's cell in every mode.
+  - *The tip* names `fast`'s cell: Sonnet at `high` effort. The owner added two things to it: Opus at
+    `xhigh` for a design decision, and a warning that every switch of model throws away the chat's cache.
+  - *The vehicle sentence* says what section 9 saw and no more.
 - **Readings for the skill's text, not rule results:**
   - With a brief that already names the files and the names, the tests are where the money goes on the
     tests-first path: 94% of a task's cost here (section 8).

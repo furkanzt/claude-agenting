@@ -4,7 +4,7 @@ session-continuity  --  SessionStart hook that carries three per-session values
 across compaction of one chat continuum:
 
   mode         auto | manual               (default auto)
-  disposition  fast | balanced             (default balanced; fast on a Pro plan)
+  disposition  cheapest | fast | balanced  (default balanced; fast on a Pro plan)
   workflows    on | off | unset            (default unset = not opted in)
 
 plus four read-only facts the line also carries: whether Agent Teams (teammates)
@@ -75,6 +75,10 @@ notice there. The plan the user was last told about is kept under the reserved
 top-level key "_plan"; the first new chat that is told after it changed gets a
 one-line "plan changed" notice instead.
 
+`cheapest` (3.7.0) sits below `fast`: the cheapest cell that passes the owner's bar on
+every row. A plan never starts a chat there; only the user's word or a project's
+default does.
+
 `quality` was a third disposition until 3.6.0. A recorded "quality" reads as
 "balanced" and the line says so; --record --disposition quality records "balanced"
 and says that the word "critical" sends one job to the careful models.
@@ -87,7 +91,7 @@ CLI
 ---
   (no flags)   hook mode: SessionStart JSON on stdin -> additionalContext
   --record --session <id> [--mode auto|manual]
-                           [--disposition fast|balanced]
+                           [--disposition cheapest|fast|balanced]
                            [--workflows on|off]
   --record-default --workflows on|off|unset      (standing default, no --session)
   --status [--session <id>]
@@ -119,7 +123,7 @@ def _plan_path() -> str:
 PLAN_PATH = _plan_path()
 
 MODES = ("auto", "manual")
-DISPOSITIONS = ("fast", "balanced")
+DISPOSITIONS = ("cheapest", "fast", "balanced")
 REMOVED_DISPOSITION = "quality"          # a third disposition until 3.6.0; read as balanced
 WORKFLOWS = ("on", "off")
 DEFAULT_MODE = "auto"
@@ -131,10 +135,13 @@ PLAN_DISPOSITION = {"Pro": "fast", "Max": "balanced"}
 PLAN_NAMES = tuple(PLAN_DISPOSITION)      # membership by ==, so an odd stored value never raises
 CONTINUING_SOURCES = ("resume", "compact", "fork")   # SessionStart of a chat that already existed
 PLAN_FIELDS = ("organizationType", "organizationRateLimitTier", "userRateLimitTier", "planDisplayName")
-PROJECT_DEFAULT_RE = re.compile(r"auto-disposition-default[`* \t]*:[`* \t]*(fast|balanced|quality)\b", re.I)
-# The tip for the main chat of a Pro plan. The model and effort come from the coding experiment's
-# question 4 (evals/results/PREREGISTERED-2026-11-14-coding.md); empty until that is measured.
-MAIN_CHAT_TIP = ""
+PROJECT_DEFAULT_RE = re.compile(r"auto-disposition-default[`* \t]*:[`* \t]*(cheapest|fast|balanced|quality)\b", re.I)
+# The tip for the main chat of a Pro plan. One line, read by the tests with a regular expression.
+# Sonnet at high is `fast`'s cell for planning and writing tests (the coding experiment's question
+# 4, with the owner's choice of 2026-11-15: evals/results/REPORT-2026-11-15-coding.md). The second
+# sentence is the owner's: name the Opus effort, and warn against switching back and forth.
+MAIN_CHAT_TIP = "run this chat on Sonnet at high effort (/model sonnet, then /effort high). For a design decision use Opus at xhigh effort, in a new chat or at a break in the work: every model switch throws away the chat's cache, so do not switch back and forth"
+MODE_COMMAND = "/agenting-mode [" + "|".join(DISPOSITIONS) + "]"
 QUALITY_GONE = ('the quality setting is gone: say "critical" for one job that needs the careful models')
 TEAMS_VAR = "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
 ADVISOR_OFF_VAR = "CLAUDE_CODE_DISABLE_ADVISOR_TOOL"
@@ -347,8 +354,8 @@ def plan_notice(plan: str, changed_from=None) -> str:
     if plan == "Pro":
         tip = f" Tip: {MAIN_CHAT_TIP}." if MAIN_CHAT_TIP else ""
         return ("[agenting] plan=Pro · mode=fast (set for your plan: cheaper models, fewer agents)."
-                f"{tip} Change mode: /agenting-mode balanced")
-    return "[agenting] plan=Max · mode=balanced (set for your plan). To save usage: /agenting-mode fast"
+                f"{tip} Change mode: {MODE_COMMAND}")
+    return f"[agenting] plan=Max · mode=balanced (set for your plan). To save usage, change mode: {MODE_COMMAND}"
 
 
 def _truthy(value) -> bool:
@@ -449,7 +456,7 @@ def run_hook() -> int:
         f"{fmt_advisor(advisor_state(data.get('cwd')))}"
         f"{f' · plan={plan}' if plan else ''} (session {session}). "
         f'Record changes: python3 "{SELF_PATH}" --record --session {session} '
-        f"[--mode auto|manual] [--disposition fast|balanced] [--workflows on|off]. "
+        f"[--mode auto|manual] [--disposition cheapest|fast|balanced] [--workflows on|off]. "
         f"Load the agenting skill before moving bulk work off this chat or starting an agent, teammate or Workflow."
     )
     out = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": line}}

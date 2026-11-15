@@ -138,5 +138,18 @@ The same share of failed runs at under half the cost, on six runs. A lead, as th
 
 ## 5. What changes
 
-Open. The owner has not yet decided on classify, don't guess, verify and the architecture row. Nothing changes
-in the skill until then.
+The owner decided on 2026-11-15. Released in 3.7.0.
+
+- **A third mode, `cheapest`, below `fast`.** It takes the cheapest cell inside the bar on every row and
+  keeps `fast`'s agent rules. No plan starts a chat there; the user chooses it. Its losses are listed in
+  `skills/agenting/reference/modes.md`.
+- **Classify:** `fast` keeps `sonnet`/`low`. `cheapest` takes `haiku`/`xhigh`.
+- **Don't guess:** `haiku`/`xhigh` in `cheapest` and `fast`, and in `balanced` as well. The owner asked
+  whether a cell that invents fewer answers at a tenth of the cost is not simply better, and moved
+  `balanced` on the pooled count. That overrules the rule of 2026-10-11 for both modes. A job called
+  "critical" stays on `opus`/`xhigh`.
+- **Verify:** `fast` keeps `sonnet`/`high`. `cheapest` takes `haiku`/`xhigh`. The review row follows verify.
+- **Architecture decision:** `fast` keeps `opus`/`xhigh`. `cheapest` takes `sonnet`/`xhigh` on six runs.
+  The owner asked for more runs and a third task before another mode moves; that is a round of its own,
+  with its own rules.
+- **Synthesize, list, cleanup, read and UI/UX design:** no change. `cheapest` has `fast`'s cell there.

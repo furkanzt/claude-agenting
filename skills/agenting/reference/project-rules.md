@@ -11,7 +11,7 @@ project that has it, before drafting the first script. Then:
 
 - **Rules** override the disposition and the routing table, in every mode. In
   manual mode they shape the plan you propose; the user's answer still wins.
-- **Config** `auto-disposition-default: fast|balanced` is this
+- **Config** `auto-disposition-default: cheapest|fast|balanced` is this
   project's starting disposition. Apply it with
   `--record --session <id> --disposition <value>` (see
   [modes.md](modes.md)) unless the user has already chosen a disposition in

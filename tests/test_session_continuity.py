@@ -156,9 +156,10 @@ class WorkflowsOptIn(ContinuityCase):
 
 
 QUALITY_GONE = 'the quality setting is gone: say "critical" for one job that needs the careful models'
+MODE_COMMAND = "/agenting-mode [cheapest|fast|balanced]"
 PRO_NOTICE = ("[agenting] plan=Pro · mode=fast (set for your plan: cheaper models, fewer agents)."
-              "{tip} Change mode: /agenting-mode balanced")
-MAX_NOTICE = "[agenting] plan=Max · mode=balanced (set for your plan). To save usage: /agenting-mode fast"
+              "{tip} Change mode: " + MODE_COMMAND)
+MAX_NOTICE = "[agenting] plan=Max · mode=balanced (set for your plan). To save usage, change mode: " + MODE_COMMAND
 
 
 def main_chat_tip():
@@ -169,10 +170,69 @@ def main_chat_tip():
     return m.group(1)
 
 
+class Cheapest(ContinuityCase):
+    """The third disposition, below fast. Only the user's word or a project's default sets it."""
+
+    def setUp(self):
+        super().setUp()
+        self.env.pop("AGENTING_PLAN_FILE", None)       # read <temp HOME>/.claude.json
+        self.env.pop("CLAUDE_CONFIG_DIR", None)
+
+    def test_cheapest_is_recorded_and_carried_across_compaction(self):
+        out = self.record(SID, "--disposition", "cheapest")
+        self.assertIn("mode=auto · disposition=cheapest · workflows=not opted in", out)
+        self.assertEqual(self.read_state()[SID]["disposition"], "cheapest")
+        self.assertIn("mode=auto · disposition=cheapest · ", self.session_start(SID, source="compact"))
+        self.assertIn("disposition=cheapest", self.status(SID))
+
+    def test_no_plan_starts_a_chat_in_cheapest(self):
+        for n, org in enumerate(("claude_pro", "claude_max")):
+            with self.subTest(org=org):
+                self.write_settings(self.home / ".claude.json", {"oauthAccount": {"organizationType": org}})
+                sid = f"{n:08d}-cccc-3333-4444-555555555555"
+                msg = self.start(session=sid)
+                self.assertNotIn("disposition=cheapest", msg)
+                self.assertIn(self.read_state()[sid]["disposition"], ("fast", "balanced"))
+
+    def test_choosing_cheapest_replaces_the_plans_start(self):
+        self.write_settings(self.home / ".claude.json", {"oauthAccount": {"organizationType": "claude_pro"}})
+        self.assertIn("disposition=fast (set for the Pro plan)", self.start())
+        self.record(SID, "--disposition", "cheapest")
+        msg = self.start(source="compact")
+        self.assertIn("mode=auto · disposition=cheapest · ", msg)
+        self.assertNotIn("set for", msg)
+        self.assertNotIn("disposition_source", self.read_state()[SID])
+
+    def test_both_first_start_lines_name_the_three_modes(self):
+        for n, (org, lead) in enumerate((("claude_pro", "Change mode: "), ("claude_max", "To save usage, change mode: "))):
+            with self.subTest(org=org):
+                self.write_settings(self.home / ".claude.json", {"oauthAccount": {"organizationType": org}})
+                self.write_state({})                   # a fresh install: no plan was told about before
+                out = self.run_hook(CONTINUITY, {"session_id": f"{n:08d}-dddd-3333-4444-555555555555",
+                                                 "cwd": str(self.cwd), "source": "startup"})
+                self.assertTrue(out["systemMessage"].endswith(lead + "/agenting-mode [cheapest|fast|balanced]"),
+                                out["systemMessage"])
+
+    def test_the_tip_names_a_model_an_effort_and_the_cost_of_switching(self):
+        tip = main_chat_tip()
+        self.assertIn("Sonnet at high effort (/model sonnet, then /effort high)", tip)
+        self.assertIn("Opus at xhigh effort", tip)
+        self.assertIn("do not switch back and forth", tip)
+        self.write_settings(self.home / ".claude.json", {"oauthAccount": {"organizationType": "claude_pro"}})
+        out = self.run_hook(CONTINUITY, {"session_id": SID, "cwd": str(self.cwd), "source": "startup"})
+        self.assertIn(f" Tip: {tip}. Change mode: ", out["systemMessage"])
+        self.assertNotIn("\n", out["systemMessage"])
+
+    def test_an_unknown_disposition_is_refused(self):
+        r = self.run_script(CONTINUITY, "--record", "--session", SID, "--disposition", "cheap")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertFalse(self.state_file.exists())
+
+
 class QualityIsGone(ContinuityCase):
-    def test_the_line_offers_two_dispositions(self):
+    def test_the_line_offers_three_dispositions(self):
         msg = self.start()
-        self.assertIn("[--disposition fast|balanced] ", msg)
+        self.assertIn("[--disposition cheapest|fast|balanced] ", msg)
         self.assertNotIn("quality", msg)
 
     def test_recording_quality_records_balanced_and_says_what_to_say_instead(self):
@@ -387,6 +447,7 @@ class Plan(ContinuityCase):
         self.write_plan(organizationType="claude_pro")
         cases = [("- `auto-disposition-default: balanced`", True), ("auto-disposition-default : fast", True),
                  ("- **auto-disposition-default:** quality", True), ("`auto-disposition-default`: `fast`", True),
+                 ("auto-disposition-default: cheapest", True),
                  ("auto-disposition-default:\nNotes follow", False), ("auto-disposition-default: TBD", False),
                  ("<!-- auto-disposition-default: balanced -->", False), ("nothing here", False)]
         for n, (text, own) in enumerate(cases):
@@ -441,7 +502,7 @@ class Plan(ContinuityCase):
                 self.assertNotIn("\n", msg)
                 self.assertNotIn("?", msg + (notice or ""))
                 self.assertNotIn("AskUserQuestion", msg + (notice or ""))
-                self.assertLess(len(msg) - len(str(CONTINUITY)) - 2 * len(session), 560, msg)
+                self.assertLess(len(msg) - len(str(CONTINUITY)) - 2 * len(session), 570, msg)
                 m = line_re.search(msg)
                 self.assertEqual((m.group(1), m.group(2)), (mode, session))
 

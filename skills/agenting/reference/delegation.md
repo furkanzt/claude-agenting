@@ -39,37 +39,44 @@ when it is big; the look-and-steer loop after it stays.
 | Find every use of a function across a repo | Off | Much reading, only the result matters |
 | Review a big diff from three angles | Off | Independent parts |
 
-## In `fast`: fewer agents, bulk coding kept
+## In `fast` and `cheapest`: fewer agents, bulk coding kept
 
 `fast` is where a chat on a Pro plan starts, and a small usage limit pays for every agent start
-(about 44k tokens of context before any work, [fan-outs.md](fan-outs.md)). The owner fixed these on
-2026-11-14; they are judgment rules, not measurements.
+(about 44k tokens of context before any work, [fan-outs.md](fan-outs.md)). `cheapest` follows the
+same rules with cheaper cells. The owner fixed these on 2026-11-14 and 2026-11-15; they are
+judgment rules, not measurements.
 
 - **The bar for leaving the chat is twice as high:** about 10 or more similar items; or about 20
   or more files or 40k or more tokens of reading; or 4 or more independent parts.
 - **Reading and exploring** runs as a Workflow or as teammates only when the user asks for one. One
   agent or a clean run still fits a job that clears the higher bar.
 - **Bulk coding is not cut.** Once the main chat has the plan and the tests, the coding goes to
-  cheap workers, through the smallest vehicle that fits: one agent for one piece, a clean run when
-  the pieces are self-contained and a test checks each, a Workflow of fewer than 5 agents when they
-  need tools. That is where a small limit gains most: the expensive model
-  plans, the cheap one types.
-- **The advisor:** when the `[agenting]` line shows an advisor in a `fast` chat, tell the user once,
+  the bulk-coding row's workers (`agenting:bulk-coder`, Haiku at `medium`), through the smallest
+  vehicle that fits: one agent for one piece, a clean run when the pieces are self-contained and a
+  test checks each, a Workflow of fewer than 5 agents when they need tools. That is where a small
+  limit gains most: the expensive model plans, the cheap one types.
+- **Which vehicle does not change what a worker costs.** In a test of four pieces on 2026-11-15,
+  single agents cost $0.029 a piece, one Workflow $0.027 and a clean run $0.023: no difference
+  shown, and every piece was correct. In that one run the Workflow put a third as much text into
+  the main chat as the four single agents (7,141 characters against 21,899), so prefer it when the
+  workers' reports would crowd the main chat. A `bulk-coder` worker starts with about 15k tokens
+  of context, a third of a generic agent's.
+- **The advisor:** when the `[agenting]` line shows an advisor in a `fast` or `cheapest` chat, tell the user once,
   in one line, that each advisor call re-reads the whole conversation at the advisor's price and
   that `/advisor off` turns it off.
 
-| Task in a `fast` chat | Where | Why |
+| Task in a `fast` or `cheapest` chat | Where | Why |
 |---|---|---|
 | Read 12 files to answer one question | Main chat | Under the higher bar |
 | Summarise 30 documents the same way | Off, as a clean run | 30 similar items; no Workflow needed |
 | "Explore the repo and tell me how auth works" | Main chat, or one agent if it is big | Exploring gets no Workflow unless asked |
-| Implement 6 functions whose tests are written | Off, to cheap workers | Bulk coding is kept |
+| Implement 6 functions whose tests are written | Off, to `agenting:bulk-coder` | Bulk coding is kept |
 
 ## A prototype: throwaway or keep
 
 | | Throwaway | Keep |
 |---|---|---|
-| Cells | `fast`, in either disposition | The session's own |
+| Cells | `cheapest`, in any disposition | The session's own |
 | Tests, review, design pass | None | As for any feature |
 | What the user gets | Something to look at, soon and cheap | Code that stays |
 | Afterwards | Keeping it means building it again on the keep path | Nothing more |
@@ -129,6 +136,7 @@ agent's transcript records):
 | Unnamed, `model: haiku` | `low` | `low` |
 | Named, from `agenting:coder` (file: `sonnet`/`low`) | none | `low` |
 | Named, from `agenting:coder` (file: `sonnet`/`low`) | `xhigh` | `low` |
+| Unnamed, from `agenting:coder`, `model: haiku` (2026-11-15, Claude Code 2.1.325, 5 starts) | `medium` | `medium`, on Haiku 5.5 |
 
 So a teammate takes its **model** from the call or its agent file, and its **effort only from an
 agent file**. An effort written on a teammate's call is ignored. One sample per row; the recorded

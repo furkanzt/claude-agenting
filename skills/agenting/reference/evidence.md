@@ -154,3 +154,76 @@ Claude Code 2.1.323, list prices.
 - **Limits.** Two decision tasks and four briefs, all from one owner's projects; twelve runs or
   twelve pairs show a large gap only; both judge models come from one vendor; a clean read-only run
   is not a design agent inside a session.
+
+## Coding experiment, the owner's bar and `cheapest`, 2026-11-15
+
+Three records: the coding experiment
+([`PREREGISTERED-2026-11-14-coding.md`](../../../evals/results/PREREGISTERED-2026-11-14-coding.md),
+[`REPORT-2026-11-15-coding.md`](../../../evals/results/REPORT-2026-11-15-coding.md)), a reading of the
+stored runs by the owner's bar
+([`REPORT-2026-11-15-fast-column.md`](../../../evals/results/REPORT-2026-11-15-fast-column.md)), and
+the owner's decisions of 2026-11-15. Claude Code 2.1.325, list prices.
+
+- **Bulk coding against tests that exist: `haiku`/`medium` in every disposition.** Six real changes
+  from the owner's projects (two Python, four TypeScript), the tests each change shipped with as the
+  hidden judge, and a suite written by another model as the coder's locked tests, three tries.
+
+  | Coder | Runs correct | Cost per correct task | Time per run |
+  |---|---|---|---|
+  | `haiku-5-5` `medium` | 24 of 24 | $0.028 | 75 s |
+  | `haiku-5-5` `high` | 24 of 24 | $0.049 | 107 s |
+  | `sonnet-5-5` `low` | 18 of 18 | $0.162 | 31 s |
+  | `sonnet-5-5` `medium` | 18 of 18 | $0.205 | 38 s |
+  | `opus-5-5` `high` | 6 of 6 | $0.713 | 90 s |
+
+  No run passed its given tests while being wrong. Without any tests the Haiku cells were correct in
+  23 of 24 runs each and Sonnet `low` in 18 of 18: "tests first" showed no effect by the rule (4
+  points against the 15 it asks for), because there was almost nothing left to fix. "critical" picks
+  `sonnet`/`low`: the next cell up that was correct in every run with and without tests.
+- **Plan a build and write its tests: `opus`/`high` in `balanced`, `sonnet`/`high` in `fast` and
+  `cheapest`.** Twelve suites a cell. A suite is usable when it fails before the change and passes
+  on the real change.
+
+  | Test writer | Usable suites | Cost a suite | Rejects correct code (usable suites) | The same over all 12 suites |
+  |---|---|---|---|---|
+  | `sonnet-5-5` `high` | 12 of 12 | $0.48 | 14% | 14% |
+  | `sonnet-5-5` `xhigh` | 12 of 12 | $1.11 | 15% | 15% |
+  | `opus-5-5` `medium` | 8 of 12 | $0.93 | 10.3% | 41% |
+  | `opus-5-5` `high` | 11 of 12 | $1.21 | 7% | 15% |
+
+  The pre-registered rule allows 10% in the fourth column and names `opus`/`high` for both modes.
+  `balanced` follows it. `fast` and `cheapest` take `sonnet`/`high` by the owner's overrule: each
+  family left tests of the project outdated on one task (Sonnet's stayed usable and rejected correct
+  code; Opus's became unusable), the last column counts both, and four suites a family and task
+  cannot rank them. The last column is not in the rules.
+- **Review a build: the verify row's cell in every disposition.** Not measured.
+- **The tests are the cost.** With Sonnet `high` writing them and Haiku `medium` coding, 94% of a
+  task's cost is the suite. A coder that writes its own tests (Haiku `high`) was acceptable by the
+  rule, 24 of 24 correct, but no cheaper ($0.79 a run by the rules), and on one task it spent its
+  tries on its own failing tests.
+- **Which vehicle carries the workers made no difference to their cost.** Four pieces, one worker
+  each, Haiku `medium`: single `Agent` calls $0.029 a piece, one Workflow $0.027, clean runs $0.023;
+  all correct. In that one run the Workflow put 7,141 characters into the main chat and the four
+  single agents 21,899. A single typed `Agent` call took the model and effort named on the call (5
+  of 5 starts).
+- **Don't-guess: `haiku`/`xhigh` in every disposition, the owner's overrule.** Pooled over eleven
+  tasks:
+
+  | Cell | Runs | Invented answers | Answerable items missed or wrong | Cost a run | Time |
+  |---|---|---|---|---|---|
+  | `haiku-5-5` `xhigh` | 84 | 6 of 1,848 | 2 of 1,056 | $0.027 | 57 s |
+  | `sonnet-5-5` `xhigh` | 84 | 10 of 1,848 | 0 of 1,056 | $0.297 | 36 s |
+  | `opus-5-5` `xhigh` | 45 | 0 of 1,182 | 0 of 552 | $0.548 | 41 s |
+
+  The rule of 2026-10-11 kept Sonnet on one round (Haiku `xhigh` 1 of 720, Sonnet 0); `evalkit.py
+  decide` still says keep, because it asks a new cell to pass every run. The owner moved the row on
+  the pooled count. "critical" stays `opus`/`xhigh`.
+- **`cheapest` is read from stored runs, not from a new round.** The owner's bar (the cheapest cell
+  per finished task for checked work; about 1 failed run in 10 for unchecked work, with the losses
+  written down; about 1 wrong answer in 100 for don't-guess and verify) names Haiku `xhigh` for
+  classify (3 of 36 runs failed, 4.1% wrong labels against 2.8%) and for verify (1 false
+  confirmation in 384 against 0 in 480), and the owner gave the architecture row to Sonnet `xhigh`
+  there on six runs. `fast` keeps the safer cell on those three rows.
+- **Limits.** Six coding tasks whose brief already named the files; 178 of 180 coding runs correct,
+  so the coders are told apart by cost, not by skill; two test suites a cell and task; one vehicle
+  run; the document rows pooled over several rounds and versions; list price throughout.

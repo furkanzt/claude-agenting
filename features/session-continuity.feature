@@ -524,13 +524,65 @@ Feature: Session continuity carries mode, disposition and workflows opt-in acros
     And --record-default with no --workflows also exits non-zero and writes no state file
     And --record --session <id> --workflows unset also exits non-zero
 
+  # ---- the cheapest disposition (3.7.0) ----
+
+  # Backed by: tests/test_session_continuity.py::test_cheapest_is_recorded_and_carried_across_compaction
+  Scenario: The cheapest disposition is recorded and carried across compaction
+    Given an empty state directory
+    When --record --disposition cheapest is run for a session
+    Then the output contains "mode=auto · disposition=cheapest · workflows=not opted in" and the session record has disposition "cheapest"
+    And SessionStart with source "compact" for that session says "mode=auto · disposition=cheapest · "
+    And --status for that session shows "disposition=cheapest"
+
+  # Backed by: tests/test_session_continuity.py::test_no_plan_starts_a_chat_in_cheapest
+  Scenario Outline: No plan starts a chat in cheapest
+    Given .claude.json whose oauthAccount has organizationType "<organizationType>"
+    When SessionStart fires for a new session
+    Then the additionalContext does not contain "disposition=cheapest"
+    And the session record's disposition is "fast" or "balanced"
+
+    Examples:
+      | organizationType |
+      | claude_pro       |
+      | claude_max       |
+
+  # Backed by: tests/test_session_continuity.py::test_choosing_cheapest_replaces_the_plans_start
+  Scenario: Choosing cheapest replaces the plan's start
+    Given a Pro plan and a session whose line says "disposition=fast (set for the Pro plan)"
+    When --record --disposition cheapest is run for that session
+    Then SessionStart with source "compact" says "mode=auto · disposition=cheapest · " and does not contain "set for"
+    And the session record has no "disposition_source"
+
+  # Backed by: tests/test_session_continuity.py::test_both_first_start_lines_name_the_three_modes
+  Scenario Outline: Both first-start lines name the three modes
+    Given a fresh state file and .claude.json whose oauthAccount has organizationType "<organizationType>"
+    When SessionStart fires for a new session
+    Then the systemMessage ends with "<lead>/agenting-mode [cheapest|fast|balanced]"
+
+    Examples:
+      | organizationType | lead                        |
+      | claude_pro       | Change mode:                |
+      | claude_max       | To save usage, change mode: |
+
+  # Backed by: tests/test_session_continuity.py::test_the_tip_names_a_model_an_effort_and_the_cost_of_switching
+  Scenario: The main-chat tip names a model, an effort and the cost of switching
+    Given the hook's one-line MAIN_CHAT_TIP constant
+    Then it contains "Sonnet at high effort (/model sonnet, then /effort high)", "Opus at xhigh effort" and "do not switch back and forth"
+    And on a Pro plan the systemMessage of a new session contains " Tip: <the tip>. Change mode: " and is one line
+
+  # Backed by: tests/test_session_continuity.py::test_an_unknown_disposition_is_refused
+  Scenario: A disposition the plugin does not know is refused
+    Given an empty state directory
+    When --record --disposition cheap is run for a session
+    Then the command exits non-zero and no state file is written
+
   # ---- the removed quality setting ----
 
-  # Backed by: tests/test_session_continuity.py::test_the_line_offers_two_dispositions
-  Scenario: The [agenting] line offers two dispositions
+  # Backed by: tests/test_session_continuity.py::test_the_line_offers_three_dispositions
+  Scenario: The [agenting] line offers three dispositions
     Given an empty state directory
     When SessionStart fires for a new session
-    Then the additionalContext contains "[--disposition fast|balanced] "
+    Then the additionalContext contains "[--disposition cheapest|fast|balanced] "
     And it does not contain "quality"
 
   # Backed by: tests/test_session_continuity.py::test_recording_quality_records_balanced_and_says_what_to_say_instead
@@ -563,7 +615,7 @@ Feature: Session continuity carries mode, disposition and workflows opt-in acros
   Scenario: On a Pro plan a new chat starts in fast and the user is told
     Given .claude.json whose oauthAccount has organizationType "claude_pro"
     When SessionStart fires for a new session
-    Then the systemMessage is "[agenting] plan=Pro · mode=fast (set for your plan: cheaper models, fewer agents)." followed by the main-chat tip when the hook has one, then " Change mode: /agenting-mode balanced"
+    Then the systemMessage is "[agenting] plan=Pro · mode=fast (set for your plan: cheaper models, fewer agents)." followed by " Tip: <the main-chat tip>." when the hook has one, then " Change mode: /agenting-mode [cheapest|fast|balanced]"
     And the additionalContext starts with "[agenting] mode=auto · disposition=fast (set for the Pro plan) · workflows=not opted in" and contains " · advisor=off · plan=Pro (session <id>). "
     And the session record has disposition "fast", disposition_source "plan" and plan "Pro"
     And the state file's "_plan" record says "Pro"
@@ -573,7 +625,7 @@ Feature: Session continuity carries mode, disposition and workflows opt-in acros
   Scenario: On a Max plan a new chat starts in balanced and the user is told
     Given .claude.json whose oauthAccount has organizationType "claude_max"
     When SessionStart fires for a new session
-    Then the systemMessage is "[agenting] plan=Max · mode=balanced (set for your plan). To save usage: /agenting-mode fast"
+    Then the systemMessage is "[agenting] plan=Max · mode=balanced (set for your plan). To save usage, change mode: /agenting-mode [cheapest|fast|balanced]"
     And the additionalContext contains "mode=auto · disposition=balanced (set for the Max plan) · " and " · plan=Max (session "
 
   # Backed by: tests/test_session_continuity.py::test_the_user_is_told_at_the_first_start_of_a_chat_only
@@ -696,6 +748,7 @@ Feature: Session continuity carries mode, disposition and workflows opt-in acros
       | auto-disposition-default : fast              | does not start  |
       | - **auto-disposition-default:** quality      | does not start  |
       | `auto-disposition-default`: `fast`           | does not start  |
+      | auto-disposition-default: cheapest           | does not start  |
       | auto-disposition-default: and a new line     | starts          |
       | auto-disposition-default: TBD                | starts          |
       | the key inside an HTML comment               | starts          |

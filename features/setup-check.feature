@@ -532,9 +532,10 @@ Feature: The plugin health check runs the hooks end to end and reports PASS, WAR
     When "python3 scripts/check-setup.py" runs
     Then the checks "disposition is seeded immediately (balanced, or fast on a Pro plan), never null/unset", "--record persists mode, disposition and the workflows opt-in" and "--status reports what --record persisted" are PASS
     And the check "a Pro plan starts a new chat in fast and the user is told once" is PASS: the hook, given a made-up Pro account file and a temp state folder, starts the probe chat in fast and returns the one-line notice for the user
+    And the check "the cheapest mode is recorded and replaces the plan's start" is PASS: recording cheapest for that probe chat prints "disposition=cheapest" with no "set for"
 
   # Backed by: tests/test_check_setup.py::test_should_pass_the_session_checks_when_the_account_is_on_a_pro_plan
   Scenario: The session checks also pass on a Pro account, where the probe chat starts in fast
     Given a home folder whose .claude.json names a Pro account
     When "python3 scripts/check-setup.py" runs
-    Then the same three session checks and the Pro plan check are PASS and the exit code is 0
+    Then the same three session checks, the Pro plan check and the cheapest check are PASS and the exit code is 0

@@ -100,7 +100,7 @@ Feature: Plugin packaging, agent pins and doc invariants stay consistent, becaus
   # Backed by: tests/test_skill_docs.py::test_every_old_trigger_phrase_is_still_there
   Scenario: The skill description keeps its original trigger phrases and names the two words for one job
     Given the "description:" line of skills/agenting/SKILL.md
-    When it is searched for "writing or editing a Workflow script", "choosing a model or effort for an agent() or Agent call", "opts in to workflows for this chat", "agenting/AGENTING.md", "switches agenting mode (auto/manual) or disposition (fast/balanced)" and "calls a job critical or throwaway"
+    When it is searched for "writing or editing a Workflow script", "choosing a model or effort for an agent() or Agent call", "opts in to workflows for this chat", "agenting/AGENTING.md", "switches agenting mode (auto/manual) or disposition (cheapest/fast/balanced)" and "calls a job critical or throwaway"
     Then all six are present
 
   # Backed by: tests/test_skill_docs.py::test_planning_a_fan_out_triggers_the_skill
@@ -414,12 +414,56 @@ Feature: Plugin packaging, agent pins and doc invariants stay consistent, becaus
     And it names "agenting:system-architect" and "agenting:ux-designer" as the design agents
     And it says a design pass for a UI prototype "is not the default" and that Fable 5.2 thinks first "only when the user asks for it"
 
-  # Backed by: tests/test_skill_docs.py::test_both_think_first_rows_are_opus_xhigh_in_the_table_and_in_every_disposition
-  Scenario: Both think-first rows are opus at xhigh in the routing table, in both dispositions and for a critical job
+  # Backed by: tests/test_skill_docs.py::test_the_think_first_rows_are_opus_xhigh_except_the_architecture_row_in_cheapest
+  Scenario: The think-first rows are opus at xhigh, except the architecture row in cheapest
     Given the routing table of SKILL.md and the disposition table of reference/modes.md
     When the docs test reads the rows for the architecture decision and the UI/UX design
     Then each row of the routing table has the model "opus" and the effort "xhigh"
-    And each row of the disposition table has "opus/xhigh" under fast, under balanced and in the "critical" column
+    And the UI/UX row of the disposition table has "opus/xhigh" under cheapest, fast, balanced and in the "critical" column
+    And the architecture row has "sonnet/xhigh" under cheapest and "opus/xhigh" in the other three
+
+  # Backed by: tests/test_skill_docs.py::test_the_disposition_table_has_the_four_columns_and_every_cell_the_owner_decided
+  Scenario: The disposition table has four columns and every cell the owner decided
+    Given the disposition table of reference/modes.md
+    When the docs test reads its header and its rows
+    Then the columns are "cheapest", "fast", "balanced" and "critical"
+    And its twelve rows hold exactly the cells the owner decided on 2026-11-15, written in the test and not read from the docs: the nine document rows and the three build rows (plan and tests, bulk coding, review)
+
+  # Backed by: tests/test_skill_docs.py::test_the_review_row_follows_the_verify_row_in_every_column
+  Scenario: The review row follows the verify row in every column
+    Given the disposition table of reference/modes.md
+    Then the cells of "Review a build" equal the cells of "Adversarial verify/refute" under every column
+
+  # Backed by: tests/test_skill_docs.py::test_the_routing_table_is_the_balanced_column_for_the_changed_rows
+  Scenario Outline: The routing table carries the balanced cell of each row that changed in 3.7.0
+    Given the routing table of SKILL.md
+    Then the row "<row>" has the model "<model>" and the effort "<effort>"
+
+    Examples:
+      | row                                                            | model  | effort |
+      | Decide under a "don't guess" constraint (BELİRSİZ)             | haiku  | xhigh  |
+      | Plan a build and write its tests, before cheaper workers code  | opus   | high   |
+      | Bulk coding against tests that exist                           | haiku  | medium |
+      | Review a build before it is called done                        | sonnet | high   |
+
+  # Backed by: tests/test_skill_docs.py::test_what_cheapest_gives_up_is_written_down_row_by_row
+  Scenario: What cheapest gives up is written down row by row
+    Given the part of reference/modes.md that starts "What `cheapest` gives up"
+    Then it names classify on Haiku xhigh with "4.1% wrong labels", verify on Haiku xhigh with "1 false "confirmed" in 384", that review follows verify and was not measured itself, and that the architecture decision on Sonnet xhigh rests on few runs
+    And it says cheapest means "cheaper at list price, not quicker"
+
+  # Backed by: tests/test_skill_docs.py::test_no_plan_starts_in_cheapest_and_the_docs_say_so
+  Scenario: The docs say that no plan starts a chat in cheapest
+    Given reference/modes.md and SKILL.md
+    Then modes.md says "No plan starts a chat in `cheapest`." and quotes "Change mode: /agenting-mode [cheapest|fast|balanced]"
+    And the skill's session-settings section says a new chat starts in the plan's, never in cheapest
+
+  # Backed by: tests/test_skill_docs.py::test_the_bulk_coder_is_haiku_medium_never_changes_tests_and_stops_after_three_failed_checks
+  Scenario: The bulk-coder agent is Haiku at medium, never changes the tests and stops after three failed checks
+    Given agents/bulk-coder.md
+    Then its front matter pins the model "haiku" and the effort "medium"
+    And its text says never to change, delete, skip or weaken a given test file or the runner's configuration, to check only with the command it was given, to stop after at most three failed checks, and never to write "pass" without having seen the check pass
+    And it carries the work-alone sentence, and SKILL.md names "agenting:bulk-coder"
 
   # Backed by: tests/test_skill_docs.py::test_no_cell_of_the_routing_table_or_the_disposition_table_names_fable
   Scenario: No cell of the routing table or of the disposition table names Fable
@@ -456,7 +500,7 @@ Feature: Plugin packaging, agent pins and doc invariants stay consistent, becaus
   Scenario: The prototype rule names both paths and says what each mode does
     Given step 4 of "Where the work runs" in SKILL.md, after the think-first step
     When it is read
-    Then it says a throwaway has no tests, no review and no design pass in either disposition, and that keeping it means building it again on the keep path
+    Then it says a throwaway uses the cheapest cells and has no tests, no review and no design pass in any disposition, and that keeping it means building it again on the keep path
     And it says the user's word decides, manual mode asks once before building, auto mode decides and says in one line which path it took, and "Unclear: keep."
     And the reference's example table has five rows whose paths are Throwaway, Throwaway, Keep, Keep, Keep, the last one "Unclear, so keep"
 

@@ -237,11 +237,12 @@ class TestTeammatesOff(CheckSetupCase):
 SEEDED = "disposition is seeded immediately (balanced, or fast on a Pro plan), never null/unset"
 RECORDED = "--record persists mode, disposition and the workflows opt-in"
 PRO_START = "a Pro plan starts a new chat in fast and the user is told once"
+CHEAPEST = "the cheapest mode is recorded and replaces the plan's start"
 
 
 class TestSessionChecksWithoutAPlan(CheckSetupCase):
     def test_should_pass_the_session_checks_and_the_made_up_pro_plan_check_when_no_plan_can_be_read(self):
-        for name in (SEEDED, RECORDED, PRO_START, "--status reports what --record persisted"):
+        for name in (SEEDED, RECORDED, PRO_START, CHEAPEST, "--status reports what --record persisted"):
             self.assertCheck(name, "PASS")
         self.assertRanToTheEnd()
 
@@ -250,7 +251,7 @@ class TestSessionChecksOnAProPlan(CheckSetupCase):
     PLAN_ACCOUNT = {"organizationType": "claude_pro"}
 
     def test_should_pass_the_session_checks_when_the_account_is_on_a_pro_plan(self):
-        for name in (SEEDED, RECORDED, PRO_START):
+        for name in (SEEDED, RECORDED, PRO_START, CHEAPEST):
             self.assertCheck(name, "PASS")
         self.assertRanToTheEnd()
         self.assertEqual(self.result.returncode, 0)

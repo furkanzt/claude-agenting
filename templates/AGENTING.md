@@ -13,7 +13,7 @@ Workflow of a session. Rules here override the agenting skill's routing table.
 ## Config
 
 <!-- One `key: value` per line. A key inside this comment is not set. To set the
-     disposition auto mode starts with in this project (`fast` or `balanced`),
+     disposition auto mode starts with in this project (`cheapest`, `fast` or `balanced`),
      copy the line below under this comment. Without it a chat starts in
      `balanced`, or in your plan's disposition when the plugin can read the plan.
      - `auto-disposition-default: balanced` -->
