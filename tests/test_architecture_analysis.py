@@ -120,6 +120,27 @@ class Counting(unittest.TestCase):
         self.assertEqual(an["total"][OX], {J1: 1, J2: 1})
         self.assertEqual(an["advisor_runs"], [(OX, T3, 1)])
 
+    def test_a_slot_whose_first_run_reported_a_second_model_is_a_failed_slot_even_when_the_retry_is_valid(self):
+        # the harness marks a run with a second model invalid ("model_mismatch") and runs the slot again;
+        # the rules count the slot as failed whatever the retry and the judges say
+        w = world(skip={(SX, T3, 2)})
+        w.attempt(SX, T3, 2, valid=False, reason="model_mismatch: observed ['claude-fable-5-2', 'claude-sonnet-5-5']")
+        w.slot(SX, T3, 2, "pass")
+        an, _ = verdict(w)
+        self.assertEqual(an["total"][SX], {J1: 1, J2: 1})
+        self.assertEqual(an["failed_slots"][SX], 1)
+        self.assertEqual(an["advisor_runs"], [(SX, T3, 2)])
+        self.assertEqual(an["status"], "DECIDED")
+        self.assertIn(f"{SX} {T3} repeat 2: a run reported a second model; counted as a failed slot",
+                      aa.render(an, aa.decide(an)))
+        # another kind of invalid first attempt, followed by a valid passing retry, is an ordinary pass
+        w2 = world(skip={(SX, T3, 2)})
+        w2.attempt(SX, T3, 2, valid=False, reason="timeout")
+        w2.slot(SX, T3, 2, "pass")
+        an2, _ = verdict(w2)
+        self.assertEqual(an2["total"][SX], {J1: 0, J2: 0})
+        self.assertEqual(an2["advisor_runs"], [])
+
     def test_a_repeat_beyond_the_tasks_target_is_not_counted(self):
         w = world()
         w.slot(SX, T1, 7, "fail")

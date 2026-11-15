@@ -16,8 +16,12 @@ The counting is that of the earlier round (think_first_analysis.py, whose helper
   * A run is a SOLID FAIL under a judge model when both of that judge's passes fail it. A split is not.
   * A slot with attempts and no valid one is a FAILED SLOT, unless every attempt was an API or infrastructure
     error: then it is LOST, which is neither failed nor decided, and it has to be run again.
-  * New here: a valid run whose line says `advisor_called` is a failed slot too, and is listed. The harness
-    switches the advisor off for every child; a run that reached one anyway did not work alone.
+  * New here: a slot with a run that reported a second model is a failed slot too, and is listed. The harness
+    switches the advisor off for every child; a run that reached one anyway did not work alone. Such a run
+    shows in one of two ways: the harness marks it invalid (`model_mismatch`) and runs the slot again, so the
+    slot counts as failed even when the retry is valid; or, for a cell that names an advisor, the valid line
+    says `advisor_called`. (Until the audit of 2026-11-15, after the runs, only the second way was read. No line of the
+    record carries either mark.)
   * A cell's FAILS under a judge = its solid fails + its failed slots. Every count is made once per judge
     model, and a rule fires only when it fires under both.
 
@@ -85,6 +89,13 @@ def check_rubric_hashes(runs: list[dict], scores: list[dict]) -> None:
                                 f"hashes; grade again under one rubric before analysing")
 
 
+def second_model(slot: dict) -> bool:
+    """True when a run of the slot reported a model besides the cell's own."""
+    if any(str(a.get("invalid_reason") or "").startswith("model_mismatch") for a in slot["attempts"]):
+        return True
+    return (slot["valid"] or {}).get("advisor_called") is True
+
+
 def evaluate_slot(slot: dict | None, by_run: dict) -> dict:
     """state: not_run | lost | failed | incomplete | decided. For a decided slot, solid[judge] says whether it is a
     solid fail under that judge; a failed slot is a fail under both."""
@@ -98,11 +109,11 @@ def evaluate_slot(slot: dict | None, by_run: dict) -> dict:
             rec["cost"] = float(run["cost_usd"])
         if isinstance(run.get("duration_ms"), (int, float)):
             rec["seconds"] = run["duration_ms"] / 1000.0
+    if second_model(slot):
+        rec["state"], rec["advisor"] = "failed", True
+        return rec
     if run is None:
         rec["state"] = "lost" if tf.slot_lost(slot) else "failed"
-        return rec
-    if run.get("advisor_called") is True:
-        rec["state"], rec["advisor"] = "failed", True
         return rec
     lines = by_run.get(run.get("run_id"), [])
     if tf.has_no_block(lines):
@@ -242,7 +253,7 @@ def render(an: dict, d: dict | None) -> str:
         if an["failed_slots"][cell]:
             out.append(f"  {cell}: {an['failed_slots'][cell]} failed slot(s), counted as fails under both judges")
     for cell, task, rep in an["advisor_runs"]:
-        out.append(f"  {cell} {task} repeat {rep}: the run called an advisor; counted as a failed slot")
+        out.append(f"  {cell} {task} repeat {rep}: a run reported a second model; counted as a failed slot")
     for cell in CELLS:
         for task in TASKS:
             if an["missing_runs"][cell][task]:

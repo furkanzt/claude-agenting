@@ -47,6 +47,13 @@ Feature: The architecture analysis tool applies the pre-registered rules of 2026
     When the record is analysed
     Then Opus has 1 fail under both judges and the run is listed among the advisor runs
 
+  # Backed by: tests/test_architecture_analysis.py::test_a_slot_whose_first_run_reported_a_second_model_is_a_failed_slot_even_when_the_retry_is_valid
+  Scenario: A slot whose first run reported a second model is a failed slot, even when the retry is valid
+    Given a Sonnet slot on design-03 whose first attempt is invalid with the reason "model_mismatch: observed ..." and whose second attempt is valid and passes every judge pass
+    When the record is analysed
+    Then Sonnet has 1 fail under both judges, 1 failed slot, the slot is listed with "a run reported a second model; counted as a failed slot", and the status is DECIDED
+    And a slot whose first attempt timed out and whose retry passes is an ordinary pass and is not listed
+
   # Backed by: tests/test_architecture_analysis.py::test_a_repeat_beyond_the_tasks_target_is_not_counted
   Scenario: A repeat beyond the task's target is not counted
     Given a failing Sonnet run at repeat 7 of design-01 and one at repeat 13 of design-02

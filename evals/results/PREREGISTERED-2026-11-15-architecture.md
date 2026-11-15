@@ -109,3 +109,17 @@ on Sonnet.
    before the defect could do any harm.
 9. **Two P items of `design-03` go together.** A design that misses the one will usually miss the
    other, and then fails on one blind spot.
+
+## Correction, 2026-11-15T22:28Z (after the runs; no rule changed)
+
+An audit of the report found that limits 8 and 9, as committed at 20:27Z, named the subjects of three
+P items of `design-03` and said where each came from. That is private task detail, and a public file
+must not carry it. Three sentences were reworded to say the same without the subjects. Nothing else in
+this file was touched: no cell, task, count, rule, margin or ceiling. The first wording exists only in
+the unpushed working commit of 20:27Z, and it must not reach the pushed history (`HANDOFF.md` says how).
+
+The same audit found one place where the rule checker did not read a rule as this file words it. "A
+run that reports a second model is listed and counts as a failed slot": the harness marks such a run
+invalid and runs the slot again, and the checker looked only for a field that these two cells never
+carry. The checker now counts a slot with such a run as failed even when the retry is valid. No run of
+the record reported a second model, so no count changed. The report's section 6 has the details.
