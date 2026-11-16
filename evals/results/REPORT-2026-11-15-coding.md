@@ -358,7 +358,7 @@ expected; in the sixth Opus `medium` gave fewer fit suites than expected.
    and what the five unfit suites do on the correct copies of their tasks (section 7).
 11. **This report was audited before the owner saw its figures,** by four independent reviewers: a recount
    from the record, a review against the rules, a recount of the note on the `fast` column, and a read for
-   privacy and plain language. Their corrections are in the commit after the draft's. The largest: the
+   privacy and plain language. The draft and their corrections are one commit in the pushed history, because one correction cut private detail from the draft. The largest: the
    draft's account of question 4 leaned towards Sonnet, and section 7 and section 14 now give both sides.
 
 ## 12. Limits

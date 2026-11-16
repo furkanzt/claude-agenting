@@ -6,9 +6,9 @@
 
 ## Q. Release 3.7.0: three modes, the plan, build rows, the architecture round (2026-11-15)
 
-**Nothing is running and nothing is half done.** Release 3.7.0 is committed and **not pushed**: 21
-commits wait on `main` (`git log --oneline origin/main..HEAD`). The plugin installs from its GitHub
-repository, so chats keep running 3.6.0 until the owner pushes and the plugin is updated.
+**Nothing is running and nothing is half done.** Release 3.7.0 was pushed on 2026-11-16: 18 commits, and
+one more that records the push. The plugin installs from its GitHub repository; a chat gets 3.7.0 after
+`claude plugin update agenting@agenting` and `/reload-plugins`, or at its next start.
 
 ### Q.1 What 3.7.0 holds
 
@@ -76,24 +76,30 @@ the `model: 'sonnet'` sentence of the think-first step, and the expected cells i
 
 ### Q.4 Decisions waiting for the owner
 
-1. **Push.** Group the unpushed commits into bites first (section 9). Three things to settle before,
-   because the repository is public:
-   - The commit "evals: two advisor pairs against Opus alone, report and runs" (2026-11-14) carried the
-     names of the owner's source projects in this file, and the next commit ("evals: pre-register the
-     coding experiment") removed them. The names must not reach the remote in an intermediate commit:
-     either the two are one bite, or the first one's copy of this file is replaced when its bite is
-     built.
-   - The commit "evals: the rules of the architecture round, its third task and its rule checker,
-     before any run" (2026-11-15, 20:27Z) carried three sentences that named subjects of the new
-     task's hidden checklist; a later commit reworded them and appended a dated note. The first wording
-     must not reach the remote either. A pre-registration commit keeps its own commit and its time, so
-     build that bite with the corrected file and say so in its message.
-   - No tracked file may cite the short hash of an unpushed commit: compare
-     `git grep -n -E "[0-9a-f]{7}" -- '*.md'` with `git log --format=%h origin/main..HEAD`.
-2. **After the push:** update the plugin (`claude plugin marketplace update agenting`, then
-   `claude plugin update agenting@agenting`), start a new chat and confirm that the `[agenting]` line
-   offers `--disposition cheapest|fast|balanced` and that the one-line plan notice shows. How the
-   terminal displays that notice was not checked by the building chat.
+1. **Push: done on 2026-11-16.** The 21 working commits went out as 18, plus one commit that wrote this
+   state down. Every commit that fixes a rule before its runs kept its own commit and its time. Two
+   groups were folded: the vehicle test's record with both reports of the coding experiment, and the
+   architecture round's record with its report. The drafts of those reports, as they were before their
+   audits, are not in the pushed history. The repository is public, so five texts were replaced in the
+   outgoing commits and their first wording never reached the remote. The commit where each one
+   entered says so at the end of its message:
+   - a sentence of this file that listed the owner's source projects by name, and one that gave the
+     tier of the owner's own plan (from the commit "evals: two advisor pairs against Opus alone, report
+     and runs" on);
+   - three sentences in the limits of the architecture round's rules that named subjects of the new
+     task's hidden checklist (the commit of 2026-11-15, 20:27Z);
+   - a file path in one test fixture of the coding tool, which was the path of a real file of a source
+     project;
+   - a helper name in another test of that tool, which was also a name in a private file.
+
+   Four independent reviewers read every outgoing commit against the private folder before the push;
+   apart from these they found nothing that the rule forbids. The working commits are on the local
+   branch `backup/pre-squash-6e7e16d`. That branch holds the first wordings: it must never be pushed.
+2. **After a push, update the plugin:** `claude plugin marketplace update agenting`, then
+   `claude plugin update agenting@agenting`. The building chat ran both right after the push of 3.7.0
+   (`claude plugin list` shows the installed version). Still to confirm in a new chat: that the
+   `[agenting]` line offers `--disposition cheapest|fast|balanced` and that the one-line plan notice
+   shows. How the terminal displays that notice was not checked by the building chat.
 3. **The tip's second sentence** (Q.2): say so if it should read differently.
 4. **The architecture row in `balanced`.** The rules gave it to Sonnet `xhigh` on one hard task (Q.3).
    The owner may keep that or put Opus back.
@@ -122,7 +128,7 @@ the `model: 'sonnet'` sentence of the think-first step, and the expected cells i
 
 ```
 git status --short                      # expect only: M .gitignore (not from this work; never stage it)
-git log origin/main..HEAD --oneline     # expect 21 commits until the push
+git log origin/main..HEAD --oneline     # expect nothing after the push of 2026-11-16
 python3 -m pytest tests -q              # expect 1324 passed, 2 skipped (about 6 minutes)
 python3 scripts/check-setup.py          # expect 55 passed, 0 failed
 python3 evals/evalkit.py selfcheck      # expect 30 tasks, 0 problems
@@ -141,6 +147,12 @@ python3 evals/probes/code_bench_analysis.py     # prints the coding experiment's
 - **`design-03` was built by a Fable 5.2 agent.** It must not be used to compare a Fable cell, and it
   is frozen: no hardening after its runs. It also shows no difference between Opus and Sonnet at
   `xhigh`: every run of both passed it.
+- **Before a push, scan every outgoing commit, not only the final files.** `git diff origin/main` is
+  clean when a later commit removed a private detail, and the earlier commit would still carry it to
+  the remote. Search each commit of `origin/main..HEAD` for the private names, and read the diffs.
+- **A test fixture must not reuse a name from a private record,** even a plain one. The scan before
+  the push of 3.7.0 found the path of a real source file in a fixture of `tests/test_code_bench.py`.
+  Invent the names, then search `evals/private/` for them.
 - **A public file must not hint at a hidden checklist.** On 2026-11-15 the rules file of the
   architecture round named the subjects of three pitfalls in its limits; the audit caught it before
   any push. Describe a private item by its kind ("one item comes from a real incident"), never by its
@@ -164,8 +176,7 @@ python3 evals/probes/code_bench_analysis.py     # prints the coding experiment's
 ### Q.7 A good first message for the next chat
 
 > Read section Q of HANDOFF.md in the agenting repo, run the Q.5 checks and tell me what you find. Then
-> prepare the push of 3.7.0: show me the bites you would build and how the two commits with private
-> detail are handled (Q.4, point 1). Do not push until I say so.
+> take the open point of Q.4 that I name.
 
 ## P. After the Fable 5.2 round and the advisor work (2026-11-13 and 14)
 
@@ -757,12 +768,13 @@ override; the classify rule written after nine-run data; dont-guess `balanced` h
 
 ## 9. Push plan (when the owner says push)
 
-As of 2026-11-15, 21 commits are unpushed (3.7.0 and the measurements before it); section Q.4, point 1, names three things to settle first. For the push: group the unpushed commits into bites
+Nothing is unpushed after the push of 2026-11-16; section Q.4, point 1, says how that push was built. For the next push: group the unpushed commits into bites
 (consecutive runs belonging to one piece of work, one commit each, members folded into numbered paragraphs,
 never reordered), keep the version bump a separate commit after the bites, then
 `CLAUDE_SKIP_SQUASH_GUARD=1 git push`. Before pushing, check the net diff for `evals/private`, absolute local
 paths, per-item keys in `evals/results/scores.jsonl`, and private item names
-(`git diff origin/main | grep -n -i "private/\|/Users/"`). The `Co-Authored-By` trailer names the model that
+(`git diff origin/main | grep -n -i "private/\|/Users/"`), and do the same for every outgoing commit, not only for
+the net diff (section Q.6). The `Co-Authored-By` trailer names the model that
 did the work.
 
 ## 10. Where everything is
