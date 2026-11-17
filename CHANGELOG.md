@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.8.0 — 2026-11-17 (fan-out view: the pane shows running runs only; clean fan-out spend for the status line)
+
+### Changed
+- **The `/fanouts` pane lists running runs only.** It kept every run the view had seen in the last two
+  hours, so while other clean fan-outs ran, finished ones stayed among them as tabs. A run now leaves the
+  pane on the first scan that reports it ended, and with nothing running the pane says "No clean fan-outs
+  running". The row above the prompt still keeps an ended run five minutes, and pressing it (or typing its
+  digit) opens the pane on that run, which stays beside the running tabs until another tab is picked or
+  `/fanouts` opens the pane. The stored selection gains `pinned` (shape `selection-3`).
+
+### Added
+- **This chat's clean fan-out spend, for the status line.** Claude Code's own session cost
+  (`cost.total_cost_usd`) counts Workflow agents but never a clean run, whose `claude -p` processes it does
+  not see. The view keeps this chat's total for them (a re-run in the same folder adds to the run before
+  it; the total never goes down) and writes it to `<AGENTING_STATE_DIR or ~/.claude>/.agenting-fanout-cost/<session id>.json`
+  when it changes. A status line command can add it to the cost figure; the README shows how. One small
+  file per chat that ran a clean fan-out stays in that folder.
+
 ## 3.7.0 — 2026-11-15 (three modes: cheapest, fast, balanced; the plan sets where a chat starts; rows for building software; architecture on Sonnet xhigh)
 
 The owner fixed the scope in an interview on 2026-11-14 and decided the cells on 2026-11-15, on the reports of
