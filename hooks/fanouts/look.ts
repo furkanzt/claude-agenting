@@ -20,7 +20,7 @@ export const WORDS = {
   agent: 'agent',
   done: 'done',
   notStarted: 'Not started yet',
-  none: 'No clean fan-outs yet. One shows here while cleanrun.py runs (or an external clean_runtime.mjs).',
+  none: 'No clean fan-outs running. One shows here while cleanrun.py runs (or an external clean_runtime.mjs).',
   hint: '↑↓ select · esc close',
   tokens: 'tokens',
   tok: 'tok',

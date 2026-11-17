@@ -4,9 +4,20 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Mounted, TestBody } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import type { Fanout, FanoutAgent, Snapshot } from '../types'
+import type { Fanout, FanoutAgent, Selection, Snapshot, SpendRun } from '../types'
 import { agentStats, bandFanouts, finished, headerStats, phaseCell, phaseCol, phases } from '../hooks/fanouts/view'
+import * as view from '../hooks/fanouts/view'
 import { count, duration, modelName } from '../hooks/fanouts/look'
+
+// The pane's list and the spend record, as view.ts exports them; read through the module so each
+// test that needs one names it.
+const V = view as unknown as {
+  paneFanouts(snap: Snapshot | null, sel: Selection): Fanout[]
+  heldPin(pinned: string | null, snap: Snapshot): string | null
+  mergeSpend(runs: SpendRun[], snap: Snapshot): SpendRun[]
+  spendTotal(runs: SpendRun[]): { usd: number; runs: number }
+  spendPath(base: { stateDir?: string | null; home?: string | null }, sessionId: string): string | null
+}
 
 // Nothing sits beneath the plugin: each hook here stands for the engine. A call on `$` is
 // answered `{ value }`; an event by its own result.
@@ -65,26 +76,71 @@ const PANE = {
 
 type Engine = Parameters<TestBody>[0]
 
+// What else the engine answers: the chat's session id, and how many file writes, session id reads and
+// reads of the spend file's folder variables (AGENTING_STATE_DIR, HOME) it refuses first. spend is the
+// record a reload would find already stored: the engine hands it out until the plugin writes its own.
+type Extra = { sessionId?: string; failWrites?: number; failIds?: number; failEnv?: number; spend?: { runs: SpendRun[]; written: number | null } }
+
 // The engine around the plugin, answering each scan with the next snapshot (the last repeats).
-function engine(on: On, answers: Array<Snapshot | 'fail'>, version = '2.1.317', during?: (scan: number) => Promise<void>, env: Record<string, string> = {}) {
+// HOME is /home/me unless the test's env says otherwise; files written are recorded, not written.
+function engine(on: On, answers: Array<Snapshot | 'fail'>, version = '2.1.317', during?: (scan: number) => Promise<void>, env: Record<string, string> = {}, extra: Extra = {}) {
   const scans: string[][] = []
   const toasts: string[] = []
   const opened: Array<Record<string, unknown>> = []
   const registered: Array<Record<string, unknown>> = []
   const closed: string[] = []
+  const writes: Array<{ path: string; text: string }> = []
+  const logs: Array<{ text: string; to: string }> = []
+  const vars: Record<string, string> = { HOME: '/home/me', ...env }
+  let refuse = extra.failWrites ?? 0
+  let refuseIds = extra.failIds ?? 0
+  let refuseEnv = extra.failEnv ?? 0
   let panes: Array<{ id: string; title: string; isShown: boolean; isFocused: boolean; isPlaced: boolean }> = []
   on('session.start', (_, e) => ({ cwd: e.cwd }))
+  // the stored record: read as it stands until the plugin has written its own
+  if (extra.spend) {
+    const stored = { shape: 'spend-1', value: extra.spend }
+    on('state.get', { plugin: 'agenting', key: 'spend' }, async (_, e, next) => {
+      const answer = await next(e)
+      const held = answer.value as { value?: unknown; version: number } | undefined
+      return held && held.value === undefined ? { value: { ...held, value: stored } } as never : answer
+    })
+  }
   on('command.register', (_, e) => {
     registered.push({ ...e })
     return { value: { command: 'fanouts' } }
   })
   on('session.version', () => ({ value: { version } }))
-  on('env.get', (_, e) => ({ value: env[e.name] }))
+  on('session.id', () => {
+    if (refuseIds > 0) {
+      refuseIds--
+      return { deny: 'no session yet' }
+    }
+    return { value: extra.sessionId ?? 'sess-1' }
+  })
+  on('env.get', (_, e) => {
+    if (refuseEnv > 0 && (e.name === 'AGENTING_STATE_DIR' || e.name === 'HOME')) {
+      refuseEnv--
+      return { deny: 'env unreadable' }
+    }
+    return { value: vars[e.name] }
+  })
+  on('fs.write', (_, e) => {
+    if (refuse > 0) {
+      refuse--
+      return { deny: 'disk full' }
+    }
+    writes.push({ path: e.path, text: e.text })
+    return { value: undefined }
+  })
   on('ui.toast', (_, e) => {
     toasts.push(e.text)
     return { value: undefined }
   })
-  on('ui.log', () => ({ value: undefined }))
+  on('ui.log', (_, e) => {
+    logs.push({ text: e.text, to: e.to })
+    return { value: undefined }
+  })
   on('ui.open', (_, e) => {
     opened.push({ ...e })
     panes = [{ id: e.id, title: e.title ?? e.id, isShown: true, isFocused: true, isPlaced: true }]
@@ -106,12 +162,12 @@ function engine(on: On, answers: Array<Snapshot | 'fail'>, version = '2.1.317', 
     }
     return { value: { exitCode: 0, stdout: JSON.stringify(a), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
-  return { scans, toasts, opened, closed, registered }
+  return { scans, toasts, opened, closed, registered, writes, logs }
 }
 
-async function started($: Engine, on: On, answers: Array<Snapshot | 'fail'>, version?: string, env?: Record<string, string>) {
+async function started($: Engine, on: On, answers: Array<Snapshot | 'fail'>, version?: string, env?: Record<string, string>, extra?: Extra) {
   const clock = mock.clock(on, { now: NOW * 1000 })
-  const eng = engine(on, answers, version, undefined, env)
+  const eng = engine(on, answers, version, undefined, env, extra)
   await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true })
   await clock.settle()
   return { clock, ...eng }
@@ -127,6 +183,41 @@ function engineDraws(on: On) {
 const run = (command: string) => ({
   command, args: '', origin: { kind: 'composer' as const }, presentation: { isFullscreen: false, columns: 160 },
 })
+
+const NONE = 'No clean fan-outs running. One shows here while cleanrun.py runs (or an external clean_runtime.mjs).'
+
+// A plugin loaded beside agenting that reads what agenting stored, as any plugin may read it:
+// /peek-selection and /peek-spend answer the stored value, its shape tag included.
+const peek = {
+  name: 'peek',
+  register(on: On) {
+    on('command.run', { command: 'peek-selection' }, async $ => ({
+      text: JSON.stringify((await $.state.get({ plugin: 'agenting', key: 'selection' })).value ?? null),
+    }))
+    on('command.run', { command: 'peek-spend' }, async $ => ({
+      text: JSON.stringify((await $.state.get({ plugin: 'agenting', key: 'spend' } as never)).value ?? null),
+    }))
+  },
+}
+
+async function stored($: Engine, key: 'selection' | 'spend') {
+  const answer = (await $.command.run(run(`peek-${key}`))) as { text: string }
+  return JSON.parse(answer.text)
+}
+
+// The fan-out the pane shows (its bold name) and its tab row.
+async function shownName(ui: PaneMount) {
+  return (await ui.findAll({ type: 'Text' })).find(t => t.props.bold)?.text ?? null
+}
+
+async function tabs(ui: PaneMount) {
+  return (await ui.findAll({ type: 'Button' })).filter(b => b.key?.startsWith('fanout:')).map(b => b.text)
+}
+
+// The spend file's contents, one per write.
+function spent(writes: Array<{ path: string; text: string }>) {
+  return writes.map(w => JSON.parse(w.text) as { v: number; session_id: string; usd: number; runs: number; updated_at: number })
+}
 
 // ---------------- the band: the bottom panel's Workflow row ----------------
 
@@ -356,14 +447,299 @@ test('a phase not started yet says so', async ($, on) => {
 })
 
 test('several fan-outs get a row of tabs; picking one shows it', async ($, on) => {
-  const other = fanout({ id: '/w/b', dir: '/w/b', name: 'other', state: 'done', alive: false, pid: null, ended_at: NOW - 5 })
+  const other = fanout({ id: '/w/b', dir: '/w/b', name: 'other', cost_usd: 1.5 })
   await started($, on, [snap([fanout(), other])])
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await ui.findAll({ type: 'Button', text: /merge5|other/ })).map(b => b.text)).toEqual(['◯ merge5', '◯ other'])
   await ui.press({ key: 'fanout:1' })
   expect((await ui.find({ type: 'Text', text: /^other$/ }))?.props.color).toBe('permission')
-  expect((await ui.find({ type: 'Text', text: /agents · / }))?.text).toContain('· done')
+  expect((await ui.find({ type: 'Text', text: /agents · / }))?.text).toBe(' 1/3 agents · 7m09s · $1.50')
   await ui.unmount()
+})
+
+test('a finished run leaves the pane\'s tabs on the first scan that reports it ended, and keeps its band row', async ($, on) => {
+  const other = fanout({ id: '/w/b', dir: '/w/b', name: 'other' })
+  const ended = fanout({ id: '/w/b', dir: '/w/b', name: 'other', state: 'done', alive: false, pid: null, ended_at: NOW + 3 })
+  const { clock } = await started($, on, [snap([fanout(), other]), snap([fanout(), ended], NOW + 3)])
+  let pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await tabs(pane)).toEqual(['◯ merge5', '◯ other'])
+  await pane.unmount()
+  await clock.advance(3000)
+  pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await tabs(pane)).toEqual([])
+  expect(await pane.find({ type: 'Text', text: /^other$/ })).toBeUndefined()
+  expect(await shownName(pane)).toBe('merge5')
+  await pane.unmount()
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await band.findAll({ type: 'Text', text: /^◯ (merge5|other) / })).map(t => t.text.split(' ')[1])).toEqual(['merge5', 'other'])
+  await band.unmount()
+})
+
+test('when the run on screen ends, the pane falls back to the first running one', async ($, on) => {
+  const other = fanout({ id: '/w/b', dir: '/w/b', name: 'other' })
+  const ended = fanout({ id: '/w/b', dir: '/w/b', name: 'other', state: 'failed', alive: false, pid: null, ended_at: NOW + 3 })
+  const { clock } = await started($, on, [snap([fanout(), other]), snap([fanout(), ended], NOW + 3)])
+  let pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await pane.press({ key: 'fanout:1' })
+  expect(await shownName(pane)).toBe('other')
+  await pane.unmount()
+  await clock.advance(3000)
+  pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await shownName(pane)).toBe('merge5')
+  expect(await pane.find({ type: 'Text', text: /^other$/ })).toBeUndefined()
+  await pane.unmount()
+})
+
+test('with no fan-out running the pane says none runs, even with finished runs in the snapshot', async ($, on) => {
+  const done = fanout({ id: '/w/a', dir: '/w/a', name: 'a', state: 'done', alive: false, pid: null, ended_at: NOW - 5 })
+  const failed = fanout({ id: '/w/b', dir: '/w/b', name: 'b', state: 'failed', alive: false, pid: null, ended_at: NOW - 5 })
+  await started($, on, [snap([done, failed])])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await pane.find({ type: 'Text', text: /No clean fan-outs/ }))?.text).toBe(NONE)
+  expect(await shownName(pane)).toBeNull()
+  expect(await pane.findAll({ type: 'Button' })).toEqual([])
+  await pane.unmount()
+})
+
+test('pressing the band row of a finished run shows it in the pane, selected, beside the running tabs', async ($, on) => {
+  const other = fanout({ id: '/w/b', dir: '/w/b', name: 'other', state: 'done', alive: false, pid: null, ended_at: NOW - 5, cost_usd: 1.5 })
+  // another finished run in the band, not pressed: it gets no tab
+  const older = fanout({ id: '/w/c', dir: '/w/c', name: 'older', state: 'failed', alive: false, pid: null, ended_at: NOW - 5 })
+  await started($, on, [snap([fanout(), other, older])])
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await band.press({ key: 'open:1' })
+  await band.unmount()
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await tabs(pane)).toEqual(['◯ merge5', '◯ other'])
+  // its tab and its header are both in permission: it is the one on screen
+  expect((await pane.findAll({ type: 'Text', text: /^other$/ })).map(t => t.props.color)).toEqual(['permission', 'permission'])
+  expect(await shownName(pane)).toBe('other')
+  expect((await pane.find({ type: 'Text', text: /agents · / }))?.text).toBe(' 1/3 agents · 7m09s · $1.50 · done')
+  await pane.unmount()
+})
+
+test('a phase press keeps the band\'s finished run in the pane; picking another tab drops it', async ($, on) => {
+  const other = fanout({ id: '/w/b', dir: '/w/b', name: 'other', state: 'done', alive: false, pid: null, ended_at: NOW - 5 })
+  await started($, on, [snap([fanout(), other])])
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await band.press({ key: 'open:1' })
+  await band.unmount()
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  // a phase of it, by press and by the focus ring: it stays
+  await pane.press({ key: 'phase:1' })
+  expect(await shownName(pane)).toBe('other')
+  expect((await pane.find({ type: 'Text', text: /^╭/ }))?.text).toMatch(/┬ GKC · 1 agent · xhigh ─/)
+  await $.ui.focus({ component: 'Pane', requestId: 'fanouts', element: 'phase:2', origin: { kind: 'person' } })
+  expect(await shownName(pane)).toBe('other')
+  // an agent row of it, by press: it stays
+  await pane.press({ key: 'phase:1' })
+  await pane.press({ key: 'agent:0' })
+  expect(await shownName(pane)).toBe('other')
+  // its own tab: it stays
+  await pane.press({ key: 'fanout:1' })
+  expect(await shownName(pane)).toBe('other')
+  expect(await tabs(pane)).toEqual(['◯ merge5', '◯ other'])
+  // another tab: it leaves the pane
+  await pane.press({ key: 'fanout:0' })
+  expect(await shownName(pane)).toBe('merge5')
+  expect(await tabs(pane)).toEqual([])
+  expect(await pane.find({ type: 'Text', text: /^other$/ })).toBeUndefined()
+  await pane.unmount()
+})
+
+test('/fanouts drops the band\'s finished run from the pane', async ($, on) => {
+  const other = fanout({ id: '/w/b', dir: '/w/b', name: 'other', state: 'done', alive: false, pid: null, ended_at: NOW - 5 })
+  await started($, on, [snap([fanout(), other])])
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await band.press({ key: 'open:1' })
+  await band.unmount()
+  // the band opened the pane: /fanouts closes it, /fanouts again opens it
+  expect(await $.command.run(run('fanouts'))).toMatchObject({ text: 'Clean fan-outs pane closed.' })
+  expect(await $.command.run(run('fanouts'))).toMatchObject({ text: 'Clean fan-outs pane opened (esc closes it).' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await shownName(pane)).toBe('merge5')
+  expect(await tabs(pane)).toEqual([])
+  expect(await pane.find({ type: 'Text', text: /^other$/ })).toBeUndefined()
+  await pane.unmount()
+})
+
+test('a phase press acts on the run the pane shows, not on a finished run still selected', async ($, on) => {
+  const other = fanout({ id: '/w/b', dir: '/w/b', name: 'other', state: 'done', alive: false, pid: null, ended_at: NOW - 5 })
+  await started($, on, [snap([fanout(), other])])
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await band.press({ key: 'open:1' })
+  await band.unmount()
+  await $.command.run(run('fanouts'))
+  await $.command.run(run('fanouts'))
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await shownName(pane)).toBe('merge5')
+  expect((await pane.find({ type: 'Text', text: /^╭/ }))?.text).toMatch(/┬ Denetle · 2 agents ─/)
+  await pane.press({ key: 'phase:1' })
+  expect(await shownName(pane)).toBe('merge5')
+  expect((await pane.find({ type: 'Text', text: /^╭/ }))?.text).toMatch(/┬ GKC · 1 agent · xhigh ─/)
+  await pane.unmount()
+})
+
+test('a run opened from the band while it runs leaves the pane when it ends', async ($, on) => {
+  const other = fanout({ id: '/w/b', dir: '/w/b', name: 'other' })
+  const ended = fanout({ id: '/w/b', dir: '/w/b', name: 'other', state: 'done', alive: false, pid: null, ended_at: NOW + 3 })
+  const { clock } = await started($, on, [snap([fanout(), other]), snap([fanout(), ended], NOW + 3)])
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await band.press({ key: 'open:1' })
+  await band.unmount()
+  let pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await shownName(pane)).toBe('other')
+  await pane.unmount()
+  await clock.advance(3000)
+  pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await shownName(pane)).toBe('merge5')
+  expect(await pane.find({ type: 'Text', text: /^other$/ })).toBeUndefined()
+  await pane.unmount()
+})
+
+test('a tab press selects the run drawn at that index, whatever the snapshot order', async ($, on) => {
+  // a finished run ahead of the running ones in the snapshot, though the scanner puts running first
+  const old = fanout({ id: '/w/old', dir: '/w/old', name: 'old', state: 'done', alive: false, pid: null, ended_at: NOW - 5 })
+  const a = fanout({ id: '/w/a', dir: '/w/a', name: 'a' })
+  const b = fanout({ id: '/w/b', dir: '/w/b', name: 'b' })
+  await started($, on, [snap([old, a, b])])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await tabs(pane)).toEqual(['◯ a', '◯ b'])
+  await pane.press({ key: 'fanout:1' })
+  expect(await shownName(pane)).toBe('b')
+  await pane.press({ key: 'fanout:0' })
+  expect(await shownName(pane)).toBe('a')
+  await pane.unmount()
+})
+
+test('a band-opened finished run does not come back to the pane when a later run in its folder ends', async ($, on) => {
+  const other = fanout({ id: '/w/b', dir: '/w/b', name: 'other', state: 'done', alive: false, pid: null, ended_at: NOW - 5 })
+  const again = fanout({ id: '/w/b', dir: '/w/b', name: 'other' })
+  const ended = fanout({ id: '/w/b', dir: '/w/b', name: 'other', state: 'done', alive: false, pid: null, ended_at: NOW + 6 })
+  const { clock } = await started($, on, [snap([fanout(), other]), snap([fanout(), again], NOW + 3), snap([fanout(), ended], NOW + 6)])
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await band.press({ key: 'open:1' })
+  await band.unmount()
+  await clock.advance(3000)
+  // a new run in the folder shows because it runs
+  let pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await tabs(pane)).toEqual(['◯ merge5', '◯ other'])
+  await pane.unmount()
+  await clock.advance(3000)
+  // its end was reported by a scan: it leaves, though the person never pressed the band row again
+  pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await tabs(pane)).toEqual([])
+  expect(await shownName(pane)).toBe('merge5')
+  expect(await pane.find({ type: 'Text', text: /^other$/ })).toBeUndefined()
+  await pane.unmount()
+})
+
+test('a band-opened finished run does not come back to the pane when its folder left the snapshot and a later run there ended', async ($, on) => {
+  const other = fanout({ id: '/w/b', dir: '/w/b', name: 'other', state: 'done', alive: false, pid: null, ended_at: NOW - 5 })
+  const later = fanout({ id: '/w/b', dir: '/w/b', name: 'other', state: 'failed', alive: false, pid: null, ended_at: NOW + 6 })
+  const { clock } = await started($, on, [snap([fanout(), other]), snap([fanout()], NOW + 3), snap([fanout(), later], NOW + 6)])
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await band.press({ key: 'open:1' })
+  await band.unmount()
+  await clock.advance(3000)
+  await clock.advance(3000)
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await tabs(pane)).toEqual([])
+  expect(await shownName(pane)).toBe('merge5')
+  expect(await pane.find({ type: 'Text', text: /^other$/ })).toBeUndefined()
+  await pane.unmount()
+})
+
+test('a band row pressed while a scan is letting go of the held run is not undone by that scan', async ($, on) => {
+  const other = fanout({ id: '/w/b', dir: '/w/b', name: 'other', state: 'done', alive: false, pid: null, ended_at: NOW - 5 })
+  const again = fanout({ id: '/w/b', dir: '/w/b', name: 'other' })
+  const third = fanout({ id: '/w/c', dir: '/w/c', name: 'third', state: 'done', alive: false, pid: null, ended_at: NOW - 5 })
+  let armed = false
+  let band: Awaited<ReturnType<Engine['ui']['mount']>> | null = null
+  // the first read of the selection after the clock moves is the scan's own: the person presses the
+  // third run's band row right after it, before the scan lets go of the run it read as held
+  on('state.get', { plugin: 'agenting', key: 'selection' }, async (_, e, next) => {
+    const answer = await next(e)
+    if (armed) {
+      armed = false
+      await (band as { press(a: { key: string }): Promise<unknown> }).press({ key: 'open:2' })
+    }
+    return answer
+  })
+  const { clock } = await started($, on, [snap([fanout(), other]), snap([fanout(), again, third], NOW + 3)])
+  band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await band.press({ key: 'open:1' })
+  armed = true
+  await clock.advance(3000)
+  await band.unmount()
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await tabs(pane)).toEqual(['◯ merge5', '◯ other', '◯ third'])
+  expect(await shownName(pane)).toBe('third')
+  await pane.unmount()
+})
+
+test('a band-opened finished run stays in the pane over scans that still report it ended', async ($, on) => {
+  const other = fanout({ id: '/w/b', dir: '/w/b', name: 'other', state: 'done', alive: false, pid: null, ended_at: NOW - 5 })
+  const { clock } = await started($, on, [snap([fanout(), other]), snap([fanout(), other], NOW + 3)])
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await band.press({ key: 'open:1' })
+  await band.unmount()
+  await clock.advance(3000)
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await tabs(pane)).toEqual(['◯ merge5', '◯ other'])
+  expect(await shownName(pane)).toBe('other')
+  await pane.unmount()
+})
+
+test('moving the focus ring onto a fan-out tab shows the run drawn at that index, whatever the snapshot order', async ($, on) => {
+  const old = fanout({ id: '/w/old', dir: '/w/old', name: 'old', state: 'done', alive: false, pid: null, ended_at: NOW - 5 })
+  const a = fanout({ id: '/w/a', dir: '/w/a', name: 'a' })
+  const b = fanout({ id: '/w/b', dir: '/w/b', name: 'b' })
+  await started($, on, [snap([old, a, b])])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await tabs(pane)).toEqual(['◯ a', '◯ b'])
+  await $.ui.focus({ component: 'Pane', requestId: 'fanouts', element: 'fanout:1', origin: { kind: 'person' } })
+  expect(await shownName(pane)).toBe('b')
+  await $.ui.focus({ component: 'Pane', requestId: 'fanouts', element: 'fanout:0', origin: { kind: 'person' } })
+  expect(await shownName(pane)).toBe('a')
+  await pane.unmount()
+})
+
+test('the focus ring on the band-opened run\'s own tab keeps it in the pane; on another tab it lets it go', async ($, on) => {
+  const old = fanout({ id: '/w/old', dir: '/w/old', name: 'old', state: 'done', alive: false, pid: null, ended_at: NOW - 5 })
+  const a = fanout({ id: '/w/a', dir: '/w/a', name: 'a' })
+  const other = fanout({ id: '/w/b', dir: '/w/b', name: 'other', state: 'done', alive: false, pid: null, ended_at: NOW - 5 })
+  await started($, on, [snap([old, a, other])])
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await band.press({ key: 'open:2' })
+  await band.unmount()
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await tabs(pane)).toEqual(['◯ a', '◯ other'])
+  expect(await shownName(pane)).toBe('other')
+  await $.ui.focus({ component: 'Pane', requestId: 'fanouts', element: 'fanout:1', origin: { kind: 'person' } })
+  expect(await shownName(pane)).toBe('other')
+  expect(await tabs(pane)).toEqual(['◯ a', '◯ other'])
+  await $.ui.focus({ component: 'Pane', requestId: 'fanouts', element: 'fanout:0', origin: { kind: 'person' } })
+  expect(await shownName(pane)).toBe('a')
+  expect(await tabs(pane)).toEqual([])
+  await pane.unmount()
+})
+
+test('the selection is stored under the shape tag selection-3, holding the finished run the band opened', { plugins: [peek] }, async ($, on) => {
+  const other = fanout({ id: '/w/b', dir: '/w/b', name: 'other', state: 'done', alive: false, pid: null, ended_at: NOW - 5 })
+  await started($, on, [snap([fanout(), other])])
+  let band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  // a running row: nothing to hold
+  await band.press({ key: 'open:0' })
+  expect(await stored($, 'selection')).toEqual({ shape: 'selection-3', value: { dir: '/w/clean/merge5', phase: null, agent: null, top: 0, pinned: null } })
+  // a finished row: held
+  await band.press({ key: 'open:1' })
+  await band.unmount()
+  expect(await stored($, 'selection')).toEqual({ shape: 'selection-3', value: { dir: '/w/b', phase: null, agent: null, top: 0, pinned: '/w/b' } })
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await pane.press({ key: 'fanout:0' })
+  await pane.unmount()
+  expect(await stored($, 'selection')).toEqual({ shape: 'selection-3', value: { dir: '/w/clean/merge5', phase: null, agent: null, top: 0, pinned: null } })
 })
 
 test('one fan-out has no tabs', async ($, on) => {
@@ -461,8 +837,12 @@ test('a failed agent\'s row ends with its error', async ($, on) => {
 })
 
 test('a run\'s first problem shows under the header, the others do not', async ($, on) => {
-  const f = fanout({ state: 'died', alive: false, problems: ['no process, and the last run never finished', 'a second problem'] })
+  const f = fanout({ state: 'died', alive: false, pid: null, ended_at: NOW - 5, problems: ['no process, and the last run never finished', 'a second problem'] })
   await started($, on, [snap([f])])
+  // a stopped run reaches the pane through its band row
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await band.press({ key: 'open:0' })
+  await band.unmount()
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
   const header = texts.findIndex(t => t.startsWith('clean fan-out'))
@@ -474,7 +854,7 @@ test('a run\'s first problem shows under the header, the others do not', async (
 test('a scanner that fails is reported in the pane, not thrown', async ($, on) => {
   await started($, on, ['fail'])
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /No clean fan-outs/ }))?.text).toMatch(/^No clean fan-outs yet\./)
+  expect((await ui.find({ type: 'Text', text: /No clean fan-outs/ }))?.text).toBe(NONE)
   expect((await ui.find({ type: 'Text', text: /scanner:/ }))?.text).toBe('⚠ scanner: fanout_scan.py exited 1: Traceback: boom')
   await ui.unmount()
 })
@@ -628,6 +1008,191 @@ test('at most twenty folders are passed back, newest first', async ($, on) => {
   expect(dirs[0]).toBe('/w/r24')
 })
 
+// ---------------- this chat's clean fan-out spend, for the status line ----------------
+
+test('this chat\'s clean fan-out spend is written for the status line under HOME/.claude', { plugins: [peek] }, async ($, on) => {
+  const { writes } = await started($, on, [snap([fanout()])])
+  expect(writes.map(w => w.path)).toEqual(['/home/me/.claude/.agenting-fanout-cost/sess-1.json'])
+  expect(spent(writes)).toEqual([{ v: 1, session_id: 'sess-1', usd: 6.36, runs: 1, updated_at: NOW }])
+  // kept in the session's state, under its own shape tag
+  expect((await stored($, 'spend'))?.shape).toBe('spend-1')
+})
+
+test('the spend file goes under AGENTING_STATE_DIR when it is set', async ($, on) => {
+  const { writes } = await started($, on, [snap([fanout()])], undefined, { AGENTING_STATE_DIR: '/state' })
+  expect(writes.map(w => w.path)).toEqual(['/state/.agenting-fanout-cost/sess-1.json'])
+})
+
+test('the spend adds up every run folder of the chat, and counts the folders that cost something', async ($, on) => {
+  const a = fanout({ id: '/w/a', dir: '/w/a', name: 'a', cost_usd: 1.25 })
+  const b = fanout({ id: '/w/b', dir: '/w/b', name: 'b', state: 'done', alive: false, pid: null, ended_at: NOW - 5, cost_usd: 2.5 })
+  const c = fanout({ id: '/w/c', dir: '/w/c', name: 'c', cost_usd: null })
+  const { clock, writes } = await started($, on, [snap([a, b, c]), snap([{ ...a, cost_usd: 1.5 }, b, c], NOW + 3)])
+  expect(spent(writes).map(w => [w.usd, w.runs])).toEqual([[3.75, 2]])
+  await clock.advance(3000)
+  expect(spent(writes).map(w => [w.usd, w.runs, w.updated_at])).toEqual([[3.75, 2, NOW], [4, 2, NOW + 3]])
+})
+
+test('the spend file is written only when the total, to four decimals, changes', async ($, on) => {
+  const { clock, writes } = await started($, on, [
+    snap([fanout({ cost_usd: 1 })]),
+    snap([fanout({ cost_usd: 1 })], NOW + 3),
+    snap([fanout({ cost_usd: 1.00004 })], NOW + 6),
+    snap([fanout({ cost_usd: 1.2 })], NOW + 9),
+  ])
+  expect(writes).toHaveLength(1)
+  await clock.advance(3000)
+  await clock.advance(3000)
+  expect(writes).toHaveLength(1)
+  await clock.advance(3000)
+  expect(spent(writes).map(w => [w.usd, w.updated_at])).toEqual([[1, NOW], [1.2, NOW + 9]])
+})
+
+test('nothing is written while the spend is 0', async ($, on) => {
+  const { clock, writes } = await started($, on, [
+    snap([fanout({ cost_usd: null })]),
+    snap([fanout({ cost_usd: 0 })], NOW + 3),
+    snap([fanout({ cost_usd: 0.5 })], NOW + 6),
+  ])
+  await clock.advance(3000)
+  expect(writes).toEqual([])
+  await clock.advance(3000)
+  expect(spent(writes).map(w => [w.usd, w.runs])).toEqual([[0.5, 1]])
+})
+
+test('the spend never goes down: not when a run leaves the snapshot, reports no cost, or a scan fails', async ($, on) => {
+  const a = fanout({ id: '/w/a', dir: '/w/a', name: 'a', cost_usd: 2 })
+  const b = fanout({ id: '/w/b', dir: '/w/b', name: 'b', cost_usd: 1 })
+  const bDone = { ...b, state: 'done' as const, alive: false, pid: null, ended_at: NOW + 6, cost_usd: null }
+  const { clock, writes, scans } = await started($, on, [
+    snap([a, b]),
+    snap([a], NOW + 3),                                  // b is gone from the snapshot
+    snap([{ ...a, cost_usd: null }, bDone], NOW + 6),   // no cost reported for either
+    'fail',
+    snap([{ ...a, cost_usd: 2.5 }], NOW + 12),
+  ])
+  for (let i = 0; i < 4; i++) await clock.advance(3000)
+  expect(scans).toHaveLength(5)
+  expect(spent(writes).map(w => [w.usd, w.runs])).toEqual([[3, 2], [3.5, 2]])
+})
+
+test('a re-run in the same folder adds to the run before it when it starts running again', async ($, on) => {
+  const done = fanout({ state: 'done', alive: false, pid: null, ended_at: NOW - 5, cost_usd: 1 })
+  // the scanner reports only the new run's cost, here already above the old one's
+  const { clock, writes } = await started($, on, [snap([done]), snap([fanout({ cost_usd: 1.5 })], NOW + 15)])
+  await clock.advance(15000)
+  expect(spent(writes).map(w => [w.usd, w.runs])).toEqual([[1, 1], [2.5, 1]])
+})
+
+test('a re-run in the same folder adds to the run before it when the reported cost drops', async ($, on) => {
+  // seen running both times: the first run ended and the next began between two scans
+  const { clock, writes } = await started($, on, [
+    snap([fanout({ cost_usd: 2 })]),
+    snap([fanout({ cost_usd: 0.5 })], NOW + 3),
+    snap([fanout({ cost_usd: 0.8 })], NOW + 6),
+  ])
+  await clock.advance(3000)
+  await clock.advance(3000)
+  expect(spent(writes).map(w => w.usd)).toEqual([2, 2.5, 2.8])
+})
+
+test('a session id that is not a plain file name writes nothing, and the band still draws', async ($, on) => {
+  const { writes } = await started($, on, [snap([fanout()])], undefined, undefined, { sessionId: '../other' })
+  expect(writes).toEqual([])
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await band.find({ type: 'Text', text: /merge5/ }))?.text).toMatch(/^◯ merge5 /)
+  await band.unmount()
+})
+
+test('a spend write that fails breaks neither the scan, the band nor the pane, and the next scan writes it', async ($, on) => {
+  const { clock, writes, logs, scans } = await started($, on, [snap([fanout()]), snap([fanout()], NOW + 3)], undefined, undefined, { failWrites: 1 })
+  expect(writes).toEqual([])
+  expect(logs.filter(l => l.text.includes('disk full')).map(l => l.to)).toEqual(['debug'])
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await band.find({ type: 'Text', text: /merge5/ }))?.text).toMatch(/^◯ merge5 /)
+  expect(await band.find({ type: 'Text', text: /scanner failing/ })).toBeUndefined()
+  await band.unmount()
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await shownName(pane)).toBe('merge5')
+  expect(await pane.find({ type: 'Text', text: /scanner:/ })).toBeUndefined()
+  await pane.unmount()
+  await clock.advance(3000)
+  expect(scans).toHaveLength(2)
+  expect(spent(writes).map(w => [w.usd, w.updated_at])).toEqual([[6.36, NOW + 3]])
+})
+
+test('a session id that cannot be read breaks neither the scan, the band nor the pane, and the next scan writes the file', async ($, on) => {
+  const { clock, writes, logs, scans } = await started($, on, [snap([fanout()]), snap([fanout()], NOW + 3)], undefined, undefined, { failIds: 1 })
+  expect(writes).toEqual([])
+  expect(logs.filter(l => l.text.includes('no session yet')).map(l => l.to)).toEqual(['debug'])
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await band.find({ type: 'Text', text: /merge5/ }))?.text).toMatch(/^◯ merge5 /)
+  expect(await band.find({ type: 'Text', text: /scanner failing/ })).toBeUndefined()
+  await band.unmount()
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await shownName(pane)).toBe('merge5')
+  expect(await pane.find({ type: 'Text', text: /scanner:/ })).toBeUndefined()
+  await pane.unmount()
+  await clock.advance(3000)
+  expect(scans).toHaveLength(2)
+  expect(spent(writes).map(w => [w.usd, w.updated_at])).toEqual([[6.36, NOW + 3]])
+})
+
+test('an environment variable that cannot be read breaks neither the scan, the band nor the pane, and the next scan writes the file', async ($, on) => {
+  const { clock, writes, logs, scans } = await started($, on, [snap([fanout()]), snap([fanout()], NOW + 3)], undefined, undefined, { failEnv: 1 })
+  expect(writes).toEqual([])
+  expect(logs.filter(l => l.text.includes('env unreadable')).map(l => l.to)).toEqual(['debug'])
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await band.find({ type: 'Text', text: /merge5/ }))?.text).toMatch(/^◯ merge5 /)
+  expect(await band.find({ type: 'Text', text: /scanner failing/ })).toBeUndefined()
+  await band.unmount()
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await shownName(pane)).toBe('merge5')
+  expect(await pane.find({ type: 'Text', text: /scanner:/ })).toBeUndefined()
+  await pane.unmount()
+  await clock.advance(3000)
+  expect(scans).toHaveLength(2)
+  expect(spent(writes).map(w => [w.usd, w.updated_at])).toEqual([[6.36, NOW + 3]])
+})
+
+// A reload starts the module's variables over and keeps what $.state holds: the test has the spend
+// record stored as the session starts, with fresh module variables.
+test('after a reload the spend carries on from what was stored: the total does not drop, and a total already written is not written again', async ($, on) => {
+  const stored: SpendRun[] = [
+    { dir: '/w/clean/merge5', settled: 1, current: 2, running: true },
+    { dir: '/w/gone', settled: 0, current: 0.5, running: false },
+  ]
+  const { clock, writes } = await started($, on, [snap([fanout({ cost_usd: 2 })]), snap([fanout({ cost_usd: 2.25 })], NOW + 3)], undefined, undefined, { spend: { runs: stored, written: 3.5 } })
+  // the folder's earlier runs and the folder gone from the snapshot still count; 3.5 was written before the reload
+  expect(writes).toEqual([])
+  await clock.advance(3000)
+  expect(spent(writes).map(w => [w.usd, w.runs, w.updated_at])).toEqual([[3.75, 2, NOW + 3]])
+})
+
+test('after a reload a run seen running before it is not taken for a new one', async ($, on) => {
+  const stored: SpendRun[] = [{ dir: '/w/clean/merge5', settled: 0, current: 2, running: true }]
+  const { writes } = await started($, on, [snap([fanout({ cost_usd: 2.5 })])], undefined, undefined, { spend: { runs: stored, written: 2 } })
+  expect(spent(writes).map(w => w.usd)).toEqual([2.5])
+})
+
+test('a run unreadable in one scan does not count as a new run when it reads again', async ($, on) => {
+  const unknown = { ...fanout({ cost_usd: 0 }), kind: 'unknown' as const, state: 'unknown' as const, agents: [], problems: ['cwd unreadable'] }
+  const { clock, writes } = await started($, on, [snap([fanout({ cost_usd: 1 })]), snap([unknown], NOW + 3), snap([fanout({ cost_usd: 1.5 })], NOW + 6)])
+  await clock.advance(3000)
+  expect(spent(writes).map(w => w.usd)).toEqual([1])
+  await clock.advance(3000)
+  expect(spent(writes).map(w => w.usd)).toEqual([1, 1.5])
+})
+
+test('a run first seen unreadable adds nothing, and the cost it reads at later is not added to it', async ($, on) => {
+  const unknown = { ...fanout({ cost_usd: 0.7 }), kind: 'unknown' as const, state: 'unknown' as const, agents: [], problems: ['cwd unreadable'] }
+  const { clock, writes } = await started($, on, [snap([unknown]), snap([fanout({ cost_usd: 0.9 })], NOW + 15)])
+  expect(writes).toEqual([])
+  // nothing runs as far as the scan loop knows, so the next scan is 15 s on
+  await clock.advance(15000)
+  expect(spent(writes).map(w => [w.usd, w.runs])).toEqual([[0.9, 1]])
+})
+
 // ---------------- the view's words, unit by unit ----------------
 
 test('model names, counts and durations read as the Workflow view writes them', async () => {
@@ -663,6 +1228,76 @@ test('the view never puts an unreadable fan-out in the band, nor announces one',
   const unknown = { ...fanout(), state: 'unknown' as const, ended_at: NOW - 5 }
   expect(bandFanouts(snap([unknown]), [{ dir: unknown.dir, endedAt: NOW - 5 }])).toEqual([])
   expect(finished(snap([fanout()]), snap([unknown]))).toEqual([])
+})
+
+test('the pane lists the running fan-outs in snapshot order, and the band\'s finished run where the snapshot has it', async () => {
+  const old = fanout({ id: '/w/old', dir: '/w/old', name: 'old', state: 'done' })
+  const a = fanout({ id: '/w/a', dir: '/w/a', name: 'a' })
+  const b = fanout({ id: '/w/b', dir: '/w/b', name: 'b', state: 'failed' })
+  const c = fanout({ id: '/w/c', dir: '/w/c', name: 'c' })
+  const s = snap([old, a, b, c])
+  const sel = (pinned: string | null): Selection => ({ dir: pinned, phase: null, agent: null, top: 0, pinned }) as Selection
+  expect(V.paneFanouts(s, sel(null)).map(f => f.name)).toEqual(['a', 'c'])
+  expect(V.paneFanouts(s, sel('/w/old')).map(f => f.name)).toEqual(['old', 'a', 'c'])
+  expect(V.paneFanouts(s, sel('/w/b')).map(f => f.name)).toEqual(['a', 'b', 'c'])
+  // a held folder no longer in the snapshot adds nothing
+  expect(V.paneFanouts(s, sel('/w/gone')).map(f => f.name)).toEqual(['a', 'c'])
+  expect(V.paneFanouts(null, sel(null))).toEqual([])
+})
+
+test('the pane holds the band\'s finished run only while the snapshot still shows its folder ended', async () => {
+  const done = fanout({ id: '/w/b', dir: '/w/b', name: 'b', state: 'done' })
+  const running = fanout({ id: '/w/b', dir: '/w/b', name: 'b' })
+  const unknown = { ...fanout({ id: '/w/b', dir: '/w/b', name: 'b' }), state: 'unknown' as const }
+  expect(V.heldPin('/w/b', snap([done]))).toBe('/w/b')
+  expect(V.heldPin('/w/b', snap([unknown]))).toBe('/w/b')
+  expect(V.heldPin('/w/b', snap([running]))).toBeNull()
+  expect(V.heldPin('/w/b', snap([fanout()]))).toBeNull()
+  expect(V.heldPin(null, snap([done]))).toBeNull()
+})
+
+test('the spend record keeps each folder\'s cost and adds a re-run to the run before it', async () => {
+  const a = (over: Partial<Fanout>) => fanout({ id: '/w/a', dir: '/w/a', name: 'a', ...over })
+  let runs = V.mergeSpend([], snap([a({ cost_usd: 2 })]))
+  expect(runs).toEqual([{ dir: '/w/a', settled: 0, current: 2, running: true }])
+  runs = V.mergeSpend(runs, snap([a({ cost_usd: 3, state: 'done' })]))
+  expect(runs).toEqual([{ dir: '/w/a', settled: 0, current: 3, running: false }])
+  // no cost reported, an unreadable entry, or the folder gone: the last cost stays
+  runs = V.mergeSpend(runs, snap([a({ cost_usd: null, state: 'done' })]))
+  runs = V.mergeSpend(runs, snap([a({ cost_usd: 0, state: 'unknown' })]))
+  runs = V.mergeSpend(runs, snap([]))
+  expect(runs).toEqual([{ dir: '/w/a', settled: 0, current: 3, running: false }])
+  // running again: a new run, the old cost settled
+  runs = V.mergeSpend(runs, snap([a({ cost_usd: 3.5 })]))
+  expect(runs).toEqual([{ dir: '/w/a', settled: 3, current: 3.5, running: true }])
+  // a lower cost while running: yet another run
+  runs = V.mergeSpend(runs, snap([a({ cost_usd: 0.25 })]))
+  expect(runs).toEqual([{ dir: '/w/a', settled: 6.5, current: 0.25, running: true }])
+  // a new folder joins after the ones already kept
+  runs = V.mergeSpend(runs, snap([fanout({ id: '/w/b', dir: '/w/b', name: 'b', cost_usd: null })]))
+  expect(runs.map(r => r.dir)).toEqual(['/w/a', '/w/b'])
+  expect(V.spendTotal(runs)).toEqual({ usd: 6.75, runs: 1 })
+  // a folder whose latest run has no cost yet still counts, for the runs before it
+  expect(V.spendTotal([{ dir: '/w/a', settled: 1, current: 0, running: true }])).toEqual({ usd: 1, runs: 1 })
+})
+
+test('the spend total is rounded to four decimals', async () => {
+  const runs: SpendRun[] = [
+    { dir: '/w/a', settled: 0.1, current: 0.2, running: false },
+    { dir: '/w/b', settled: 0, current: 0.123456, running: true },
+  ]
+  expect(V.spendTotal(runs)).toEqual({ usd: 0.4235, runs: 2 })
+  expect(V.spendTotal([])).toEqual({ usd: 0, runs: 0 })
+})
+
+test('the spend file\'s path: AGENTING_STATE_DIR, else HOME/.claude, named by a plain session id', async () => {
+  expect(V.spendPath({ stateDir: '/state', home: '/home/me' }, 'sess-1')).toBe('/state/.agenting-fanout-cost/sess-1.json')
+  expect(V.spendPath({ stateDir: null, home: '/home/me' }, 'a_B-9')).toBe('/home/me/.claude/.agenting-fanout-cost/a_B-9.json')
+  expect(V.spendPath({ stateDir: '', home: '/home/me' }, 'x')).toBe('/home/me/.claude/.agenting-fanout-cost/x.json')
+  for (const bad of ['', '../x', 'a/b', 'a b', 'a.b', 'ş']) {
+    expect(V.spendPath({ stateDir: '/state', home: '/home/me' }, bad)).toBeNull()
+  }
+  expect(V.spendPath({ stateDir: null, home: null }, 'x')).toBeNull()
 })
 
 // keep a typed reference to the mount type the kit hands back

@@ -485,9 +485,121 @@ Feature: Fan-out view
   # Backed by: tests/fanouts.test.tsx > several fan-outs get a row of tabs; picking one shows it
   # Backed by: tests/fanouts.test.tsx > one fan-out has no tabs
   Scenario: Several fan-outs get tabs
-    Given a running fan-out and one that is done
+    Given two running fan-outs, merge5 and other, other having cost $1.50
     When the pane is drawn and the second tab is pressed
-    Then the tabs read "◯ merge5" and "◯ other" and the header is other's, ending in "· done"
+    Then the tabs read "◯ merge5" and "◯ other" and the header is other's, " 1/3 agents · 7m09s · $1.50"
+
+  # Backed by: tests/fanouts.test.tsx > a finished run leaves the pane's tabs on the first scan that reports it ended, and keeps its band row
+  Scenario: A finished run leaves the pane's tabs on the first scan that reports it ended
+    Given two running fan-outs, merge5 and other, each with a tab in the pane
+    When the next scan reports other done
+    Then the pane shows merge5 with no tab row and no trace of other
+    And the band still shows other's row beside merge5's
+
+  # Backed by: tests/fanouts.test.tsx > when the run on screen ends, the pane falls back to the first running one
+  Scenario: When the run on screen ends, the pane falls back to the first running one
+    Given the pane showing other, picked from its tab beside merge5
+    When the next scan reports other failed
+    Then the pane shows merge5
+
+  # Backed by: tests/fanouts.test.tsx > with no fan-out running the pane says none runs, even with finished runs in the snapshot
+  Scenario: With no fan-out running the pane says none runs, even with finished runs in the snapshot
+    Given a done and a failed fan-out that ended 5 seconds ago, and none running
+    When the pane is drawn
+    Then it reads "No clean fan-outs running. One shows here while cleanrun.py runs (or an external clean_runtime.mjs)."
+    And it draws no fan-out and no Button
+
+  # Backed by: tests/fanouts.test.tsx > pressing the band row of a finished run shows it in the pane, selected, beside the running tabs
+  Scenario: Pressing the band row of a finished run shows it in the pane, selected, beside the running tabs
+    Given a running fan-out merge5, and other (done, $1.50) and older (failed), both ended 5 seconds ago and in the band
+    When other's band row is pressed
+    Then the pane's tabs read "◯ merge5" and "◯ other", and older has none
+    And other's tab and its header name are in permission, its header stats " 1/3 agents · 7m09s · $1.50 · done"
+
+  # Backed by: tests/fanouts.test.tsx > a phase press keeps the band's finished run in the pane; picking another tab drops it
+  Scenario: The band's finished run stays through phase presses and its own tab, and leaves when another tab is picked
+    Given the pane opened on the done fan-out other from its band row, beside the running merge5
+    When the person presses phase 1, moves the focus ring onto phase 2, presses phase 1 and its agent row, presses other's own tab, then merge5's tab
+    Then the pane shows other, with the column title "GKC · 1 agent · xhigh" after the press, until merge5's tab is pressed
+    And then it shows merge5 with no tab row and no trace of other
+
+  # Backed by: tests/fanouts.test.tsx > /fanouts drops the band's finished run from the pane
+  Scenario: /fanouts drops the band's finished run from the pane
+    Given the pane opened on the done fan-out other from its band row, beside the running merge5
+    When the person runs /fanouts twice, closing the pane and opening it again
+    Then the pane shows merge5 with no tab row and no trace of other
+
+  # Backed by: tests/fanouts.test.tsx > a phase press acts on the run the pane shows, not on a finished run still selected
+  Scenario: A phase press acts on the fan-out the pane shows, not on a finished one still selected
+    Given the selection still names the done fan-out other after /fanouts dropped it, and the pane shows merge5 on Denetle
+    When the person presses phase 1
+    Then the pane shows merge5 with the column title "GKC · 1 agent · xhigh"
+
+  # Backed by: tests/fanouts.test.tsx > a run opened from the band while it runs leaves the pane when it ends
+  Scenario: A fan-out opened from the band while it runs leaves the pane when it ends
+    Given the pane opened on other from its band row while other runs, beside the running merge5
+    When the next scan reports other done
+    Then the pane shows merge5 and no trace of other
+
+  # Backed by: tests/fanouts.test.tsx > a tab press selects the run drawn at that index, whatever the snapshot order
+  Scenario: A tab press selects the fan-out drawn at that index, whatever the snapshot order
+    Given a snapshot listing the done fan-out old before the running a and b
+    When the pane is drawn and the second tab, then the first, is pressed
+    Then the tabs read "◯ a" and "◯ b", and the pane shows b, then a
+
+  # Backed by: tests/fanouts.test.tsx > a band-opened finished run does not come back to the pane when a later run in its folder ends
+  Scenario: A band-opened finished run does not come back to the pane when a later run in its folder ends
+    Given the pane opened on the done fan-out other from its band row, beside the running merge5
+    When the next scan reports other running again in that folder, and the scan after it reports it done
+    Then the pane shows other while it runs, and after the scan that reports it done shows merge5 with no tab row and no trace of other
+
+  # Backed by: tests/fanouts.test.tsx > a band-opened finished run does not come back to the pane when its folder left the snapshot and a later run there ended
+  Scenario: A band-opened finished run does not come back to the pane when its folder left the snapshot and a later run there ended
+    Given the pane opened on the done fan-out other from its band row, beside the running merge5
+    When a scan lists only merge5, and the next lists other's folder again as failed
+    Then the pane shows merge5 with no tab row and no trace of other
+
+  # Backed by: tests/fanouts.test.tsx > a band-opened finished run stays in the pane over scans that still report it ended
+  Scenario: A band-opened finished run stays in the pane over scans that still report it ended
+    Given the pane opened on the done fan-out other from its band row, beside the running merge5
+    When the next scan reports other done again
+    Then the pane's tabs read "◯ merge5" and "◯ other", and it shows other
+
+  # Backed by: tests/fanouts.test.tsx > a band row pressed while a scan is letting go of the held run is not undone by that scan
+  Scenario: A band row pressed while a scan lets go of the held run is not undone by that scan
+    Given the pane opened on the done fan-out other from its band row, and the next scan reporting other running again
+    When the person presses the band row of another done fan-out, third, just after that scan reads the held run
+    Then the pane's tabs read "◯ merge5", "◯ other" and "◯ third", and it shows third
+
+  # Backed by: tests/fanouts.test.tsx > the pane holds the band's finished run only while the snapshot still shows its folder ended
+  Scenario: The pane holds the band's finished run only while the snapshot still shows its folder ended
+    Given a snapshot with the folder /w/b as done, as unreadable, as running, and missing
+    When heldPin works out the held folder /w/b for each, and for no held folder
+    Then it is /w/b for the done and the unreadable one, and null for the running one, the missing one and no held folder
+
+  # Backed by: tests/fanouts.test.tsx > moving the focus ring onto a fan-out tab shows the run drawn at that index, whatever the snapshot order
+  Scenario: Moving the focus ring onto a fan-out tab shows the run drawn at that index, whatever the snapshot order
+    Given a snapshot listing the done fan-out old before the running a and b
+    When the pane is drawn and the focus ring moves onto the second tab, then the first
+    Then the tabs read "◯ a" and "◯ b", and the pane shows b, then a
+
+  # Backed by: tests/fanouts.test.tsx > the focus ring on the band-opened run's own tab keeps it in the pane; on another tab it lets it go
+  Scenario: The focus ring on the band-opened run's own tab keeps it in the pane; on another tab it lets it go
+    Given old (done) and a (running) and other (done), in that order, all in the band, and other's band row pressed
+    When the focus ring moves onto the second tab, then the first
+    Then the tabs read "◯ a" and "◯ other" and the pane shows other, then a with no tab row and no trace of other
+
+  # Backed by: tests/fanouts.test.tsx > the selection is stored under the shape tag selection-3, holding the finished run the band opened
+  Scenario: The pane's selection is stored under the shape tag selection-3, holding the finished run the band opened
+    Given the running merge5 and the done other (/w/b), both in the band
+    When merge5's band row, then other's, then the merge5 tab are pressed
+    Then the stored selection is tagged "selection-3" each time, its pinned field null, then "/w/b", then null
+
+  # Backed by: tests/fanouts.test.tsx > the pane lists the running fan-outs in snapshot order, and the band's finished run where the snapshot has it
+  Scenario: The pane's list is the running fan-outs in snapshot order, and the band's finished run where the snapshot has it
+    Given a snapshot of old (done), a (running), b (failed) and c (running), in that order
+    When paneFanouts works out the pane's list with no run held, with old held, with b held, and with a folder held that is gone
+    Then it is a, c; then old, a, c; then a, b, c; then a, c; and with no snapshot it is empty
 
   # Backed by: tests/fanouts.test.tsx > the agent column shows ten rows at a time, with the pager in the bottom border
   Scenario: The agent column shows ten rows at a time, with the pager in the bottom border
@@ -527,15 +639,16 @@ Feature: Fan-out view
 
   # Backed by: tests/fanouts.test.tsx > a run's first problem shows under the header, the others do not
   Scenario: A run's first problem shows under its header
-    Given a stopped fan-out with two problems
-    When the pane is drawn
+    Given a stopped fan-out with two problems, which ended 5 seconds ago
+    When the pane is opened on it from its band row
     Then the line under the header stats ("... · stopped") reads "⚠ " and the first problem, and the second is not shown
 
   # Backed by: tests/fanouts.test.tsx > a scanner that fails is reported in the pane, not thrown
   Scenario: A scanner failure is shown in the pane
     Given the scanner exits 1 with "Traceback: boom"
     When the pane is drawn
-    Then it reads "⚠ scanner: fanout_scan.py exited 1: Traceback: boom"
+    Then it reads "No clean fan-outs running. One shows here while cleanrun.py runs (or an external clean_runtime.mjs)."
+    And "⚠ scanner: fanout_scan.py exited 1: Traceback: boom"
 
   # Backed by: tests/fanouts.test.tsx > the pane notes when Claude Code is another version than the look was copied from
   # Backed by: tests/fanouts.test.tsx > no version note under the version the look was copied from
@@ -559,7 +672,7 @@ Feature: Fan-out view
 
   # Backed by: tests/fanouts.test.tsx > the header ends with the state of a run that is over
   Scenario: The header ends with the state of a run that is over
-    Given a running, a done, a failed and a died fan-out
+    Given a running, a done, a failed and a died fan-out (the pane shows one that is over only when it was opened from its band row)
     When their header stats are written
     Then the running one has no state word and the others end "· done", "· failed" and "· stopped"
 
@@ -631,3 +744,127 @@ Feature: Fan-out view
     Given 25 ended fan-outs
     When the next scan starts
     Then it passes 20 folders with --dir, the newest first
+
+  # This chat's clean fan-out spend, written for the status line: clean runs are their own claude -p
+  # processes, so their cost is not in Claude Code's cost.total_cost_usd
+
+  # Backed by: tests/fanouts.test.tsx > this chat's clean fan-out spend is written for the status line under HOME/.claude
+  Scenario: This chat's clean fan-out spend is written for the status line under HOME/.claude
+    Given session id sess-1, HOME /home/me, no AGENTING_STATE_DIR, and a running fan-out that cost $6.36
+    When the first scan lands
+    Then /home/me/.claude/.agenting-fanout-cost/sess-1.json holds {"v": 1, "session_id": "sess-1", "usd": 6.36, "runs": 1, "updated_at": <the snapshot's now>}
+    And the spend record is kept in the session's state under the shape tag spend-1
+
+  # Backed by: tests/fanouts.test.tsx > the spend file goes under AGENTING_STATE_DIR when it is set
+  Scenario: The spend file goes under AGENTING_STATE_DIR when it is set
+    Given AGENTING_STATE_DIR /state and a running fan-out that cost $6.36
+    When the first scan lands
+    Then the file written is /state/.agenting-fanout-cost/sess-1.json
+
+  # Backed by: tests/fanouts.test.tsx > the spend adds up every run folder of the chat, and counts the folders that cost something
+  Scenario: The spend adds up every run folder of the chat, and counts the folders that cost something
+    Given a running fan-out at $1.25, a done one at $2.50 and a running one with no cost yet
+    When the first scan lands, and the next finds the first at $1.50
+    Then the file holds usd 3.75 with runs 2, then usd 4 with runs 2
+
+  # Backed by: tests/fanouts.test.tsx > the spend file is written only when the total, to four decimals, changes
+  Scenario: The spend file is written only when the total, to four decimals, changes
+    Given four scans 3 seconds apart reporting $1, $1, $1.00004 and $1.20
+    When they land
+    Then the file is written after the first (usd 1) and the fourth (usd 1.2) only
+
+  # Backed by: tests/fanouts.test.tsx > nothing is written while the spend is 0
+  Scenario: Nothing is written while the spend is 0
+    Given scans reporting no cost, then $0, then $0.50
+    When they land
+    Then nothing is written until the third, which writes usd 0.5 with runs 1
+
+  # Backed by: tests/fanouts.test.tsx > the spend never goes down: not when a run leaves the snapshot, reports no cost, or a scan fails
+  Scenario: The spend never goes down when a run leaves the snapshot, reports no cost, or a scan fails
+    Given a at $2 and b at $1, then a scan without b, then one where neither reports a cost, then a failed scan, then a at $2.50
+    When the five scans land
+    Then the file is written twice: usd 3, then usd 3.5, both with runs 2
+
+  # Backed by: tests/fanouts.test.tsx > a re-run in the same folder adds to the run before it when it starts running again
+  Scenario: A re-run in the same folder adds to the run before it when it starts running again
+    Given a folder whose done run cost $1
+    When a later scan finds the folder running again, its new run at $1.50
+    Then the file holds usd 1, then usd 2.5
+
+  # Backed by: tests/fanouts.test.tsx > a re-run in the same folder adds to the run before it when the reported cost drops
+  Scenario: A re-run in the same folder adds to the run before it when the reported cost drops
+    Given a folder seen running at $2, then at $0.50, then at $0.80
+    When the three scans land
+    Then the file holds usd 2, then 2.5, then 2.8
+
+  # Backed by: tests/fanouts.test.tsx > a session id that is not a plain file name writes nothing, and the band still draws
+  Scenario: A session id that is not a plain file name writes nothing
+    Given the session id "../other" and a running fan-out that cost $6.36
+    When the first scan lands
+    Then no file is written and the band still draws the fan-out's row
+
+  # Backed by: tests/fanouts.test.tsx > a spend write that fails breaks neither the scan, the band nor the pane, and the next scan writes it
+  Scenario: A spend write that fails breaks nothing and is tried again on the next scan
+    Given the first file write is refused with "disk full"
+    When the first scan lands, and then the next
+    Then one debug log line names "disk full", the band has no "scanner failing" and the pane no scanner line
+    And the next scan writes usd 6.36 at its own now
+
+  # Backed by: tests/fanouts.test.tsx > a session id that cannot be read breaks neither the scan, the band nor the pane, and the next scan writes the file
+  Scenario: A session id that cannot be read breaks nothing and is tried again on the next scan
+    Given the first read of the session id is refused with "no session yet"
+    When the first scan lands, and then the next
+    Then one debug log line names "no session yet", the band has no "scanner failing" and the pane no scanner line
+    And the next scan writes usd 6.36 at its own now
+
+  # Backed by: tests/fanouts.test.tsx > an environment variable that cannot be read breaks neither the scan, the band nor the pane, and the next scan writes the file
+  Scenario: An environment variable that cannot be read breaks nothing and is tried again on the next scan
+    Given the first read of AGENTING_STATE_DIR is refused with "env unreadable"
+    When the first scan lands, and then the next
+    Then one debug log line names "env unreadable", the band has no "scanner failing" and the pane no scanner line
+    And the next scan writes usd 6.36 at its own now
+
+  # Backed by: tests/fanouts.test.tsx > after a reload the spend carries on from what was stored: the total does not drop, and a total already written is not written again
+  Scenario: After a reload the spend carries on from what was stored
+    Given a stored spend record of merge5 (settled $1, current $2, running) and a gone folder at $0.50, with $3.50 marked as written
+    When the module starts over, the first scan reports merge5 at $2, and the next at $2.25
+    Then the first scan writes nothing, and the next writes usd 3.75 over 2 runs at its own now
+
+  # Backed by: tests/fanouts.test.tsx > after a reload a run seen running before it is not taken for a new one
+  Scenario: After a reload a run seen running before is not taken for a new one
+    Given a stored spend record of merge5 (settled $0, current $2, running), with $2 marked as written
+    When the module starts over and the first scan reports merge5 running at $2.50
+    Then the file is written with usd 2.5
+
+  # Backed by: tests/fanouts.test.tsx > a run unreadable in one scan does not count as a new run when it reads again
+  Scenario: A run unreadable in one scan does not count as a new run when it reads again
+    Given merge5 running at $1, then unreadable in the next scan, then running at $1.50
+    When the three scans land
+    Then the file holds usd 1 after the unreadable one, and usd 1.5 after the third
+
+  # Backed by: tests/fanouts.test.tsx > a run first seen unreadable adds nothing, and the cost it reads at later is not added to it
+  Scenario: A run first seen unreadable adds nothing, and the cost it reads at later is not added to it
+    Given a fan-out first reported unreadable at $0.70, then running at $0.90
+    When the two scans land
+    Then nothing is written after the first, and the second writes usd 0.9 over 1 run
+
+  # Backed by: tests/fanouts.test.tsx > the spend record keeps each folder's cost and adds a re-run to the run before it
+  Scenario: The spend record keeps each folder's cost and adds a re-run to the run before it
+    Given a folder seen running at $2, then done at $3, then with no cost, as unknown at $0, and missing
+    When mergeSpend merges each snapshot, then one running again at $3.50, then one at $0.25
+    Then the folder keeps current 3 through the middle three, then settles 3 with current 3.5, then settles 6.5 with current 0.25
+    And spendTotal reads usd 6.75 with runs 1 once a folder with no cost has joined
+    And a folder with settled $1 and no cost on its latest run still counts as one run
+
+  # Backed by: tests/fanouts.test.tsx > the spend total is rounded to four decimals
+  Scenario: The spend total is rounded to four decimals
+    Given folders holding 0.1 and 0.2, and 0.123456
+    When spendTotal adds them
+    Then it reads usd 0.4235 with runs 2, and usd 0 with runs 0 for no folder
+
+  # Backed by: tests/fanouts.test.tsx > the spend file's path: AGENTING_STATE_DIR, else HOME/.claude, named by a plain session id
+  Scenario: The spend file's path is AGENTING_STATE_DIR, else HOME/.claude, named by a plain session id
+    Given the state dir /state or none (unset or empty), the home /home/me or none
+    When spendPath names the file for a session id
+    Then it is /state/.agenting-fanout-cost/sess-1.json, or /home/me/.claude/.agenting-fanout-cost/a_B-9.json without a state dir
+    And it is null for "", "../x", "a/b", "a b", "a.b" and "ş", and with neither folder

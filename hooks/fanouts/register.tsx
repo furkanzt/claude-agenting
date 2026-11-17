@@ -6,7 +6,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
-import type { Fanout, FanoutAgent, Selection } from '../../types'
+import type { Fanout, FanoutAgent, Selection, Snapshot } from '../../types'
 import { GLYPHS, LOOK_FROM, SEP, WORDS, agentTone, barGlyphs, isGhostty, runTone } from './look'
 import type { Phase } from './view'
 import {
@@ -24,10 +24,13 @@ import {
   frameBottom,
   frameTop,
   headerStats,
+  heldPin,
   isLive,
   labelWidth,
   mergeKnown,
   parseSnapshot,
+  paneFanouts,
+  mergeSpend,
   phaseCell,
   phaseCol,
   phaseState,
@@ -35,6 +38,8 @@ import {
   pager,
   pick,
   sharedEffort,
+  spendPath,
+  spendTotal,
 } from './view'
 
 const PLUGIN = 'agenting'
@@ -47,7 +52,9 @@ const SCAN_TIMEOUT_MS = 20000
 // Change a tag when that value's fields change: it declines what an earlier version stored.
 const snapshot = atom({ plugin: 'agenting', key: 'snapshot' } as const, null, { shape: 'snapshot-3' })
 const known = atom({ plugin: 'agenting', key: 'known' } as const, [], { shape: 'known-3' })
-const selection = atom({ plugin: 'agenting', key: 'selection' } as const, { dir: null, phase: null, agent: null, top: 0 }, { shape: 'selection-2' })
+const selection = atom({ plugin: 'agenting', key: 'selection' } as const, { dir: null, phase: null, agent: null, top: 0, pinned: null }, { shape: 'selection-3' })
+// This chat's clean fan-out spend, written to the file the status line reads.
+const spend = atom({ plugin: 'agenting', key: 'spend' } as const, { runs: [], written: null }, { shape: 'spend-1' })
 const scanError = atom({ plugin: 'agenting', key: 'scanError' } as const, null)
 
 type Ui = ReturnType<EngineInterface['ui']['resolve']>
@@ -82,8 +89,35 @@ async function scan($: EngineInterface): Promise<boolean> {
   for (const f of finished(prev, shown)) $.ui.toast(announce(f))
   await update($, known, list => mergeKnown(list, shown))
   await update($, snapshot, () => shown)
+  const held = (await read($, selection)).pinned
+  if (held !== null && heldPin(held, shown) === null) await update($, selection, s => (s.pinned === held ? { ...s, pinned: null } : s))
+  await writeSpend($, shown)
   await update($, scanError, () => null)
   return shown.fanouts.some(isLive)
+}
+
+// Adds this scan's costs to the chat's spend and writes the file when the total changed. A failure
+// is a debug line: the band and the pane go on, and the next scan tries again.
+async function writeSpend($: EngineInterface, shown: Snapshot) {
+  try {
+    const rec = await update($, spend, s => ({ ...s, runs: mergeSpend(s.runs, shown) }))
+    const total = spendTotal(rec.runs)
+    if (total.usd <= 0 || total.usd === rec.written) return
+    const id = await $.session.id()
+    const path = spendPath(
+      { stateDir: (await $.env.get('AGENTING_STATE_DIR')) ?? null, home: (await $.env.get('HOME')) ?? null },
+      id,
+    )
+    if (!path) return
+    await $.fs.write(path, JSON.stringify({ v: 1, session_id: id, usd: total.usd, runs: total.runs, updated_at: shown.now }))
+    await update($, spend, s => ({ ...s, written: total.usd }))
+  } catch (err) {
+    try {
+      $.ui.log(`${PLUGIN}: spend: ${err instanceof Error ? err.message : String(err)}`, { to: 'debug' })
+    } catch {
+      // unloaded: nothing to log to
+    }
+  }
 }
 
 // Scan, then again in FAST_MS while anything runs, else in SLOW_MS. Never rejects: it runs
@@ -121,33 +155,38 @@ async function openPane($: EngineInterface) {
 }
 
 // A band row pressed (ctrl+x tab, then enter; or a click): the pane, on that fan-out.
+// A run that is already over stays in the pane until another tab is picked; a running one leaves it
+// with its end, as the pane's tabs do.
 async function openOn($: EngineInterface, dir: string) {
-  await update($, selection, () => ({ dir, phase: null, agent: null, top: 0 }))
+  const f = (await read($, snapshot))?.fanouts.find(x => x.dir === dir)
+  const pinned = f && !isLive(f) ? dir : null
+  await update($, selection, () => ({ dir, phase: null, agent: null, top: 0, pinned }))
   await openPane($)
 }
 
 // A fan-out tab, a phase row or an agent row got the focus ring or a press: show it. On an agent
 // row the page scrolls so the row past it stays on screen, as /workflows scrolls.
 async function choose($: EngineInterface, key: string) {
-  const list = (await read($, snapshot))?.fanouts ?? []
   const sel: Selection = await read($, selection)
+  const list = paneFanouts(await read($, snapshot), sel)
   if (key.startsWith('fanout:')) {
     const f = list[Number(key.slice(7))]
-    if (f) await update($, selection, () => ({ dir: f.dir, phase: null, agent: null, top: 0 }))
+    // a tab press on another run lets go of the one the band opened
+    if (f) await update($, selection, () => ({ dir: f.dir, phase: null, agent: null, top: 0, pinned: f.dir === sel.pinned ? sel.pinned : null }))
     return
   }
   const { fanout, phase, phases } = pick(list, sel)
   if (!fanout) return
   if (key.startsWith('phase:')) {
     const p = phases[Number(key.slice(6)) - 1]
-    if (p) await update($, selection, () => ({ dir: fanout.dir, phase: p.title, agent: null, top: 0 }))
+    if (p) await update($, selection, () => ({ dir: fanout.dir, phase: p.title, agent: null, top: 0, pinned: sel.pinned }))
     return
   }
   if (key.startsWith('agent:') && phase) {
     const i = Number(key.slice(6))
     const sameView = sel.dir === fanout.dir && sel.phase === phase.title
     const top = pageTop(i, sameView ? sel.top : 0, phase.agents.length)
-    await update($, selection, () => ({ dir: fanout.dir, phase: phase.title, agent: i, top }))
+    await update($, selection, () => ({ dir: fanout.dir, phase: phase.title, agent: i, top, pinned: sel.pinned }))
   }
 }
 
@@ -177,6 +216,8 @@ export const register: Register = on => {
 
   // /fanouts opens the pane, or closes it when it is open.
   on('command.run', { command: COMMAND }, async $ => {
+    // /fanouts shows the running fan-outs only: the band's finished one leaves the pane
+    await update($, selection, s => ({ ...s, pinned: null }))
     if ((await $.ui.panes()).some(p => p.id === PANE)) {
       await $.ui.close({ id: PANE })
       return { text: `${WORDS.heading} pane closed.` }
@@ -234,7 +275,7 @@ export const register: Register = on => {
     const snap = await read($, snapshot)
     const sel = await read($, selection)
     const failure = await read($, scanError)
-    const list = snap?.fanouts ?? []
+    const list = paneFanouts(snap, sel)
     const platform = snap?.platform ?? ''
     const width = Math.max(40, e.props.bodyColumns - 2)
     const { fanout: f, phase, phases } = pick(list, sel)

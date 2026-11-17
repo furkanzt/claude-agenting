@@ -183,6 +183,10 @@ prompt, `1: ◯ name …`, and a per-task view that typing that digit into the e
 never lists it. It also recognises `clean_runtime.mjs`, an external runner (not shipped with this plugin)
 that runs each `agent()` call of a Workflow script as its own cleanrun:
 `node …/clean_runtime.mjs <script.js> --out DIR`.
+The `/fanouts` pane lists running runs only; the row above the prompt keeps an ended run five
+minutes. A clean run's spend is not in Claude Code's own session cost (Workflow agents are); the
+view writes this chat's total to `~/.claude/.agenting-fanout-cost/<session id>.json` for a status
+line to add (the README's "Clean fan-out spend in your status line").
 
 - `plan` writes nothing and says what would run or resume. Its "cost bound" is tasks times
   attempts times the soft per-run cap, a ceiling and not an estimate; `--max-usd` stops new

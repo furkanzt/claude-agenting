@@ -87,6 +87,19 @@ Change them in plain language or with `/agenting-mode` (e.g. `/agenting-mode man
 
 Keys: type a row's digit (`1`, `2`, `3`) into the empty prompt to open the pane on that run, also while Claude is working, as a survey's digits answer it; `/fanouts` opens or closes the pane, also mid-turn; ↑↓ picks a phase; esc closes it. (ctrl+x tab, then enter, reaches a row too.) While a row shows, a `1` typed first into an empty prompt opens the pane instead of starting your message. Colours are theme keys, so they follow your theme, and the bar takes the engine's glyphs by the engine's own rule (`█░` when `TERM` is `xterm-ghostty` or `TERM_PROGRAM` is `ghostty`, `▰▱` otherwise); the layout is copied from Claude Code 2.1.317 into `hooks/fanouts/look.ts`, and the pane notes in a dim line when the running version differs. A plugin cannot add rows to the engine's own panel or `/workflows`, which is why the view is its own.
 
+**What stays on screen.** The `/fanouts` pane lists running runs only: a run leaves its tabs on the first scan that reports it ended, and with nothing running the pane says so. The row above the prompt keeps an ended run for five minutes, and its toast says how it ended; pressing that row (or typing its digit) opens the pane on the ended run, which then stays there beside the running ones until you pick another tab or open the pane with `/fanouts`.
+
+**Clean fan-out spend in your status line.** Claude Code's own cost (`cost.total_cost_usd` in a status line's input) already counts Workflow agents, which run inside the chat's process, but never a clean run: those are separate `claude -p` processes. The fan-out view keeps this chat's total for them (every run folder it has seen, a re-run in the same folder added to the run before it, never going down) and writes it to `<AGENTING_STATE_DIR or ~/.claude>/.agenting-fanout-cost/<session id>.json` as `{"v": 1, "session_id": …, "usd": 1.2345, "runs": 2, "updated_at": …}`, only when the total changes. Nothing is written before a clean run has cost something. A status line command adds it to the figure it shows, for example:
+
+```bash
+SID=$(jq -r '.session_id // empty' <<<"$INPUT")
+F="${AGENTING_STATE_DIR:-$HOME/.claude}/.agenting-fanout-cost/$SID.json"
+FANOUT_USD=$( [[ "$SID" =~ ^[A-Za-z0-9_-]+$ && -f "$F" ]] && jq -r '.usd | numbers' "$F" || echo 0)
+jq -r --argjson fanout "${FANOUT_USD:-0}" '((.cost.total_cost_usd // 0) + $fanout)' <<<"$INPUT"
+```
+
+One small file per chat that ran a clean fan-out stays in that folder; the plugin deletes none of them.
+
 **Project rules.** A project can keep hand-written routing rules in `agenting/AGENTING.md` at its root: a `## Rules` section (e.g. *"always route the synthesis step to opus/xhigh here"*) and a `## Config` section with one knob, `auto-disposition-default`. Claude reads it in full before the first Workflow of a session; its Rules override the disposition and the routing table. The template is `templates/AGENTING.md`.
 
 ## Install

@@ -74,8 +74,17 @@ export type Known = { dir: string; endedAt: number | null }
 
 // What the pane shows, as /workflows does: one fan-out (by folder), one of its phases, the agent
 // row holding the focus ring (an index into the phase's agents, or null) and the first agent row
-// of the page on screen.
-export type Selection = { dir: string | null; phase: string | null; agent: number | null; top: number }
+// of the page on screen. pinned is the folder a band row opened while it had ended (kept in the
+// pane until the person picks another tab, or a scan shows that folder running again or gone), else null.
+export type Selection = { dir: string | null; phase: string | null; agent: number | null; top: number; pinned: string | null }
+
+// One run folder of this chat's clean fan-outs: what earlier runs there cost (settled), what the
+// run in it now costs (current), and whether it was running at the last scan.
+export type SpendRun = { dir: string; settled: number; current: number; running: boolean }
+
+// This chat's clean fan-out spend, for the status line: every folder seen, and the total last
+// written to the spend file (null before the first write).
+export type Spend = { runs: SpendRun[]; written: number | null }
 
 declare module 'claude-code' {
   interface PluginState {
@@ -83,6 +92,7 @@ declare module 'claude-code' {
       snapshot: Shaped<Snapshot | null>
       known: Shaped<Known[]>
       selection: Shaped<Selection>
+      spend: Shaped<Spend>
       scanError: string | null
     }
   }

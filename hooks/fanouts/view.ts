@@ -1,6 +1,6 @@
 // What the band and the pane show, worked out from a scanner snapshot. No I/O, no drawing.
 
-import type { Fanout, FanoutAgent, Known, Selection, Snapshot } from '../../types'
+import type { Fanout, FanoutAgent, Known, Selection, Snapshot, SpendRun } from '../../types'
 import { BAR_CELLS, GLYPHS, PHASE_COL, SEP, WORDS, count, dollars, duration, modelName, plural } from './look'
 
 // A finished fan-out stays in the band this long after the mod saw it end, then only in the pane.
@@ -162,6 +162,61 @@ export function pick(list: Fanout[], sel: Selection): { fanout: Fanout | null; p
   const ps = phases(fanout)
   const phase = (sel.dir === fanout.dir ? ps.find(p => p.title === sel.phase) : undefined) ?? defaultPhase(ps)
   return { fanout, phase, phases: ps }
+}
+
+// The pane's tabs and the fan-out it shows: the running ones in snapshot order, and the folder a band
+// row opened while it had ended (sel.pinned), where the snapshot still has it.
+export function paneFanouts(snap: Snapshot | null, sel: Selection): Fanout[] {
+  if (!snap) return []
+  return snap.fanouts.filter(f => isLive(f) || f.dir === sel.pinned)
+}
+
+// The folder a band row opened stays held only while the snapshot still shows that folder's run as
+// ended. Once the folder runs again, or is gone from the snapshot, the hold is let go: a later run
+// there that ends is no choice of the person's, so it leaves the pane as any ended run does.
+export function heldPin(pinned: string | null, snap: Snapshot): string | null {
+  if (pinned === null) return null
+  const f = snap.fanouts.find(x => x.dir === pinned)
+  return f && !isLive(f) ? pinned : null
+}
+
+// This chat's spend per run folder. A folder's cost only ever adds up: a new run in it (seen
+// running again, or a cost lower than before) settles the cost it had, then takes the new one.
+// Folders missing from the snapshot, and cost reported as null, keep what they had.
+export function mergeSpend(runs: SpendRun[], snap: Snapshot): SpendRun[] {
+  const out = runs.map(r => ({ ...r }))
+  for (const f of snap.fanouts) {
+    if (f.state === 'unknown') continue
+    const cost = typeof f.cost_usd === 'number' && Number.isFinite(f.cost_usd) ? f.cost_usd : null
+    const running = isLive(f)
+    const before = out.find(r => r.dir === f.dir)
+    if (!before) {
+      out.push({ dir: f.dir, settled: 0, current: cost ?? 0, running })
+      continue
+    }
+    if ((running && !before.running) || (cost !== null && cost < before.current)) {
+      before.settled += before.current
+      before.current = cost ?? 0
+    } else if (cost !== null) {
+      before.current = cost
+    }
+    before.running = running
+  }
+  return out
+}
+
+// The chat's total, rounded to four decimals, and how many folders cost something.
+export function spendTotal(runs: SpendRun[]): { usd: number; runs: number } {
+  const sum = runs.reduce((x, r) => x + r.settled + r.current, 0)
+  return { usd: Math.round(sum * 10000) / 10000, runs: runs.filter(r => r.settled + r.current > 0).length }
+}
+
+// The spend file: <AGENTING_STATE_DIR or HOME/.claude>/.agenting-fanout-cost/<session id>.json. Null
+// when the id is not a plain file name or there is no folder to write under.
+export function spendPath(base: { stateDir?: string | null; home?: string | null }, sessionId: string): string | null {
+  if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) return null
+  const root = base.stateDir ? base.stateDir : base.home ? `${base.home}/.claude` : null
+  return root ? `${root}/.agenting-fanout-cost/${sessionId}.json` : null
 }
 
 // Cut or pad text to exactly `width` cells (a cut ends in '…').
