@@ -76,6 +76,35 @@ Feature: Clean runs fan a set of self-contained tasks out as separate claude -p 
     Then stdout contains "1 unreadable line(s)" and stderr has no traceback
     And running cleanrun.py status on a directory that does not exist exits with code 2
 
+  # Backed by: tests/test_cleanrun.py::test_wait_returns_as_soon_as_the_run_ends
+  Scenario: Wait returns as soon as the run it watches ends
+    Given a run whose one task takes 2 s, started without waiting for it
+    When I run cleanrun.py wait with that output directory and --max-s 60
+    Then it exits 0 after at least 1.5 s and well before its 60 s limit
+    And stdout contains "state finished"
+
+  # Backed by: tests/test_cleanrun.py::test_wait_does_not_return_an_earlier_runs_result
+  Scenario: Wait does not report an earlier run's result while a new run starts in the same directory
+    Given an output directory holding a finished run of one task
+    And cleanrun.py wait started on it with --max-s 60
+    When a new run of that task plus a 3 s task starts into the same directory 0.4 s later
+    Then wait exits 0 and reports the new run, "1 ran, 1 resumed", at least 3 s after it started
+    And a new run truncating the lock before it replaces the old summary does not count as a run that already ended
+
+  # Backed by: tests/test_cleanrun.py::test_wait_stops_at_its_limit_while_the_run_is_still_going
+  Scenario: Wait stops at its limit while the run is still going
+    Given a run whose one task takes 30 s, under way
+    When I run cleanrun.py wait with --max-s 1
+    Then the exit code is 4 within a few seconds
+    And stdout contains "still running"
+
+  # Backed by: tests/test_cleanrun.py::test_wait_on_a_missing_directory_exits_2
+  Scenario: Wait on an output directory that never appears exits 2 after the start grace
+    Given CLEANRUN_WAIT_START_S is 0.3 and the output directory does not exist
+    When I run cleanrun.py wait with that directory and --max-s 5
+    Then the exit code is 2 and stderr contains "no output directory"
+    And it returns in under 4 s, not at its limit
+
   @gap @wip
   # Backed by: @gap
   Scenario: Status exits 1 when the last run did not finish cleanly

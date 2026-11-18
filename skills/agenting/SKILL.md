@@ -20,7 +20,8 @@ below. Two questions come before any routing.
 holds: a quick fix (about 1 to 3 files, under 50 lines); rapid prototyping, or
 any loop where the user looks at the result and steers the next step; each step
 depends on the one before; the main chat needs the details afterwards, not only
-the result; one long command (run it in the background, it needs no agent).
+the result; one long command (run it in the background, it needs no agent; a
+clean run instead keeps the turn alive with `wait`, step 2 of the procedure).
 Work leaves only when all three hold:
 
 1. it can be briefed in one message, with no question to the user on the way;
@@ -218,7 +219,11 @@ Every tier here is a Claude model. Before proposing a non-Claude one, read
    `python3 "<plugin>/scripts/cleanrun.py" plan --tasks tasks.jsonl
    --system-prompt rules.md --schema schema.json --model <full id> --effort
    <effort> --validator check.py --out-dir out --tools Read`, read its cost bound,
-   then the same with `run --max-usd N`, then `status --out-dir out`. A task that
+   then the same with `run --max-usd N`, then `status --out-dir out`. Start `run`
+   in the foreground with a Bash `timeout` of 600000; when Claude Code moves it to
+   the background, call `cleanrun.py wait --out-dir out --max-s 540` (same
+   timeout) until it exits other than 4. Never end the turn while it runs: Stop
+   hooks would report the chat as done. A task that
    lists `files` needs `--tools Read` to open them (without it `plan` and `run`
    refuse). `<plugin>` is two
    levels above this skill's base directory. A complete example, with the files

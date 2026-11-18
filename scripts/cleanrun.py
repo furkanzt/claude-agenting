@@ -167,9 +167,22 @@ OWNER
   fan-out view can show the run only in the chat that started it, also after the run lost its
   parent process (`cmd &`, nohup). It is not part of the run key.
 
+WAIT
+  `wait --out-dir DIR [--max-s N]` returns when the run writing to DIR has ended, then prints what
+  `status` prints and exits with its code. It checks about twice a second, so a 2-minute run
+  returns after about 2 minutes; N (default 100 s) only caps one call. Still running at N: it
+  prints "still running" and exits 4, and the chat calls it again. It exists so a chat's turn does
+  not end while a run Claude Code moved to the background goes on: a turn that ends then is
+  reported to Stop hooks as finished, and status tools show the chat done too early.
+  It never takes the lock (`run` takes it without waiting and would exit 2 on contention): the run
+  is the pid that `run` writes into DIR/.lock, alive and a cleanrun. Until it has seen a run alive
+  it gives a run that is still starting a few seconds ($CLEANRUN_WAIT_START_S, default 3) before
+  it reports what DIR holds, so a run just started into a reused DIR is not mistaken for the
+  previous run's finished summary.
+
 EXIT CODES  0 all tasks done · 1 some failed · 2 usage error, lock held, or stopped by
 --max-usd, the usage check or a claude that cannot start · 3 a task crashed ·
-130 interrupted.
+4 (wait) the run is still going at --max-s · 130 interrupted.
 """
 import argparse
 import fcntl
@@ -1181,6 +1194,69 @@ def cmd_status(a):
     return 0 if clean else 1
 
 
+def running_pid(out):
+    """The pid `run` wrote into out/.lock while that process is alive and is a cleanrun, else None.
+    Read only: `wait` never takes the lock, which `run` takes without waiting and would exit 2 on."""
+    try:
+        text = (out / ".lock").read_text(encoding="ascii", errors="replace").strip()
+    except OSError:
+        return None
+    if not text.isdigit():
+        return None
+    pid = int(text)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return None
+    except PermissionError:
+        pass
+    try:
+        cmd = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True,
+                             timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return pid                               # cannot tell what it is: a live pid from the lock counts
+    return pid if "cleanrun" in cmd else None    # a reused pid is some other program
+
+
+def cmd_wait(a):
+    out = Path(a.out_dir)
+    poll = float(os.environ.get("CLEANRUN_WAIT_POLL_S", "0.5"))
+    start_grace = float(os.environ.get("CLEANRUN_WAIT_START_S", "3"))
+    t0, wall0 = time.monotonic(), time.time()
+    seen = False
+
+    def mtime(path):
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            return None
+
+    while True:
+        pid = running_pid(out)
+        elapsed = time.monotonic() - t0
+        if pid is not None:
+            seen = True
+            if elapsed >= a.max_s:
+                print(f"cleanrun: still running in {out} (pid {pid}) after {elapsed:.0f} s; call wait again",
+                      flush=True)
+                return 4
+        else:
+            # A run that started and ended between two checks: its summary was written after this
+            # wait began and is final. The lock's mtime would not do: a new run truncates the lock
+            # before it writes its pid and long before it replaces the previous run's summary.
+            summary_m, summary = mtime(out / "summary.json"), load_saved(out / "summary.json")
+            whole_run_between_checks = (summary_m is not None and summary_m >= wall0 and summary
+                                        and summary.get("state") != "running")
+            if seen or whole_run_between_checks or elapsed >= min(start_grace, a.max_s):
+                break
+        time.sleep(poll)
+    if not out.is_dir():
+        print(f"cleanrun: no output directory {out}", file=sys.stderr)
+        return 2
+    print(f"cleanrun: no run is writing to {out} now", flush=True)
+    return cmd_status(a)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1205,9 +1281,12 @@ def main(argv=None):
         p.add_argument("--claude-bin")
     st = sub.add_parser("status")
     st.add_argument("--out-dir", required=True)
+    wt = sub.add_parser("wait")
+    wt.add_argument("--out-dir", required=True)
+    wt.add_argument("--max-s", type=finite_positive, default=100.0)
     a = ap.parse_args(argv)
     try:
-        return {"run": cmd_run, "plan": cmd_plan, "status": cmd_status}[a.cmd](a)
+        return {"run": cmd_run, "plan": cmd_plan, "status": cmd_status, "wait": cmd_wait}[a.cmd](a)
     except UsageError as e:
         print(f"cleanrun: {e}", file=sys.stderr)
         return 2

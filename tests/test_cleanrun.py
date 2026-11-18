@@ -1238,5 +1238,74 @@ class UsageCheck(Case):
         self.assertFalse((self.d / "gate.log").exists())
 
 
+class Wait(Case):
+    """`wait` keeps a chat's turn alive while a run Claude Code moved to the background goes on: a turn
+    that ends mid-run is reported to Stop hooks as finished, so status tools show the chat done early."""
+
+    def wait_cli(self, *extra, out=None):
+        t0 = time.time()
+        r = self.run_cli(["wait", "--out-dir", str(out or self.out), *extra], timeout=90)
+        return r, time.time() - t0
+
+    def stop(self, proc):
+        if proc.poll() is None:
+            proc.send_signal(signal.SIGTERM)
+            time.sleep(0.3)
+            if proc.poll() is None:
+                proc.send_signal(signal.SIGTERM)
+        proc.communicate(timeout=30)
+
+    def test_wait_returns_as_soon_as_the_run_ends(self):
+        self.tasks(["@@mode:slow@@"])
+        self.env["FAKE_SLOW_S"] = "2"
+        proc = self.start_cli(self.args())
+        try:
+            r, took = self.wait_cli("--max-s", "60")
+        finally:
+            self.stop(proc)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("state finished", r.stdout)
+        self.assertGreaterEqual(took, 1.5)      # it really waited for the 2 s task
+        self.assertLess(took, 20)               # and came back when the run ended, not at its limit
+
+    def test_wait_does_not_return_an_earlier_runs_result(self):
+        self.tasks(["a"])
+        self.assertEqual(self.run_cli(self.args()).returncode, 0)        # a finished run: 1 ran, 0 resumed
+        self.tasks(["a", "@@mode:slow@@ b"])
+        self.env["FAKE_SLOW_S"] = "3"
+        t0 = time.time()
+        waiter = self.start_cli(["wait", "--out-dir", str(self.out), "--max-s", "60"])   # sees the old summary first
+        time.sleep(0.4)
+        proc = self.start_cli(self.args())                                # then a new run in the same directory
+        try:
+            out, err = waiter.communicate(timeout=90)
+            took = time.time() - t0
+        finally:
+            self.stop(proc)
+        self.assertEqual(waiter.returncode, 0, out + err)
+        self.assertIn("1 ran, 1 resumed", out)                            # the new run's result
+        self.assertGreaterEqual(took, 3)
+
+    def test_wait_stops_at_its_limit_while_the_run_is_still_going(self):
+        self.tasks(["@@mode:slow@@"])
+        self.env["FAKE_SLOW_S"] = "30"
+        proc = self.start_cli(self.args())
+        try:
+            self.assertTrue(wait_until(lambda: (self.out / "summary.json").exists(), 15))
+            r, took = self.wait_cli("--max-s", "1")
+        finally:
+            self.stop(proc)
+        self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
+        self.assertIn("still running", r.stdout)
+        self.assertLess(took, 10)
+
+    def test_wait_on_a_missing_directory_exits_2(self):
+        self.env["CLEANRUN_WAIT_START_S"] = "0.3"
+        r, took = self.wait_cli("--max-s", "5", out=self.d / "nope")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("no output directory", r.stderr)
+        self.assertLess(took, 4)
+
+
 if __name__ == "__main__":
     unittest.main()

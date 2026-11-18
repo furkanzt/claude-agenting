@@ -177,6 +177,17 @@ python3 "<plugin>/scripts/cleanrun.py" run  --tasks tasks.jsonl --system-prompt 
 python3 "<plugin>/scripts/cleanrun.py" status --out-dir out
 ```
 
+Start `run` in the foreground with a Bash `timeout` of 600000 (ten minutes); a short run then
+needs nothing more. When a run outlasts that, Claude Code moves it to the background and the
+turn could end while it goes on; a turn that ends then is reported to Stop hooks as finished,
+so status tools (a notch, a status line) show the chat done while its fan-out still runs, and
+the chat cannot act on the result. So keep the turn alive: call
+`python3 "<plugin>/scripts/cleanrun.py" wait --out-dir out --max-s 540` with the same 600000
+timeout, and again while it exits 4 ("still running"). It returns as soon as the run ends, so a
+run that needs two more minutes costs two minutes, and then prints what `status` prints. Without
+the longer timeout keep the default `--max-s` (100 s), under Bash's default two minutes, so the
+`wait` itself is never moved to the background.
+
 While a run goes on, the plugin's fan-out view shows it as a Workflow is shown: a row above the
 prompt, `1: ◯ name …`, and a per-task view that typing that digit into the empty prompt opens, as
 `/fanouts` does, both also while Claude is working. Only this chat's runs show: a run started in another chat does not. (The scanner lists a run that descends from this chat's `claude` process, or whose `summary.json` `owner` names it.) cleanrun starts no Workflow, so `/workflows`

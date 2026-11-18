@@ -2,7 +2,7 @@
 
 Index to `features/*.feature`, this project's executable behaviour catalogue, governed by [TDD.md](TDD.md) and [BDD.md](BDD.md).
 
-**1515 scenarios** across 22 domains — **1267 ARMED**, **248 GAP**. Full breakdown: [docs/scenarios/coverage-matrix.md](docs/scenarios/coverage-matrix.md).
+**1519 scenarios** across 22 domains — **1271 ARMED**, **248 GAP**. Full breakdown: [docs/scenarios/coverage-matrix.md](docs/scenarios/coverage-matrix.md).
 
 | Feature | Scenarios | ARMED | GAP | What it pins |
 |---|--:|--:|--:|---|
@@ -11,7 +11,7 @@ Index to `features/*.feature`, this project's executable behaviour catalogue, go
 | [`agent-guard.feature`](features/agent-guard.feature) | 51 | 51 | 0 |  |
 | [`architecture-analysis.feature`](features/architecture-analysis.feature) | 27 | 27 | 0 |  |
 | [`cache-tripwire.feature`](features/cache-tripwire.feature) | 47 | 15 | 32 |  |
-| [`cleanrun.feature`](features/cleanrun.feature) | 106 | 87 | 19 |  |
+| [`cleanrun.feature`](features/cleanrun.feature) | 110 | 91 | 19 |  |
 | [`code-bench-analysis.feature`](features/code-bench-analysis.feature) | 51 | 51 | 0 |  |
 | [`code-bench.feature`](features/code-bench.feature) | 125 | 125 | 0 |  |
 | [`e1-analysis.feature`](features/e1-analysis.feature) | 11 | 11 | 0 |  |
