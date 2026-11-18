@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.9.0 — 2026-11-18 (cleanrun wait: a chat's turn stays alive while a backgrounded clean run goes on)
+
+### Added
+- **`cleanrun.py wait --out-dir DIR [--max-s N]`.** A clean run that outlasts Bash's timeout is moved to the
+  background by Claude Code, and the chat's turn could end while it goes on. Claude Code then reports the turn
+  to Stop hooks as finished and lists the run only as a `shell` background task (the type a dev server has), so
+  status tools show the chat done while its fan-out still runs, and the chat cannot act on the result. `wait`
+  returns as soon as the run writing to DIR ends (it checks about twice a second, so a run that needs two more
+  minutes costs two minutes), then prints what `status` prints and exits with its code; still running at N
+  (default 100 s) it exits 4 and the chat calls it again. It never takes the run's lock, and it does not mistake
+  a run just started into a reused DIR for the previous run's finished summary.
+
+### Changed
+- **The clean-run steps start `run` in the foreground** with a 600000 ms Bash timeout, and call `wait`
+  (`--max-s 540`, same timeout) until it exits other than 4 when Claude Code moves the run to the background
+  (`SKILL.md` step 2, `reference/fan-outs.md`). The "one long command, run it in the background" line now
+  points at this exception.
+
 ## 3.8.0 — 2026-11-17 (fan-out view: the pane shows running runs only; clean fan-out spend for the status line)
 
 ### Changed
