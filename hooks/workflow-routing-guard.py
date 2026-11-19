@@ -97,7 +97,9 @@ in its source is denied at Stage 1, together with any routing gap in one denial 
 A call site is PROTECTED when its options carry a literal agentType starting with `agenting:` or
 when a comment on its line or the line above says `advisor: allowed` (a comment only, like
 `routing: inherit`). The sentence counts when one line holds "work alone." and, within 40
-characters after it, the word "advisor". With the advisor off nothing changes: no new text.
+characters after it, the word "advisor". The denial heads its part "STAGE 1/2 — ADVISOR", says what
+text counts, and, when it is the only problem, says the routing check passed (2026-11-19: a denial
+that did not say so read as a routing failure). With the advisor off nothing changes: no new text.
 Advisor state, the same definition as hooks/session-continuity.py: "off" when
 CLAUDE_CODE_DISABLE_ADVISOR_TOOL is 1/true/yes; else the first non-empty string under the top-level
 key "advisorModel" in <cwd>/.claude/settings.local.json, <cwd>/.claude/settings.json,
@@ -937,9 +939,11 @@ def advisor_state(cwd) -> str:
     return "off"
 
 
-def advisor_section(src: str, clean: str, sites, comments, cwd) -> str:
+def advisor_section(src: str, clean: str, sites, comments, cwd, routing_ok: bool = False) -> str:
     """The advisor problem as text, or "" when there is none (advisor off, a protected script, or the
-    sentence somewhere in the source). Never raises: on a fault the hook answers as it would without it."""
+    sentence somewhere in the source). routing_ok adds a line saying the routing check passed, for the
+    denial where the advisor rule is the only problem. Never raises: on a fault the hook answers as it
+    would without it."""
     try:
         model = advisor_state(cwd)
         if model == "off" or ALONE_RE.search(src):
@@ -959,13 +963,20 @@ def advisor_section(src: str, clean: str, sites, comments, cwd) -> str:
             return ""
         shown = ", ".join(str(n) for n in lines[:MAX_REPORTED])
         more = f", and {len(lines) - MAX_REPORTED} more" if len(lines) > MAX_REPORTED else ""
+        passed = ("The routing check passed. This is Stage 1's second check, which runs only while the "
+                  "session has an advisor.\n" if routing_ok else "")
         return f"""ADVISOR: workers must work alone. This session has an advisor ({model}), and {len(lines)} agent() call site(s) are not protected ({'line' if len(lines) == 1 else 'lines'} {shown}{more}).
-Each agent inherits the session's advisor, and every advisor call re-reads that agent's whole conversation at the advisor's price.
+{passed}Each agent inherits the session's advisor, and every advisor call re-reads that agent's whole conversation at the advisor's price.
 
 DO THIS: paste this line near the top of the script and append ALONE to every worker prompt:
   const ALONE = "{ALONE_SENTENCE}"
 For the one agent that should consult the advisor (the design agent), put // {ADVISOR_MARK} on its call line or the line above.
-A call whose agentType is a literal 'agenting:<name>' needs neither."""
+A call whose agentType is a literal 'agenting:<name>' needs neither.
+
+What counts: one line holding "Work alone." and, within 40 characters after it, the word "advisor",
+anywhere in the script. Your own words count if they match that; wording that never names the advisor
+("work alone, do not start other agents") does not, because it does not stop the agent calling it.
+The guard needs one such line, but each worker obeys only the copy in its own prompt."""
     except Exception:
         return ""
 
@@ -1233,7 +1244,7 @@ move the regex into a const of its own, or write it as new RegExp(...).""",
         return 0  # no agent() calls at all
 
     # Workers work alone: empty when the session has no advisor, so everything below is then unchanged.
-    advisor = advisor_section(src, clean, sites, comments, payload.get("cwd"))
+    advisor = advisor_section(src, clean, sites, comments, payload.get("cwd"), routing_ok=not unrouted)
 
     # --- STAGE 1: missing routing ------------------------------------------
     if unrouted:
@@ -1272,14 +1283,15 @@ For deliberate inheritance, put `// {ESCAPE_HATCH}` on that line or the one abov
         )
         system_msg = f"Workflow stopped (1/2): {len(unrouted)} agent() call(s) have no routing."
         if advisor:
-            routing_reason += "\n\nSECOND PROBLEM, STAGE 1/2, " + advisor
+            routing_reason += "\n\nSECOND PROBLEM, STAGE 1/2 — " + advisor
             system_msg += " The workers also have no work-alone sentence."
         return deny(routing_reason, system_msg)
 
     if advisor:
         return deny(
-            "STAGE 1/2, " + advisor,
-            "Workflow stopped (1/2): the workers have no work-alone sentence and the session has an advisor.",
+            "STAGE 1/2 — " + advisor,
+            "Workflow stopped (1/2): routing is fine, but the workers have no work-alone sentence and the "
+            "session has an advisor.",
         )
 
     # --- STAGE 2: plan approval --------------------------------------------

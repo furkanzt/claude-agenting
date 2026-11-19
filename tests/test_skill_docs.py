@@ -319,6 +319,20 @@ class AdvisorDocs(unittest.TestCase):
                                                "## Routing table")]
         self.assertEqual(order, sorted(order))
 
+    def test_the_workflow_procedure_names_the_work_alone_check(self):
+        # 2026-11-19: a script written from the Procedure failed its first launch on the advisor rule,
+        # because the Draft step and the guard paragraph described Stage 1 as routing only
+        procedure = self.skill.split("## Procedure: before calling Workflow", 1)[1].split("\n## ", 1)[0]
+        draft = " ".join(procedure.split("**Draft**", 1)[1].split("\n4. ", 1)[0].split())
+        for phrase in ("advisor=<model>", "const ALONE", "// advisor: allowed", "agenting:"):
+            with self.subTest(step="Draft", phrase=phrase):
+                self.assertIn(phrase, draft)
+        guard = " ".join(procedure.split("**What the guard denies.**", 1)[1].split("\n\n", 1)[0].split())
+        for phrase in ("second check", '"Work alone."', "within 40 characters", "anywhere in the script",
+                       "never names the advisor"):
+            with self.subTest(paragraph="What the guard denies", phrase=phrase):
+                self.assertIn(phrase, guard)
+
     def test_the_delegation_reference_carries_the_sentence_or_names_the_skill_as_its_source(self):
         section = self.delegation.split("## The advisor\n", 1)[1].split("\n## ", 1)[0]
         flat = " ".join(section.split())

@@ -230,6 +230,10 @@ Every tier here is a Claude model. Before proposing a non-Claude one, read
    written out, is in [reference/fan-outs.md](reference/fan-outs.md).
 3. **Draft** the script. Done when every `agent()` call has `model` or
    `agentType`, and `effort`, or is marked `// routing: inherit` (below).
+   When the `[agenting]` line shows `advisor=<model>`, also define `const ALONE`
+   and end every worker prompt with it ("The advisor is for the decider"
+   above); a call typed `agenting:<name>` already carries it, and the one call
+   that must reach the advisor is marked `// advisor: allowed`.
 4. **Resolve by mode.** The session's `[agenting]` line from SessionStart names
    the mode; `--status` on the recorder it names gives ground truth.
    - **auto** (default): decide the plan yourself, without asking. Start from
@@ -270,7 +274,13 @@ template, `${` or comment that never closes) is denied as unreadable. A script w
 template literal closes and a name, number, quote or backtick follows on the same line
 is denied too, as a stray backtick: a backtick inside the template text (Markdown around
 a word) ended it early. Put a backslash before that backtick, or use double quotes. A
-pair whose text starts with an operator, `.` or `-` still parses and is not caught. Stage 2, in manual mode
+pair whose text starts with an operator, `.` or `-` still parses and is not caught.
+Stage 1 has a second check, only while the session has an advisor: a script with
+a call neither typed `agenting:` nor marked `// advisor: allowed` needs the
+work-alone sentence. The guard looks anywhere in the script for one line with
+"Work alone." and, within 40 characters after it, the word "advisor"; wording
+that never names the advisor ("work alone, do not start other agents") does not
+count. When routing passed, that denial says so. Stage 2, in manual mode
 or when no mode can be found for the session (a resumed chat's new id is looked
 up through the `[agenting]` line in its own transcript first): a routed plan not
 yet approved in this session; ask, apply, run its `--approve` command. Changing

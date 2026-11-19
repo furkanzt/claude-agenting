@@ -382,6 +382,13 @@ Feature: Plugin packaging, agent pins and doc invariants stay consistent, becaus
     And the section names "// advisor: allowed" and "const ALONE", and has at most 16 non-blank lines
     And it sits after "Where the work runs" and before "Routing table"
 
+  # Backed by: tests/test_skill_docs.py::test_the_workflow_procedure_names_the_work_alone_check
+  Scenario: The Workflow Procedure names the work-alone check in its Draft step and in what the guard denies
+    Given the "Procedure: before calling Workflow" section of skills/agenting/SKILL.md
+    When the docs test reads its "Draft" step and its paragraph "What the guard denies."
+    Then the Draft step names "advisor=<model>", "const ALONE", "// advisor: allowed" and "agenting:"
+    And the paragraph names Stage 1's "second check", '"Work alone."', "within 40 characters", "anywhere in the script" and "never names the advisor"
+
   # Backed by: tests/test_skill_docs.py::test_the_delegation_reference_carries_the_sentence_or_names_the_skill_as_its_source
   Scenario: reference/delegation.md holds the advisor evidence and names SKILL.md as the source of the sentence
     Given the "The advisor" section of reference/delegation.md

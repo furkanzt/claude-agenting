@@ -1186,6 +1186,16 @@ Feature: The Workflow routing gate denies unrouted agent() calls and asks for pl
     And the reason contains "append ALONE to every worker prompt" and "// advisor: allowed"
     And the reason does not contain "MISSING ROUTING"
 
+  # Backed by: tests/test_routing_guard.py::test_an_advisor_only_denial_says_routing_passed_and_what_counts
+  Scenario: A denial for the advisor rule alone says the routing check passed and what text counts as the sentence
+    Given the session has an advisor
+    And a routed untyped call whose prompt says "Work alone; do not start other agents", which never names the advisor
+    When the routing guard runs
+    Then permissionDecision is "deny" and the reason starts with "STAGE 1/2 — ADVISOR: workers must work alone."
+    And the reason contains "The routing check passed"
+    And the reason says that one line holding "Work alone." and, within 40 characters after it, the word "advisor" counts, anywhere in the script, and that wording which never names the advisor does not
+    And the systemMessage contains "routing is fine"
+
   # Backed by: tests/test_routing_guard.py::test_a_single_call_site_is_named_in_the_singular
   Scenario: One unprotected call site is reported in the singular
     Given the session has an advisor and a routed script whose only untyped call is on line 3
@@ -1258,6 +1268,7 @@ Feature: The Workflow routing gate denies unrouted agent() calls and asks for pl
     Then the reason contains "MISSING ROUTING: 1 agent() call(s)" before "ADVISOR"
     And the reason contains "2 agent() call site(s) are not protected (lines 1, 2)" and the paste line
     And "STAGE 1/2" followed by the MISSING heading appears once
+    And the advisor part is headed "SECOND PROBLEM, STAGE 1/2 — ADVISOR" and the reason does not say "routing check passed"
 
   # Backed by: tests/test_routing_guard.py::test_a_routing_gap_alone_keeps_its_denial_with_the_advisor_off_or_the_sentence_present
   Scenario: A routing gap alone keeps its denial with no advisor text

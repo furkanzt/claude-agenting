@@ -1187,6 +1187,22 @@ class AdvisorRule(GuardCase):
         self.assertIn("append ALONE to every worker prompt", reason)
         self.assertNotIn("MISSING ROUTING", reason)
 
+    def test_an_advisor_only_denial_says_routing_passed_and_what_counts(self):
+        # 2026-11-19: a Tofu session's planner prompt said "Work alone; do not start other agents". The
+        # denial read like a routing failure and did not say which wording would have counted.
+        self.advisor_on()
+        out = self.guard("await agent('Work alone; do not start other agents. Plan it.', "
+                         "{model:'opus', effort:'xhigh'})", cwd=self.project)
+        self.assertEqual(self.decision(out), "deny", out)
+        reason = self.reason(out)
+        self.assertTrue(reason.startswith("STAGE 1/2 — ADVISOR: workers must work alone."), reason[:80])
+        self.assertIn("The routing check passed", reason)
+        flat = " ".join(reason.split())
+        self.assertIn('one line holding "Work alone." and, within 40 characters after it, the word "advisor"', flat)
+        self.assertIn("anywhere in the script", flat)
+        self.assertIn("never names the advisor", flat)
+        self.assertIn("routing is fine", out["systemMessage"])
+
     def test_a_single_call_site_is_named_in_the_singular(self):
         self.advisor_on()
         reason = self.advisor_reason("\n\nawait agent('x', {model:'haiku', effort:'low'})")
@@ -1276,6 +1292,8 @@ class AdvisorRule(GuardCase):
         self.assertLess(reason.index("MISSING ROUTING"), reason.index("ADVISOR"))
         self.assertIn(f'const ALONE = "{ALONE}"', reason)
         self.assertEqual(reason.count("STAGE 1/2 \u2014 MISSING"), 1)
+        self.assertIn("SECOND PROBLEM, STAGE 1/2 \u2014 ADVISOR", reason)
+        self.assertNotIn("routing check passed", reason)
 
     def test_a_routing_gap_alone_keeps_its_denial_with_the_advisor_off_or_the_sentence_present(self):
         script = "await agent('y', {schema:S})"
