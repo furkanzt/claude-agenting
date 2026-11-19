@@ -1,0 +1,100 @@
+{
+  "_note": "Antigravity (agy) eval bench: probes/agy_bench.py. Plan and rules: results/PREREGISTERED-2026-11-19-antigravity-stage1.md. Cells run through `agy --agent eval-runner --model <model_id> -p=<prompt>` in a fresh working directory; the agent file and the guard hook live one level above it (private/work/.agents). Meter percentages come from `agy -p /usage`.",
+  "agy_bin": "agy",
+  "agent": "eval-runner",
+  "print_timeout_s": 1200,
+  "settings": {
+    "allowNonWorkspaceAccess": false
+  },
+  "tools_files": [
+    "read_file",
+    "run_command"
+  ],
+  "tools_inline": [],
+  "usage_pools": {
+    "Gemini Models": "gemini",
+    "Claude and GPT models": "claude",
+    "Gemini 4 Argon": "argon"
+  },
+  "stop_lines": {
+    "claude": 70,
+    "gemini": 40,
+    "argon": 40
+  },
+  "jobs": {
+    "claude": 1,
+    "gemini": 2
+  },
+  "stages": {
+    "1": {
+      "phase": "screening",
+      "repeats": {
+        "claude": 1,
+        "default": 2
+      },
+      "cells": [
+        "agy:gemini-4-neon@medium",
+        "agy:gemini-4-argon@medium",
+        "agy:gemini-4-hydrogen@medium",
+        "agy:gemini-4-hydrogen@high",
+        "agy:gemini-4-hydrogen@xhigh",
+        "agy:gemini-3-8-flash@medium",
+        "agy:claude-sonnet-5-5@medium",
+        "agy:claude-opus-5-5@medium"
+      ]
+    }
+  },
+  "cells": {
+    "agy:gemini-4-neon@medium": {
+      "model_id": "gemini-4-neon-medium",
+      "pools": [
+        "gemini"
+      ]
+    },
+    "agy:gemini-4-argon@medium": {
+      "model_id": "gemini-4-argon-medium",
+      "pools": [
+        "gemini",
+        "argon"
+      ]
+    },
+    "agy:gemini-4-hydrogen@medium": {
+      "model_id": "gemini-4-hydrogen-medium",
+      "pools": [
+        "gemini"
+      ]
+    },
+    "agy:gemini-4-hydrogen@high": {
+      "model_id": "gemini-4-hydrogen-high",
+      "pools": [
+        "gemini"
+      ],
+      "note": "stand-in for the subagent tier `flash` (gemini-4-hydrogen-tiered-high, not selectable with --model)"
+    },
+    "agy:gemini-4-hydrogen@xhigh": {
+      "model_id": "gemini-4-hydrogen-xhigh",
+      "pools": [
+        "gemini"
+      ],
+      "note": "stand-in for the subagent tier `pro` (gemini-4-hydrogen-tiered-xhigh, not selectable with --model)"
+    },
+    "agy:gemini-3-8-flash@medium": {
+      "model_id": "gemini-3.8-flash-medium",
+      "pools": [
+        "gemini"
+      ]
+    },
+    "agy:claude-sonnet-5-5@medium": {
+      "model_id": "claude-sonnet-5-5-medium",
+      "pools": [
+        "claude"
+      ]
+    },
+    "agy:claude-opus-5-5@medium": {
+      "model_id": "claude-opus-5-5-medium",
+      "pools": [
+        "claude"
+      ]
+    }
+  }
+}

@@ -303,6 +303,27 @@ A side tool for the pre-registered coding experiment of 2026-11-14
   owner's bar for `fast`. No model was run for it.
 - Commands, the exact reading of every test runner's result, and the limits: the docstrings of the two files.
 
+## The Antigravity bench (`probes/agy_bench.py`)
+
+Runs the same tasks through Google Antigravity's CLI (`agy`), for the routing of the Antigravity port of
+this plugin. The rules of its first round are in `results/PREREGISTERED-2026-11-19-antigravity-stage1.md`.
+It never writes the Claude instrument's records.
+
+- **Why it differs from `evalkit.py run`.** agy has no `--system-prompt`, `--tools` or cost output. So the
+  system prompt and the tools come from an agent file (`agy/eval-runner.md`). A guard hook
+  (`agy/eval_hook.py`) runs before every tool call and allows only reads and a read-only shell allowlist
+  inside the run directory. Both are installed in `private/work/.agents/`, one level above the run
+  directories, where agy finds them by walking up from the run's cwd. A scan task counts every file in its
+  run directory, so nothing of the instrument may sit inside it.
+- **Validity.** The guard also logs every hook event (`private/work/hooklogs/`). A run counts only when that
+  log shows the requested model, the run directory as the only workspace, and no second conversation.
+- **Cost.** Antigravity bills meters, not money. Each run records its tokens and the weekly meters read
+  before it (`agy -p /usage`). A stop line per meter (`agy/bench.json`) ends the round before the owner's
+  week is used up, and a quota error stops that meter's pool.
+- **Public:** `results/agy-runs.jsonl` and `results/agy-scores.jsonl`, numbers only. **Private:**
+  `private/agy-answers/`.
+- Commands and exit codes: the file's docstring. Config, cells and stages: `agy/bench.json`.
+
 ## Known limits (state these when reporting)
 
 - Three repeats resolve large differences, not small ones. "Passed 3 of 3" is
