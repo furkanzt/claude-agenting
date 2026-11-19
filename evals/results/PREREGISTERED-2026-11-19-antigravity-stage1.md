@@ -85,3 +85,17 @@ runs). The Antigravity routing table is decided after stage 2, with the decision
   `gemini-4-hydrogen-tiered-high`.
 - **Antigravity sends the task material to Google.** The owner approved this on 2026-11-19 for all 30 tasks.
 - **agy can update itself.** Each run records the version. A version change within the round is reported.
+
+## Note added during the round (no rule changed)
+
+Written while stage 1 ran, before any result was read.
+
+- **The Orchestrator models are not run.** "Orchestrator (Neon)" and "Orchestrator (Argon)" plan with
+  one model and hand the work to Gemini 4 Hydrogen helpers. A run that starts a second conversation is
+  invalid by rule 1, so this instrument cannot measure them as one cell. They are a vehicle, not a model,
+  and are left for a separate decision.
+- **The helper tiers are not run through real helpers here.** Stage 1 measures `gemini-4-hydrogen-high`
+  and `-xhigh` directly, as stand-ins. A small check that a real helper (`model: flash` or `pro` in an
+  agent file) gives the same results is part of sizing stage 2, so it is put to the owner then.
+- **Public record.** `results/agy-runs.jsonl` carries each run's agy `conversation_id`. That id moves
+  to the private side before the file is committed.
