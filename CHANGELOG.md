@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.9.1 — 2026-11-19 (the advisor denial says routing passed and what text counts)
+
+### Fixed
+- **A Workflow written from the skill no longer fails its first launch on the advisor rule.** The skill's
+  "Procedure: before calling Workflow" said a draft is done when every call has a model and an effort, and
+  "What the guard denies" described Stage 1 as routing only, so a session with an advisor met the work-alone
+  rule only at launch. The Draft step now asks for `const ALONE` while the `[agenting]` line shows
+  `advisor=<model>`, and the guard paragraph names Stage 1's second check.
+- **The advisor denial says what counts and that routing passed.** Its part is headed `STAGE 1/2 — ADVISOR`; it
+  says the guard wants one line with "Work alone." and, within 40 characters after it, the word "advisor",
+  anywhere in the script, and that wording which never names the advisor ("work alone, do not start other
+  agents") does not count. When the advisor rule is the only problem, the denial and its systemMessage say the
+  routing check passed. The check itself is unchanged and stays strict.
+
 ## 3.9.0 — 2026-11-18 (cleanrun wait: a chat's turn stays alive while a backgrounded clean run goes on)
 
 ### Added
