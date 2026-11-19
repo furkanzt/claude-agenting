@@ -99,3 +99,22 @@ Written while stage 1 ran, before any result was read.
   agent file) gives the same results is part of sizing stage 2, so it is put to the owner then.
 - **Public record.** `results/agy-runs.jsonl` carries each run's agy `conversation_id`. That id moves
   to the private side before the file is committed.
+
+## The owner's decision rule for the Antigravity routing (set during the round, before any result was read)
+
+The owner leans toward Gemini in Antigravity: Gemini has its own meter, and in this round's first runs
+one Claude run took about 3% of the Claude 5-hour meter, while one Gemini run took about 0.5% of the
+Gemini 5-hour meter. So wherever a Gemini cell does a job type well enough, it gets that job.
+"Well enough" uses the decision bar of `evals/README.md`, unchanged. The Claude result on the same
+tasks is the baseline:
+
+- **Silent-damage job types** (scan, classify, synthesize, dont-guess, adversarial-verify,
+  design-decision): the Gemini cell passes every screening run, then every run of the confirmation
+  tasks.
+- **Noticed job types** (cleanup, read-report): the Gemini cell fails at most one screening run more
+  than the Claude baseline, and passes at least half.
+
+The README's "cheaper" condition is read in meter terms. Gemini counts as cheaper because it draws on
+a separate, larger meter. Ties and doubt go to Gemini only when the bar above is met; otherwise the
+job keeps the Claude cell. Stage 1 alone decides no job: it screens. Confirmation runs belong to
+stage 2.
