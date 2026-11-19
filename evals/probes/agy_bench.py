@@ -10,6 +10,8 @@ Claude instrument (results/runs.jsonl, results/scores.jsonl, private/answers/) i
     python3 evals/probes/agy_bench.py plan --stage N [--json]     # runs of stage N still missing; no model
     python3 evals/probes/agy_bench.py run --stage N [--cells a,b] [--max-runs K]   # the agy runs
     python3 evals/probes/agy_bench.py status [--json]             # valid and invalid counts per cell
+    python3 evals/probes/agy_bench.py judge [--max-usd N] [--jobs N]   # judge-graded tasks, pinned judge (claude -p)
+    python3 evals/probes/agy_bench.py report --stage N [--json|--md]   # passes, tokens, meters per task and cell
 
 Exit codes: 0 done (nothing skipped or stopped); 2 an error (one line on stderr); 3 a stop line or
 a quota error left runs of the plan unstarted.
@@ -30,6 +32,7 @@ import os
 import re
 import shlex
 import shutil
+import statistics
 import subprocess
 import sys
 import time
@@ -383,6 +386,108 @@ def cmd_status(ctx, cfg, args):
     return 0
 
 
+# -- judge and report ----------------------------------------------------------
+
+class AgyCtx(ev.Ctx):
+    """evalkit's context with the bench's own records, so evalkit's judge and its effective-score
+    reading work on agy runs without ever touching the Claude instrument's files."""
+
+    def __init__(self, root=None):
+        super().__init__(root)
+        self.runs_path = self.root / "results" / RUNS_FILE
+        self.scores_path = self.root / "results" / SCORES_FILE
+        self.answers_dir = self.private / "agy-answers"
+
+
+def cmd_judge(ctx, cfg, args):
+    """Judge-grade the valid agy runs of judge-graded tasks with the harness's pinned judge
+    (a `claude -p` call: it runs on the Claude plan, not on an Antigravity meter)."""
+    actx = AgyCtx(ctx.root)
+    tasks = ev.load_tasks(actx)
+    judge_cell = actx.harness["judge"]["cell"]
+    have = {(s.get("run_id"), s.get("grader_id")) for s in ev.read_jsonl(actx.scores_path)}
+    units = []
+    for r in ev.read_jsonl(actx.runs_path):
+        task = tasks.get(r.get("task"))
+        if not r.get("valid") or not task or task["grading_type"] != "judge":
+            continue
+        prefix = ev.grader_prefix(actx, task, judge_cell)
+        for k in range(actx.harness["judge"]["repeats"]):
+            if (r["run_id"], f"{prefix}{k}") not in have:
+                units.append((task, {"run_id": r["run_id"]}, k))
+    print(f"{len(units)} judge pass(es) to do")
+    if not units:
+        return 0
+    actx.cli_version = ev.claude_version(actx)
+    budget = ev.Budget(args.max_usd, actx.harness["runner"]["max_budget_usd_per_run"])
+    faults = []
+    code = ev.run_pool(actx, units,
+                       lambda u, stop: ev.judge_one(actx, u, budget, stop, faults, judge_cell),
+                       args.jobs or actx.harness["runner"]["jobs"], "judge")
+    print(f"judge cost ${budget.spent:.4f}")
+    if faults:
+        print(f"{len(faults)} judge pass(es) left missing; run `judge` again to retry them")
+    return code
+
+
+def median_of(values):
+    vals = [v for v in values if isinstance(v, (int, float))]
+    return statistics.median(vals) if vals else None
+
+
+def report_data(ctx, cfg, stage_key):
+    """Per (task, cell) of the stage: attempts, valid, scored, passed, mean score, median tokens;
+    per pool: the first and last weekly meter read before a run."""
+    actx = AgyCtx(ctx.root)
+    stage = stage_of(cfg, stage_key)
+    tasks = ev.load_tasks(actx)
+    scores = ev.scores_by_run(actx)
+    runs = ev.read_jsonl(actx.runs_path)
+    rows = []
+    for tid in sorted(tasks):
+        task = tasks[tid]
+        if task["phase"] != stage["phase"]:
+            continue
+        for cell in stage["cells"]:
+            mine = [r for r in runs if r.get("task") == tid and r.get("cell") == cell]
+            valid = [r for r in mine if r.get("valid")]
+            eff = [e for e in (ev.effective(actx, task, r["run_id"], scores) for r in valid) if e]
+            rows.append({
+                "task": tid, "row": task["row"], "cell": cell, "attempts": len(mine),
+                "valid": len(valid), "scored": len(eff), "passed": sum(1 for e in eff if e[1]),
+                "mean_score": ev.mean([e[0] for e in eff]) if eff else None,
+                "median_input_tokens": median_of(r.get("input_tokens") for r in valid),
+                "median_output_tokens": median_of(r.get("output_tokens") for r in valid),
+                "median_thinking_tokens": median_of(r.get("thinking_tokens") for r in valid),
+                "median_duration_s": median_of(r.get("duration_s") for r in valid),
+                "denied_tool_calls": sum(r.get("denied_tool_calls") or 0 for r in valid)})
+    meters = {}
+    for r in sorted(runs, key=lambda x: x.get("ts") or ""):
+        for pool, pct in (r.get("meters_before") or {}).items():
+            m = meters.setdefault(pool, {"first": pct, "last": pct, "runs": 0})
+            m["last"] = pct
+            m["runs"] += 1
+    return {"rows": rows, "meters": meters}
+
+
+def cmd_report(ctx, cfg, args):
+    data = report_data(ctx, cfg, args.stage)
+    if args.json:
+        print(json.dumps(data, sort_keys=True))
+        return 0
+    header = ["row", "cell", "valid", "passed", "mean", "in tok", "out tok", "think", "sec", "denied"]
+    body = [[r["row"], r["cell"], f"{r['valid']}/{r['attempts']}", f"{r['passed']}/{r['scored']}",
+             ev.fmt(r["mean_score"], ".2f"), ev.fmt(r["median_input_tokens"], ".0f"),
+             ev.fmt(r["median_output_tokens"], ".0f"), ev.fmt(r["median_thinking_tokens"], ".0f"),
+             ev.fmt(r["median_duration_s"], ".0f"), str(r["denied_tool_calls"])]
+            for r in data["rows"]]
+    print(ev.render(header, body, args.md))
+    for pool, m in sorted(data["meters"].items()):
+        print(f"{pool} weekly meter: {m['first']}% before the first run, {m['last']}% before the "
+              f"last ({m['runs']} runs)")
+    return 0
+
+
 # -- CLI ---------------------------------------------------------------------
 
 def build_parser():
@@ -401,6 +506,13 @@ def build_parser():
     sp.add_argument("--max-runs", type=int)
     sp = sub.add_parser("status", help="valid and invalid counts per cell")
     sp.add_argument("--json", action="store_true")
+    sp = sub.add_parser("judge", help="judge-grade agy runs of judge-graded tasks (claude -p)")
+    sp.add_argument("--max-usd", type=float)
+    sp.add_argument("--jobs", type=int)
+    sp = sub.add_parser("report", help="pass counts, tokens and meters per task and cell")
+    sp.add_argument("--stage", required=True)
+    sp.add_argument("--json", action="store_true")
+    sp.add_argument("--md", action="store_true")
     return p
 
 
@@ -419,6 +531,10 @@ def main(argv=None):
             return cmd_plan(ctx, cfg, args)
         if args.cmd == "run":
             return cmd_run(ctx, cfg, args)
+        if args.cmd == "judge":
+            return cmd_judge(ctx, cfg, args)
+        if args.cmd == "report":
+            return cmd_report(ctx, cfg, args)
         return cmd_status(ctx, cfg, args)
     except (ev.EvalError, OSError) as e:
         print(f"agy_bench: error: {e}", file=sys.stderr)

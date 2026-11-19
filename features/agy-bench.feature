@@ -189,3 +189,20 @@ Feature: The Antigravity eval bench runs the eval tasks through agy in a guarded
     Given another process holds results/.agy-bench.lock
     When agy_bench run --stage 1 runs
     Then it exits with status 2 without calling agy
+
+  # ---------------------------------------------------------------- judge and report
+
+  # Backed by: tests/test_agy_bench.py::test_judge_scores_the_judge_task_runs_into_the_agy_scores_only
+  Scenario: The judge grades the agy runs of judge-graded tasks with the pinned judge, once
+    Given a finished stage with three valid runs of a judge-graded task
+    When agy_bench judge runs
+    Then results/agy-scores.jsonl holds two judge passes per run from the pinned judge model
+    And results/scores.jsonl is not created
+    And a second judge invocation calls no judge
+
+  # Backed by: tests/test_agy_bench.py::test_report_counts_passes_and_tokens_per_task_and_cell
+  Scenario: The report gives passes, scores and median tokens per task and cell, and the meters per pool
+    Given a finished and judged stage
+    When agy_bench report --stage 1 --json runs
+    Then each task and cell has its valid, scored and passed counts, its mean score and its median tokens
+    And each pool has the weekly meter read before its first and its last run

@@ -380,5 +380,41 @@ class StopLines(AgyCase):
         self.assertEqual(self.agy_calls(), [])
 
 
+class JudgeAndReport(AgyCase):
+    JUDGMENT = '===ANSWER===\n{"score": 0.9, "points": 2}\n===END==='
+
+    def judge(self):
+        return self.bench("judge", FAKE_CLAUDE_ANSWER=self.JUDGMENT, FAKE_CLAUDE_LOG=str(self.log))
+
+    def test_judge_scores_the_judge_task_runs_into_the_agy_scores_only(self):
+        self.bench("run", "--stage", "1")
+        self.judge()
+        j_runs = {x["run_id"] for x in self.agy_runs() if x["task"] == "j-1"}
+        self.assertEqual(len(j_runs), 3)
+        judged = [s for s in self.agy_scores() if s["run_id"] in j_runs]
+        self.assertEqual(len(judged), 3 * 2)                      # harness judge repeats: 2
+        self.assertTrue(all(s["grader_id"].startswith("judge:judge:") for s in judged))
+        self.assertEqual({c["model"] for c in self.calls()}, {"claude-test-judge"})
+        self.assertFalse((self.root / "results" / "scores.jsonl").exists())
+        self.log.unlink()
+        self.judge()
+        self.assertEqual(self.calls(), [])                         # nothing left to judge
+
+    def test_report_counts_passes_and_tokens_per_task_and_cell(self):
+        self.bench("run", "--stage", "1")
+        self.judge()
+        rep = json.loads(self.bench("report", "--stage", "1", "--json").stdout)
+        rows = {(r["task"], r["cell"]): r for r in rep["rows"]}
+        self.assertEqual(len(rows), 6)
+        n = rows[("n-1", G)]
+        self.assertEqual((n["valid"], n["scored"], n["passed"]), (2, 2, 2))
+        self.assertEqual(n["median_input_tokens"], 1000)
+        self.assertEqual(n["median_output_tokens"], 50)
+        j = rows[("j-1", C)]
+        self.assertEqual((j["valid"], j["scored"], j["passed"]), (1, 1, 1))
+        self.assertAlmostEqual(j["mean_score"], 0.9)
+        self.assertEqual(rep["meters"]["claude"], {"first": 100, "last": 100, "runs": 3})
+
+
 if __name__ == "__main__":
     unittest.main()
